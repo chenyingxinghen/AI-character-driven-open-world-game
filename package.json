@@ -1,0 +1,48 @@
+{
+  "name": "ai-character-driven-open-world-game-refactor",
+  "version": "1.0.0",
+  "description": "重构版本的AI驱动开放世界叙事游戏",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node ./dist/index.js",
+    "server": "node ./dist/server/game-server.js",
+    "client": "npm run build && node ./dist/client/GameClient.js",
+    "example": "node ./dist/examples/GameFlowExample.js",
+    "dev": "ts-node src/index.ts",
+    "dev:server": "ts-node src/server/game-server.ts",
+    "init:db": "ts-node scripts/init-database.ts"
+  },
+  "keywords": [
+    "ai",
+    "game",
+    "narrative",
+    "open-world",
+    "character-agent"
+  ],
+  "author": "AI Game Development Team",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/jest": "^30.0.0",
+    "@types/node": "^20.11.24",
+    "@types/react": "^19.1.12",
+    "@types/react-dom": "^19.1.9",
+    "jest": "^30.1.3",
+    "ts-jest": "^29.4.1",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.3.3"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.9.1",
+    "@google/generative-ai": "^0.1.3",
+    "@types/pg": "^8.11.0",
+    "@types/uuid": "^9.0.8",
+    "@types/ws": "^8.5.10",
+    "openai": "^4.28.0",
+    "pg": "^8.11.3",
+    "redis": "^4.6.13",
+    "uuid": "^9.0.1",
+    "winston": "^3.11.0",
+    "ws": "^8.16.0"
+  }
+}
