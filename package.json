@@ -11,7 +11,15 @@
     "example": "node ./dist/examples/GameFlowExample.js",
     "dev": "ts-node src/index.ts",
     "dev:server": "ts-node src/server/game-server.ts",
-    "init:db": "ts-node scripts/init-database.ts"
+    "dev:example": "ts-node src/examples/GameFlowExample.ts",
+    "init:db": "ts-node scripts/init-database.ts",
+    "launcher": "ts-node game-launcher.ts",
+    "game": "npm run launcher",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:system": "ts-node test-system.ts",
+    "web": "echo \"Please open web-interface.html in your browser\" && npm run dev:server",
+    "quick-start": "npm run test:system && npm run dev:server"
   },
   "keywords": [
     "ai",
@@ -38,8 +46,11 @@
     "@types/pg": "^8.11.0",
     "@types/uuid": "^9.0.8",
     "@types/ws": "^8.5.10",
+    "dotenv": "^16.4.5",
     "openai": "^4.28.0",
     "pg": "^8.11.3",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
     "redis": "^4.6.13",
     "uuid": "^9.0.1",
     "winston": "^3.11.0",

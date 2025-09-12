@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang=\"zh-CN\">
+<head>
+    <meta charset=\"UTF-8\">
+    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">
+    <title>AI角色驱动开放世界游戏</title>
+    <style>
+        body {
+            font-family: 'Microsoft YaHei', Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 20px;
+            padding: 30px;
+            backdrop-filter: blur(10px);
+        }
+        
+        h1 {
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 2.5em;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+        
+        .game-area {
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 20px;
+            min-height: 400px;
+        }
+        
+        .input-area {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        
+        #playerInput {
+            flex: 1;
+            padding: 12px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            background: rgba(255, 255, 255, 0.9);
+            color: #333;
+        }
+        
+        button {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            background: #4CAF50;
+            color: white;
+            font-size: 16px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        
+        button:hover {
+            background: #45a049;
+        }
+        
+        button:disabled {
+            background: #666;
+            cursor: not-allowed;
+        }
+        
+        .status {
+            padding: 10px;
+            border-radius: 8px;
+            margin-bottom: 10px;
+            font-weight: bold;
+        }
+        
+        .status.connected {
+            background: rgba(76, 175, 80, 0.3);
+            border: 1px solid #4CAF50;
+        }
+        
+        .status.disconnected {
+            background: rgba(244, 67, 54, 0.3);
+            border: 1px solid #f44336;
+        }
+        
+        .response {
+            margin: 10px 0;
+            padding: 15px;
+            border-radius: 10px;
+            animation: slideIn 0.3s ease-out;
+        }
+        
+        .response.player {
+            background: rgba(33, 150, 243, 0.3);
+            border-left: 4px solid #2196F3;
+            margin-left: 20px;
+        }
+        
+        .response.character {
+            background: rgba(255, 193, 7, 0.3);
+            border-left: 4px solid #FFC107;
+        }
+        
+        .response.narrator {
+            background: rgba(156, 39, 176, 0.3);
+            border-left: 4px solid #9C27B0;
+        }
+        
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        .action-buttons {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 20px;
+        }
+        
+        .action-button {
+            padding: 8px 16px;
+            background: rgba(255, 255, 255, 0.2);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            color: white;
+            border-radius: 6px;
+            font-size: 14px;
+        }
+        
+        .action-button:hover {
+            background: rgba(255, 255, 255, 0.3);
+        }
+        
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255,255,255,.3);
+            border-radius: 50%;
+            border-top-color: #fff;
+            animation: spin 1s ease-in-out infinite;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        .help {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            padding: 15px;
+            margin-top: 20px;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class=\"container\">
+        <h1>🎮 AI角色驱动开放世界游戏</h1>
+        
+        <div id=\"connectionStatus\" class=\"status disconnected\">
+            ⚡ 连接状态: 未连接
+        </div>
+        
+        <div class=\"game-area\" id=\"gameArea\">
+            <div class=\"response narrator\">
+                <strong>系统</strong>: 欢迎来到AI驱动的开放世界！正在连接到游戏服务器...
+            </div>
+        </div>
+        
+        <div class=\"input-area\">
+            <input type=\"text\" id=\"playerInput\" placeholder=\"输入你的行动或对话...\" disabled>
+            <button id=\"sendButton\" onclick=\"sendInput()\" disabled>发送</button>
+            <button id=\"connectButton\" onclick=\"connect()\">连接</button>
+        </div>
+        
+        <div class=\"action-buttons\" id=\"actionButtons\"></div>
+        
+        <div class=\"help\">
+            <strong>使用说明:</strong><br>
+            1. 点击"连接"按钮连接到游戏服务器<br>
+            2. 在输入框中输入你的行动或对话<br>
+            3. 或者点击快捷操作按钮<br>
+            4. 与AI角色互动，探索开放世界！
+        </div>
+    </div>
+
+    <script>
+        class SimpleGameClient {
+            constructor() {
+                this.ws = null;
+                this.isConnected = false;
+                this.sessionId = null;
+                this.isProcessing = false;
+            }
+            
+            connect() {
+                const url = 'ws://localhost:8080';
+                console.log('Connecting to:', url);
+                
+                try {
+                    this.ws = new WebSocket(url);
+                    
+                    this.ws.onopen = () => {
+                        console.log('Connected to game server');
+                        this.isConnected = true;
+                        this.updateConnectionStatus(true);
+                        this.addMessage('系统', '✓ 成功连接到游戏服务器！正在创建游戏会话...', 'narrator');
+                        
+                        // 请求创建会话
+                        this.sendMessage('create_session', {
+                            playerId: 'web_player_' + Date.now()
+                        });
+                    };
+                    
+                    this.ws.onmessage = (event) => {
+                        try {
+                            const message = JSON.parse(event.data);
+                            this.handleMessage(message);
+                        } catch (error) {
+                            console.error('Error parsing message:', error);
+                        }
+                    };
+                    
+                    this.ws.onclose = () => {
+                        console.log('Disconnected from game server');
+                        this.isConnected = false;
+                        this.updateConnectionStatus(false);
+                        this.addMessage('系统', '❌ 与游戏服务器断开连接', 'narrator');
+                    };
+                    
+                    this.ws.onerror = (error) => {
+                        console.error('WebSocket error:', error);
+                        this.addMessage('系统', '❌ 连接错误，请检查服务器是否运行', 'narrator');
+                    };
+                    
+                } catch (error) {
+                    console.error('Connection failed:', error);
+                    this.addMessage('系统', '❌ 连接失败: ' + error.message, 'narrator');
+                }
+            }
+            
+            disconnect() {
+                if (this.ws) {
+                    this.ws.close();
+                }
+            }
+            
+            sendMessage(type, payload) {
+                if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+                    console.warn('WebSocket not connected');
+                    return;
+                }
+                
+                const message = {
+                    type,
+                    payload,
+                    timestamp: new Date()
+                };
+                
+                this.ws.send(JSON.stringify(message));
+            }
+            
+            handleMessage(message) {
+                console.log('Received message:', message.type, message.payload);
+                
+                switch (message.type) {
+                    case 'session_created':
+                        this.sessionId = message.payload.sessionId;
+                        this.addMessage('系统', `🎮 游戏会话已创建 (${this.sessionId.substring(0, 8)}...)`, 'narrator');
+                        this.addMessage('系统', '🏰 你现在站在镇中心广场。输入你的行动开始冒险吧！', 'narrator');
+                        break;
+                        
+                    case 'character_response':
+                        const response = message.payload;
+                        this.addMessage(response.characterName, response.content, 'character');
+                        this.isProcessing = false;
+                        this.updateUI();
+                        break;
+                        
+                    case 'action_options_update':
+                        this.updateActionButtons(message.payload.options);
+                        break;
+                        
+                    case 'game_state_update':
+                        const state = message.payload;
+                        this.addMessage('系统', `📍 当前位置: ${state.currentLocation} | 时间: ${state.currentTime}`, 'narrator');
+                        break;
+                        
+                    case 'error':
+                        this.addMessage('系统', '❌ ' + message.payload.message, 'narrator');
+                        this.isProcessing = false;
+                        this.updateUI();
+                        break;
+                }
+            }
+            
+            sendPlayerInput(input) {
+                if (!this.sessionId) {
+                    this.addMessage('系统', '❌ 请先连接到游戏服务器', 'narrator');
+                    return;
+                }
+                
+                this.addMessage('你', input, 'player');
+                this.isProcessing = true;
+                this.updateUI();
+                
+                this.sendMessage('player_input', {
+                    sessionId: this.sessionId,
+                    playerId: 'web_player',
+                    input: input
+                });
+            }
+            
+            sendAction(actionId) {
+                if (!this.sessionId) {
+                    this.addMessage('系统', '❌ 请先连接到游戏服务器', 'narrator');
+                    return;
+                }
+                
+                this.isProcessing = true;
+                this.updateUI();
+                
+                this.sendMessage('player_action', {
+                    sessionId: this.sessionId,
+                    playerId: 'web_player',
+                    action: { actionId }
+                });
+            }
+            
+            addMessage(sender, content, type) {
+                const gameArea = document.getElementById('gameArea');
+                const messageDiv = document.createElement('div');
+                messageDiv.className = `response ${type}`;
+                messageDiv.innerHTML = `<strong>${sender}</strong>: ${content}`;
+                gameArea.appendChild(messageDiv);
+                gameArea.scrollTop = gameArea.scrollHeight;
+            }
+            
+            updateConnectionStatus(connected) {
+                const statusElement = document.getElementById('connectionStatus');
+                if (connected) {
+                    statusElement.className = 'status connected';
+                    statusElement.innerHTML = '⚡ 连接状态: 已连接到游戏服务器';
+                } else {
+                    statusElement.className = 'status disconnected';
+                    statusElement.innerHTML = '⚡ 连接状态: 未连接';
+                }
+                this.updateUI();
+            }
+            
+            updateActionButtons(options) {
+                const container = document.getElementById('actionButtons');
+                container.innerHTML = '';
+                
+                options.forEach(option => {
+                    const button = document.createElement('button');
+                    button.className = 'action-button';
+                    button.textContent = option.label;
+                    button.onclick = () => this.sendAction(option.id);
+                    container.appendChild(button);
+                });
+            }
+            
+            updateUI() {
+                const input = document.getElementById('playerInput');
+                const sendButton = document.getElementById('sendButton');
+                const connectButton = document.getElementById('connectButton');
+                
+                const canInput = this.isConnected && this.sessionId && !this.isProcessing;
+                
+                input.disabled = !canInput;
+                sendButton.disabled = !canInput;
+                connectButton.disabled = this.isConnected;
+                
+                if (this.isProcessing) {
+                    sendButton.innerHTML = '<div class=\"loading\"></div>';
+                } else {
+                    sendButton.innerHTML = '发送';
+                }
+                
+                if (canInput) {
+                    input.placeholder = '输入你的行动或对话...';
+                } else if (this.isProcessing) {
+                    input.placeholder = '正在处理中...';
+                } else if (!this.isConnected) {
+                    input.placeholder = '请先连接到游戏服务器';
+                } else {
+                    input.placeholder = '正在初始化游戏会话...';
+                }
+            }
+        }
+        
+        // 全局游戏客户端实例
+        const gameClient = new SimpleGameClient();
+        
+        // 全局函数
+        function connect() {
+            gameClient.connect();
+        }
+        
+        function sendInput() {
+            const input = document.getElementById('playerInput');
+            const text = input.value.trim();
+            if (text) {
+                gameClient.sendPlayerInput(text);
+                input.value = '';
+            }
+        }
+        
+        // 回车键发送
+        document.getElementById('playerInput').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendInput();
+            }
+        });
+        
+        // 页面加载完成后的初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('Game interface loaded');
+            gameClient.updateUI();
+            
+            // 显示启动提示
+            gameClient.addMessage('系统', '🎯 游戏界面已加载完成！点击"连接"按钮开始游戏。', 'narrator');
+            gameClient.addMessage('系统', '📋 确保游戏服务器正在运行 (npm run dev:server)', 'narrator');
+        });
+    </script>
+</body>
+</html>

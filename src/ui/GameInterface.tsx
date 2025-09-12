@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { useState, useEffect, useRef } from 'react';
+import { GameClient, GameClientConfig } from '../client/GameClient';
 
 // 添加JSX命名空间声明
 declare global {
@@ -263,18 +264,12 @@ const StatusBar: React.FC<StatusBarProps> = ({ gameState }) => {
 // 主游戏界面组件
 const GameInterface: React.FC = () => {
   // 初始化游戏客户端
-  const [gameClient] = useState<any>(() => {
-    // In a real implementation, these would come from environment variables or config
-    return {
-      connect: async () => true,
-      disconnect: () => {},
-      sendPlayerInput: (input: string) => {},
-      onConnectionChange: (handler: any) => {},
-      onGameStateUpdate: (handler: any) => {},
-      onCharacterResponse: (handler: any) => {},
-      onSceneUpdate: (handler: any) => {},
-      onActionOptionsUpdate: (handler: any) => {}
+  const [gameClient] = useState<GameClient>(() => {
+    const config: GameClientConfig = {
+      websocketUrl: process.env.WEBSOCKET_URL || 'ws://localhost:8080',
+      playerId: `player_${Date.now()}`
     };
+    return new GameClient(config);
   });
 
   // 状态管理
