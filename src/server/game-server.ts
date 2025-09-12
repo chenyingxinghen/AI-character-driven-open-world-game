@@ -2,6 +2,9 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { v4 as uuidv4 } from 'uuid';
 import { Orchestrator, OrchestratorResult } from '../Orchestrator';
 import { Logger } from '../services/Logger';
+import { container } from '../services/DependencyInjectionContainer';
+import { DefaultServiceFactory, SERVICE_IDENTIFIERS } from '../services/factory';
+import { DatabaseService } from '../services/database/DatabaseService';
 import path from 'path';
 import * as dotenv from 'dotenv';
 
@@ -35,11 +38,21 @@ const sessions: Map<string, GameSession> = new Map();
 const clients: Map<WebSocket, ConnectedClient> = new Map();
 let orchestrator: Orchestrator;
 let logger: Logger;
+let databaseService: DatabaseService;
 
 // Initialize game orchestrator and logger
 async function initializeGameServer() {
   try {
+    // Initialize the service factory and register all services
+    const serviceFactory = new DefaultServiceFactory();
+    serviceFactory.registerAllServices();
+    
     logger = new Logger();
+    // Initialize database service
+    databaseService = container.resolve<DatabaseService>(SERVICE_IDENTIFIERS.DATABASE_SERVICE);
+    await databaseService.connect();
+    logger.info('Database service initialized successfully');
+    
     orchestrator = new Orchestrator();
     await orchestrator.initializeGame();
     logger.info('Game orchestrator initialized successfully');

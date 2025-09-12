@@ -1,18 +1,23 @@
 -- Create database
 CREATE DATABASE ai_narrative_game;
 
+
 -- Connect to database
 \c ai_narrative_game;
 
--- Create tables
+-- Create tables in the correct order to handle dependencies
+-- 1. First, create tables with no foreign key dependencies
 CREATE TABLE IF NOT EXISTS game_sessions (
     id VARCHAR(36) PRIMARY KEY,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     player_id VARCHAR(36),
-    game_state JSONB
+    game_state JSONB,
+    is_active BOOLEAN DEFAULT true
 );
 
+-- 2. Create tables that depend on game_sessions
 CREATE TABLE IF NOT EXISTS characters (
     id VARCHAR(36) PRIMARY KEY,
     session_id VARCHAR(36) REFERENCES game_sessions(id),
@@ -27,6 +32,7 @@ CREATE TABLE IF NOT EXISTS characters (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- 3. Create remaining tables that have foreign key dependencies
 CREATE TABLE IF NOT EXISTS character_memories (
     id VARCHAR(36) PRIMARY KEY,
     character_id VARCHAR(36) REFERENCES characters(id),
@@ -78,6 +84,7 @@ CREATE TABLE IF NOT EXISTS story_events (
 );
 
 -- Create indexes for better query performance
+-- Ensure all tables are created before creating indexes
 CREATE INDEX IF NOT EXISTS idx_characters_session_id ON characters(session_id);
 CREATE INDEX IF NOT EXISTS idx_character_memories_character_id ON character_memories(character_id);
 CREATE INDEX IF NOT EXISTS idx_character_memories_session_id ON character_memories(session_id);

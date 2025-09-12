@@ -137,45 +137,46 @@ function startService(config: ServiceConfig): Promise<ChildProcess> {
   return new Promise((resolve, reject) => {
     logger.info(`Starting ${config.name}...`);
     
-    const process = spawn(config.command, config.args, {
+    const childProcess = spawn(config.command, config.args, {
       cwd: config.cwd || __dirname,
       stdio: ['ignore', 'pipe', 'pipe'],
-      env: { ...process.env }
+      env: { ...process.env },
+      shell: process.platform === 'win32' // 在Windows上需要shell选项
     });
 
     let started = false;
     
-    if (process.stdout) {
-      process.stdout.on('data', (data) => {
+    if (childProcess.stdout) {
+      childProcess.stdout.on('data', (data: Buffer) => {
         const output = data.toString();
         logger.info(`[${config.name}] ${output.trim()}`);
         
         // 检查服务是否已启动
         if (!started && (output.includes('server') || output.includes('started') || output.includes('listening'))) {
           started = true;
-          processes.push(process);
-          resolve(process);
+          processes.push(childProcess);
+          resolve(childProcess);
         }
       });
     }
 
-    if (process.stderr) {
-      process.stderr.on('data', (data) => {
+    if (childProcess.stderr) {
+      childProcess.stderr.on('data', (data: Buffer) => {
         const error = data.toString();
         logger.warn(`[${config.name}] ${error.trim()}`);
       });
     }
 
-    process.on('error', (error) => {
+    childProcess.on('error', (error: Error) => {
       logger.error(`Error starting ${config.name}:`, error);
       if (config.required) {
         reject(error);
       } else {
-        resolve(process);
+        resolve(childProcess);
       }
     });
 
-    process.on('exit', (code, signal) => {
+    childProcess.on('exit', (code: number | null, signal: NodeJS.Signals | null) => {
       logger.info(`${config.name} exited with code ${code} and signal ${signal}`);
       if (config.required && code !== 0) {
         reject(new Error(`${config.name} exited with non-zero code`));
@@ -186,8 +187,8 @@ function startService(config: ServiceConfig): Promise<ChildProcess> {
     setTimeout(() => {
       if (!started) {
         started = true;
-        processes.push(process);
-        resolve(process);
+        processes.push(childProcess);
+        resolve(childProcess);
       }
     }, 5000);
   });
@@ -216,8 +217,8 @@ async function main(): Promise<void> {
     try {
       await startService({
         name: 'TypeScript Build',
-        command: 'npm',
-        args: ['run', 'build'],
+        command: 'npx',
+        args: ['tsc', '-p', 'tsconfig.json'],
         required: true
       });
       logger.info('TypeScript build completed');
@@ -229,8 +230,8 @@ async function main(): Promise<void> {
     logger.info('Starting game server...');
     const gameServer = await startService({
       name: 'Game Server',
-      command: 'npm',
-      args: ['run', 'dev:server'],
+      command: 'npx',
+      args: ['ts-node', 'src/server/game-server.ts'],
       required: true
     });
     

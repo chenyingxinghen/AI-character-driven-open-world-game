@@ -1,8 +1,8 @@
 <!DOCTYPE html>
-<html lang=\"zh-CN\">
+<html lang="zh-CN">
 <head>
-    <meta charset=\"UTF-8\">
-    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI角色驱动开放世界游戏</title>
     <style>
         body {
@@ -169,28 +169,28 @@
     </style>
 </head>
 <body>
-    <div class=\"container\">
+    <div class="container">
         <h1>🎮 AI角色驱动开放世界游戏</h1>
         
-        <div id=\"connectionStatus\" class=\"status disconnected\">
+        <div id="connectionStatus" class="status disconnected">
             ⚡ 连接状态: 未连接
         </div>
         
-        <div class=\"game-area\" id=\"gameArea\">
-            <div class=\"response narrator\">
+        <div class="game-area" id="gameArea">
+            <div class="response narrator">
                 <strong>系统</strong>: 欢迎来到AI驱动的开放世界！正在连接到游戏服务器...
             </div>
         </div>
         
-        <div class=\"input-area\">
-            <input type=\"text\" id=\"playerInput\" placeholder=\"输入你的行动或对话...\" disabled>
-            <button id=\"sendButton\" onclick=\"sendInput()\" disabled>发送</button>
-            <button id=\"connectButton\" onclick=\"connect()\">连接</button>
+        <div class="input-area">
+            <input type="text" id="playerInput" placeholder="输入你的行动或对话..." disabled>
+            <button id="sendButton" onclick="sendInput()" disabled>发送</button>
+            <button id="connectButton" onclick="connect()">连接</button>
         </div>
         
-        <div class=\"action-buttons\" id=\"actionButtons\"></div>
+        <div class="action-buttons" id="actionButtons"></div>
         
-        <div class=\"help\">
+        <div class="help">
             <strong>使用说明:</strong><br>
             1. 点击"连接"按钮连接到游戏服务器<br>
             2. 在输入框中输入你的行动或对话<br>
@@ -388,7 +388,7 @@
                 connectButton.disabled = this.isConnected;
                 
                 if (this.isProcessing) {
-                    sendButton.innerHTML = '<div class=\"loading\"></div>';
+                    sendButton.innerHTML = '<div class="loading"></div>';
                 } else {
                     sendButton.innerHTML = '发送';
                 }
