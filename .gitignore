@@ -76,3 +76,4 @@ dist/services/llm/providers/OpenRouterProvider.js
 dist/services/llm/types/index.js
 dist/services/llm/types/LLMTypes.js
 dist/ui/GameInterface.js
+.qoder/quests/game-facility-integration.md
