@@ -170,7 +170,7 @@ export class RealDatabaseService {
     }
   }
 
-  async query<T extends QueryResultRow>(sql: string, params?: any[], options?: QueryOptions): Promise<T[]> {
+  async query<T extends QueryResult['rows'][0]>(sql: string, params?: any[], options?: QueryOptions): Promise<T[]> {
     if (!this.isInitialized || !this.postgresPool) {
       throw new Error('Database not initialized');
     }
