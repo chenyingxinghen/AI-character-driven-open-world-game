@@ -1,4 +1,7 @@
 import { LLMService } from '../llm/LLMService';
+import { FormattedTextGenerator } from '../llm/FormattedTextResponse';
+import { FormattedTextExtractorService } from '../llm/FormattedTextExtractorService';
+import { Logger } from '../Logger';
 
 export interface InputClassification {
   type: 'speech' | 'action' | 'question' | 'system_query' | 'compound_action';
@@ -49,7 +52,13 @@ export interface ClassificationResult {
 }
 
 export class InputClassificationService {
-  constructor(private llm: LLMService) {}
+  private extractor: FormattedTextExtractorService;
+  private logger: Logger;
+
+  constructor(private llm: LLMService, logger?: Logger) {
+    this.logger = logger || console as any;
+    this.extractor = new FormattedTextExtractorService(this.logger);
+  }
 
   async classify(input: string): Promise<ClassificationResult> {
     const res = await this.llm.generateText(`Classify this input: ${input}`);
@@ -80,12 +89,47 @@ export class InputClassificationService {
     
     // If basic classification confidence is low, use LLM for deeper analysis
     if (basicClassification.confidence < 70) {
-      const llmResult = await this.llm.generateText(`Classify this input: ${input}`);
-      return {
-        ...basicClassification,
-        intent: basicClassification.intent,
-        confidence: Math.max(basicClassification.confidence, 50)
-      };
+      try {
+        // 生成格式化文本提示词
+        const prompt = FormattedTextGenerator.generateInputClassificationPrompt(input, {
+          sessionId: context.sessionId,
+          currentLocation: context.currentLocation,
+          nearbyCharacters: context.nearbyCharacters,
+          recentConversation: context.recentConversation
+        });
+
+        // 调用LLM生成响应
+        const response = await this.llm.generateText(prompt, {
+          maxTokens: 400,
+          temperature: 0.3
+        });
+        
+        // 使用格式化文本提取器解析响应
+        const result = this.extractor.extractInputClassification(response);
+        
+        // 转换为InputClassification格式
+        return {
+          type: result.type,
+          intent: result.intent,
+          confidence: Math.max(result.confidence, 50),
+          targetCharacter: result.targetCharacter,
+          isDirectSpeech: result.isDirectSpeech,
+          isActionDescription: result.isActionDescription,
+          isSystemQuery: result.isSystemQuery,
+          isCompoundAction: result.isCompoundAction,
+          extractedAction: result.extractedAction,
+          extractedSpeech: result.extractedSpeech,
+          contextualHints: result.contextualHints,
+          urgency: result.urgency,
+          emotionalTone: result.emotionalTone
+        };
+      } catch (error) {
+        this.logger.error('LLM classification failed:', error as Error);
+        return {
+          ...basicClassification,
+          confidence: Math.max(basicClassification.confidence, 50)
+        };
+      }
     }
     
     return basicClassification;

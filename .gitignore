@@ -78,3 +78,6 @@ dist/services/llm/types/LLMTypes.js
 dist/ui/GameInterface.js
 .qoder/quests/game-facility-integration.md
 dist/ui/app.js
+dist/__tests__/FormattedTextExtractor.test.js
+dist/services/llm/FormattedTextExtractorService.js
+dist/services/llm/FormattedTextResponse.js

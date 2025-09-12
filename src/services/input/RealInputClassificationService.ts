@@ -1,4 +1,7 @@
 import { LLMService } from '../llm/LLMService';
+import { FormattedTextGenerator } from '../llm/FormattedTextResponse';
+import { FormattedTextExtractorService, InputClassificationResult } from '../llm/FormattedTextExtractorService';
+import { Logger } from '../Logger';
 
 export interface InputClassification {
   type: 'speech' | 'action' | 'question' | 'system_query' | 'compound_action';
@@ -49,7 +52,13 @@ export interface ClassificationResult {
 }
 
 export class RealInputClassificationService {
-  constructor(private llm: LLMService) {}
+  private extractor: FormattedTextExtractorService;
+  private logger: Logger;
+
+  constructor(private llm: LLMService, logger?: Logger) {
+    this.logger = logger || console as any;
+    this.extractor = new FormattedTextExtractorService(this.logger);
+  }
 
   /**
    * 分类玩家输入
@@ -64,68 +73,42 @@ export class RealInputClassificationService {
       pendingActions: ActionState[];
     }
   ): Promise<InputClassification> {
-    // 构建提示词
-    const prompt = `
-      你是一个游戏输入分类系统。请分析以下玩家输入并提供详细的分类结果。
-      
-      玩家输入: "${input}"
-      
-      上下文信息:
-      - 会话ID: ${context.sessionId}
-      - 当前位置: ${context.currentLocation}
-      - 附近角色: ${context.nearbyCharacters.join(', ')}
-      - 最近对话: ${context.recentConversation.slice(-3).join(' | ')}
-      
-      请以JSON格式返回分类结果:
-      {
-        "type": "speech|action|question|system_query|compound_action",
-        "intent": "dialogue|movement|observation|inquiry|greeting|confirmation|system_help|story_background|story_recap|compound",
-        "confidence": 0-100的数字,
-        "targetCharacter": "如果有特定目标角色则填写",
-        "isDirectSpeech": boolean,
-        "isActionDescription": boolean,
-        "isSystemQuery": boolean,
-        "isCompoundAction": boolean,
-        "extractedAction": "如果识别出具体动作则填写",
-        "extractedSpeech": "如果识别出具体对话则填写",
-        "contextualHints": ["上下文提示1", "上下文提示2"],
-        "urgency": "low|medium|high",
-        "emotionalTone": "neutral|positive|negative|excited|concerned"
-      }
-    `;
-
     try {
+      // 生成格式化文本提示词
+      const prompt = FormattedTextGenerator.generateInputClassificationPrompt(input, {
+        sessionId: context.sessionId,
+        currentLocation: context.currentLocation,
+        nearbyCharacters: context.nearbyCharacters,
+        recentConversation: context.recentConversation
+      });
+
+      // 调用LLM生成响应
       const response = await this.llm.generateText(prompt, {
-        maxTokens: 300,
+        maxTokens: 400,
         temperature: 0.3
       });
       
-      // 解析LLM响应
-      const parsedResponse = JSON.parse(response);
+      // 使用格式化文本提取器解析响应
+      const result = this.extractor.extractInputClassification(response);
       
-      // 验证必要字段
-      if (!parsedResponse.type || !parsedResponse.intent || parsedResponse.confidence === undefined) {
-        throw new Error('Invalid classification response format');
-      }
-      
-      // 返回分类结果
+      // 转换为InputClassification格式
       return {
-        type: parsedResponse.type,
-        intent: parsedResponse.intent,
-        confidence: Math.min(100, Math.max(0, parsedResponse.confidence)),
-        targetCharacter: parsedResponse.targetCharacter,
-        isDirectSpeech: parsedResponse.isDirectSpeech || false,
-        isActionDescription: parsedResponse.isActionDescription || false,
-        isSystemQuery: parsedResponse.isSystemQuery || false,
-        isCompoundAction: parsedResponse.isCompoundAction || false,
-        extractedAction: parsedResponse.extractedAction,
-        extractedSpeech: parsedResponse.extractedSpeech,
-        contextualHints: parsedResponse.contextualHints || [],
-        urgency: parsedResponse.urgency || 'medium',
-        emotionalTone: parsedResponse.emotionalTone || 'neutral'
+        type: result.type,
+        intent: result.intent,
+        confidence: result.confidence,
+        targetCharacter: result.targetCharacter,
+        isDirectSpeech: result.isDirectSpeech,
+        isActionDescription: result.isActionDescription,
+        isSystemQuery: result.isSystemQuery,
+        isCompoundAction: result.isCompoundAction,
+        extractedAction: result.extractedAction,
+        extractedSpeech: result.extractedSpeech,
+        contextualHints: result.contextualHints,
+        urgency: result.urgency,
+        emotionalTone: result.emotionalTone
       };
     } catch (error) {
-      console.error('Input classification failed:', error);
+      this.logger.error('Input classification failed:', error as Error);
       
       // 如果LLM分类失败，使用基础分类
       return this.performBasicClassification(input);
@@ -229,47 +212,36 @@ export class RealInputClassificationService {
     subActions: SubAction[];
     actionSequence: 'sequential' | 'simultaneous';
   }> {
-    // 构建提示词
-    const prompt = `
-      你是一个游戏动作分析系统。请分析以下玩家输入是否包含复合动作（多个动作的组合）。
-      
-      玩家输入: "${input}"
-      
-      请以JSON格式返回分析结果:
-      {
-        "isCompound": boolean,
-        "subActions": [
-          {
-            "type": "movement|observation|dialogue|interaction",
-            "intent": "movement|observation|inquiry|dialogue|greeting|confirmation",
-            "description": "动作描述",
-            "target": "目标对象（如果有）",
-            "location": "位置（如果有）",
-            "priority": 1-10的数字,
-            "executionOrder": 执行顺序数字,
-            "contextualHints": ["上下文提示1", "上下文提示2"]
-          }
-        ],
-        "actionSequence": "sequential|simultaneous"
-      }
-    `;
-
     try {
+      // 生成格式化文本提示词
+      const prompt = FormattedTextGenerator.generateCompoundActionPrompt(input);
+
+      // 调用LLM生成响应
       const response = await this.llm.generateText(prompt, {
         maxTokens: 400,
         temperature: 0.4
       });
       
-      // 解析LLM响应
-      const parsedResponse = JSON.parse(response);
+      // 使用格式化文本提取器解析响应
+      const result = this.extractor.extractCompoundAction(response);
+      
+      // 转换子动作格式
+      const subActions: SubAction[] = result.subActions.map((action, index) => ({
+        type: 'interaction' as any,
+        intent: 'dialogue' as any,
+        description: action,
+        priority: 5,
+        executionOrder: index + 1,
+        contextualHints: []
+      }));
       
       return {
-        isCompound: parsedResponse.isCompound || false,
-        subActions: parsedResponse.subActions || [],
-        actionSequence: parsedResponse.actionSequence || 'sequential'
+        isCompound: result.isCompound,
+        subActions: subActions,
+        actionSequence: result.actionSequence
       };
     } catch (error) {
-      console.error('Compound action analysis failed:', error);
+      this.logger.error('Compound action analysis failed:', error as Error);
       
       // 如果分析失败，返回默认值
       return {

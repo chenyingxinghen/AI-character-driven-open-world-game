@@ -5,6 +5,8 @@
 
 import { Logger } from '../../services/Logger';
 import { LLMService } from '../../services/llm/LLMService';
+import { FormattedTextGenerator } from '../../services/llm/FormattedTextResponse';
+import { FormattedTextExtractorService } from '../../services/llm/FormattedTextExtractorService';
 import { 
   InputClassification, 
   ExtractedEntity, 
@@ -200,10 +202,14 @@ export class EntityExtractionService {
  * 意图分类服务
  */
 export class IntentClassificationService {
+  private extractor: FormattedTextExtractorService;
+  
   constructor(
     private llmService: LLMService,
     private logger: Logger
-  ) {}
+  ) {
+    this.extractor = new FormattedTextExtractorService(logger);
+  }
 
   async classifyIntent(
     input: string,
@@ -273,20 +279,33 @@ export class IntentClassificationService {
   }
 
   private async llmBasedClassification(input: string, context?: ContextHistory): Promise<any> {
-    const prompt = `分析用户输入的意图："${input}"，返回JSON格式结果`;
-    
-    const response = await this.llmService.generateText(prompt, {
-      temperature: 0.3,
-      maxTokens: 200
-    });
+    try {
+      // 生成格式化文本提示词
+      const prompt = FormattedTextGenerator.generateIntentClassificationPrompt(input, context);
+      
+      const response = await this.llmService.generateText(prompt, {
+        temperature: 0.3,
+        maxTokens: 200
+      });
 
-    const result = JSON.parse(response || '{}');
-    return {
-      intent: this.mapToIntentType(result.intent),
-      confidence: result.confidence / 100,
-      emotionalTone: this.mapToEmotionalTone(result.emotionalTone),
-      urgency: this.mapToUrgencyLevel(result.urgency)
-    };
+      // 使用格式化文本提取器解析响应
+      const result = this.extractor.extractIntentClassification(response);
+      
+      return {
+        intent: this.mapToIntentType(result.intent),
+        confidence: result.confidence,
+        emotionalTone: this.mapToEmotionalTone(result.emotionalTone),
+        urgency: this.mapToUrgencyLevel(result.urgency)
+      };
+    } catch (error) {
+      this.logger.error('LLM based classification failed:', error as Error);
+      return {
+        intent: IntentType.UNKNOWN,
+        confidence: 0.5,
+        emotionalTone: EmotionalTone.NEUTRAL,
+        urgency: UrgencyLevel.MEDIUM
+      };
+    }
   }
 
   private analyzeEmotionalTone(input: string): EmotionalTone {

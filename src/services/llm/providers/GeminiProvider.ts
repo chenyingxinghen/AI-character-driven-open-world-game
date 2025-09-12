@@ -1,4 +1,7 @@
 import { LLMProviderAdapter, LLMCharacterResponse, DirectorDecision, RateLimitStatus, LLMProvider } from '../types/LLMTypes';
+import { FormattedTextGenerator } from '../FormattedTextResponse';
+import { FormattedTextExtractorService } from '../FormattedTextExtractorService';
+import { Logger } from '../../Logger';
 
 // Note: You'll need to install the Google Generative AI SDK
 // npm install @google/generative-ai
@@ -10,12 +13,16 @@ export class GeminiProvider implements LLMProviderAdapter {
   private modelName: string;
   private rateLimit: RateLimitStatus;
   private apiKey: string;
+  private extractor: FormattedTextExtractorService;
+  private logger: Logger;
 
-  constructor(apiKey: string, model: string = 'gemini-pro') {
+  constructor(apiKey: string, model: string = 'gemini-pro', logger?: Logger) {
     this.apiKey = apiKey;
     this.client = new GoogleGenerativeAI(apiKey);
     this.modelName = model;
     this.model = this.client.getGenerativeModel({ model: model });
+    this.logger = logger || console as any;
+    this.extractor = new FormattedTextExtractorService(this.logger);
     this.rateLimit = {
       requestsRemaining: 1000,
       resetTime: new Date(Date.now() + 60000),
@@ -63,20 +70,8 @@ export class GeminiProvider implements LLMProviderAdapter {
   }
 
   async generateCharacterResponse(character: any, context: any, prompt: string): Promise<LLMCharacterResponse> {
-    // 构建角色特定的提示词
-    const characterPrompt = `
-      You are ${character.name}, a character with the following personality: ${JSON.stringify(character.personality)}.
-      Current emotional state: ${JSON.stringify(character.emotionalState)}.
-      Context: ${JSON.stringify(context)}
-      Player says: ${prompt}
-      
-      Respond as the character in a JSON format:
-      {
-        "dialogue": "your response here",
-        "emotionalState": { "mood": "current mood", "intensity": 0-100 },
-        "confidence": 0-1
-      }
-    `;
+    // 构建角色特定的格式化文本提示词
+    const characterPrompt = FormattedTextGenerator.generateCharacterDialoguePrompt(character, context, prompt);
 
     // Implement retry mechanism
     const maxRetries = 3;
@@ -94,60 +89,41 @@ export class GeminiProvider implements LLMProviderAdapter {
         // Update rate limit status
         this.updateRateLimit(1);
         
-        const content = result.response.text() || '{}';
-        let parsedResponse;
+        const content = result.response.text() || '';
         
-        try {
-          parsedResponse = JSON.parse(content);
-        } catch (parseError) {
-          // If JSON parsing fails, try to extract JSON from the response
-          const jsonMatch = content.match(/\{.*\}/s);
-          if (jsonMatch) {
-            parsedResponse = JSON.parse(jsonMatch[0]);
-          } else {
-            throw new Error('Failed to parse JSON response from Gemini');
-          }
-        }
+        // 使用格式化文本提取器解析响应
+        const extractedResult = this.extractor.extractCharacterDialogue(content);
         
         return {
-          dialogue: parsedResponse.dialogue || '',
-          emotionalState: parsedResponse.emotionalState || { mood: 'neutral', intensity: 50 },
-          confidence: parsedResponse.confidence || 0.8
+          dialogue: extractedResult.dialogue,
+          action: extractedResult.action,
+          emotionalState: extractedResult.emotionalState,
+          confidence: extractedResult.confidence
         };
       } catch (error: any) {
         lastError = error;
         
         // If this is the last attempt, throw the error
         if (attempt === maxRetries) {
-          console.error('Gemini API error after max retries:', error);
-          throw error;
+          this.logger.error('Gemini API error after max retries:', error);
+          // 返回默认响应
+          return this.extractor.extractCharacterDialogue('');
         }
         
         // Wait before retrying with exponential backoff
         const delay = Math.pow(2, attempt) * 1000;
-        console.warn(`Gemini API error (attempt ${attempt + 1}/${maxRetries + 1}), retrying in ${delay}ms:`, error.message);
+        this.logger.warn(`Gemini API error (attempt ${attempt + 1}/${maxRetries + 1}), retrying in ${delay}ms:`, error.message);
         await new Promise(resolve => setTimeout(resolve, delay));
       }
     }
     
-    throw lastError;
+    // This should never be reached, but just in case
+    return this.extractor.extractCharacterDialogue('');
   }
 
   async generateDirectorDecision(context: any, evaluation: any): Promise<DirectorDecision> {
-    // 构建导演决策提示词
-    const directorPrompt = `
-      You are the game director making narrative decisions.
-      Context: ${JSON.stringify(context)}
-      Evaluation: ${JSON.stringify(evaluation)}
-      
-      Respond with a JSON object:
-      {
-        "action": "CONTINUE|ADVANCE_PLOT|INTRODUCE_CONFLICT|etc",
-        "reasoning": "explanation of the decision",
-        "confidence": 0-1,
-        "parameters": { "key": "value" }
-      }
-    `;
+    // 构建导演决策格式化文本提示词
+    const directorPrompt = FormattedTextGenerator.generateDirectorDecisionPrompt(context, evaluation);
 
     // Implement retry mechanism
     const maxRetries = 3;
@@ -165,44 +141,36 @@ export class GeminiProvider implements LLMProviderAdapter {
         // Update rate limit status
         this.updateRateLimit(1);
         
-        const content = result.response.text() || '{}';
-        let parsedResponse;
+        const content = result.response.text() || '';
         
-        try {
-          parsedResponse = JSON.parse(content);
-        } catch (parseError) {
-          // If JSON parsing fails, try to extract JSON from the response
-          const jsonMatch = content.match(/\{.*\}/s);
-          if (jsonMatch) {
-            parsedResponse = JSON.parse(jsonMatch[0]);
-          } else {
-            throw new Error('Failed to parse JSON response from Gemini');
-          }
-        }
+        // 使用格式化文本提取器解析响应
+        const extractedResult = this.extractor.extractDirectorDecision(content);
         
         return {
-          action: parsedResponse.action || 'CONTINUE',
-          reasoning: parsedResponse.reasoning || '',
-          confidence: parsedResponse.confidence || 0.8,
-          parameters: parsedResponse.parameters || {}
+          action: extractedResult.action,
+          reasoning: extractedResult.reasoning,
+          confidence: extractedResult.confidence,
+          parameters: extractedResult.parameters
         };
       } catch (error: any) {
         lastError = error;
         
         // If this is the last attempt, throw the error
         if (attempt === maxRetries) {
-          console.error('Gemini API error after max retries:', error);
-          throw error;
+          this.logger.error('Gemini API error after max retries:', error);
+          // 返回默认响应
+          return this.extractor.extractDirectorDecision('');
         }
         
         // Wait before retrying with exponential backoff
         const delay = Math.pow(2, attempt) * 1000;
-        console.warn(`Gemini API error (attempt ${attempt + 1}/${maxRetries + 1}), retrying in ${delay}ms:`, error.message);
+        this.logger.warn(`Gemini API error (attempt ${attempt + 1}/${maxRetries + 1}), retrying in ${delay}ms:`, error.message);
         await new Promise(resolve => setTimeout(resolve, delay));
       }
     }
     
-    throw lastError;
+    // This should never be reached, but just in case
+    return this.extractor.extractDirectorDecision('');
   }
 
   getRateLimitStatus(): RateLimitStatus {

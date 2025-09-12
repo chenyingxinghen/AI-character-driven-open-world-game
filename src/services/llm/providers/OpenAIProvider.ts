@@ -1,4 +1,7 @@
 import { LLMProviderAdapter, LLMCharacterResponse, DirectorDecision, RateLimitStatus, LLMProvider } from '../types/LLMTypes';
+import { FormattedTextGenerator } from '../FormattedTextResponse';
+import { FormattedTextExtractorService } from '../FormattedTextExtractorService';
+import { Logger } from '../../Logger';
 import OpenAI from 'openai';
 
 export class OpenAIProvider implements LLMProviderAdapter {
@@ -6,11 +9,15 @@ export class OpenAIProvider implements LLMProviderAdapter {
   private model: string;
   private rateLimit: RateLimitStatus;
   private apiKey: string;
+  private extractor: FormattedTextExtractorService;
+  private logger: Logger;
 
-  constructor(apiKey: string, model: string = 'gpt-3.5-turbo') {
+  constructor(apiKey: string, model: string = 'gpt-3.5-turbo', logger?: Logger) {
     this.apiKey = apiKey;
     this.client = new OpenAI({ apiKey });
     this.model = model;
+    this.logger = logger || console as any;
+    this.extractor = new FormattedTextExtractorService(this.logger);
     this.rateLimit = {
       requestsRemaining: 1000,
       resetTime: new Date(Date.now() + 60000),
@@ -57,20 +64,8 @@ export class OpenAIProvider implements LLMProviderAdapter {
   }
 
   async generateCharacterResponse(character: any, context: any, prompt: string): Promise<LLMCharacterResponse> {
-    // 构建角色特定的提示词
-    const characterPrompt = `
-      You are ${character.name}, a character with the following personality: ${JSON.stringify(character.personality)}.
-      Current emotional state: ${JSON.stringify(character.emotionalState)}.
-      Context: ${JSON.stringify(context)}
-      Player says: ${prompt}
-      
-      Respond as the character in a JSON format:
-      {
-        "dialogue": "your response here",
-        "emotionalState": { "mood": "current mood", "intensity": 0-100 },
-        "confidence": 0-1
-      }
-    `;
+    // 构建角色特定的格式化文本提示词
+    const characterPrompt = FormattedTextGenerator.generateCharacterDialoguePrompt(character, context, prompt);
 
     // Implement retry mechanism
     const maxRetries = 3;
@@ -82,54 +77,47 @@ export class OpenAIProvider implements LLMProviderAdapter {
           model: this.model,
           messages: [{ role: 'user', content: characterPrompt }],
           temperature: 0.7,
-          response_format: { type: "json_object" }
+          max_tokens: 300
         });
 
         // Update rate limit status
         this.updateRateLimit(1);
         
-        const content = response.choices[0]?.message?.content || '{}';
-        const parsedResponse = JSON.parse(content);
+        const content = response.choices[0]?.message?.content || '';
+        
+        // 使用格式化文本提取器解析响应
+        const result = this.extractor.extractCharacterDialogue(content);
         
         return {
-          dialogue: parsedResponse.dialogue || '',
-          emotionalState: parsedResponse.emotionalState || { mood: 'neutral', intensity: 50 },
-          confidence: parsedResponse.confidence || 0.8
+          dialogue: result.dialogue,
+          action: result.action,
+          emotionalState: result.emotionalState,
+          confidence: result.confidence
         };
       } catch (error: any) {
         lastError = error;
         
         // If this is the last attempt, throw the error
         if (attempt === maxRetries) {
-          console.error('OpenAI API error after max retries:', error);
-          throw error;
+          this.logger.error('OpenAI API error after max retries:', error);
+          // 返回默认响应
+          return this.extractor.extractCharacterDialogue('');
         }
         
         // Wait before retrying with exponential backoff
         const delay = Math.pow(2, attempt) * 1000;
-        console.warn(`OpenAI API error (attempt ${attempt + 1}/${maxRetries + 1}), retrying in ${delay}ms:`, error.message);
+        this.logger.warn(`OpenAI API error (attempt ${attempt + 1}/${maxRetries + 1}), retrying in ${delay}ms:`, error.message);
         await new Promise(resolve => setTimeout(resolve, delay));
       }
     }
     
-    throw lastError;
+    // This should never be reached, but just in case
+    return this.extractor.extractCharacterDialogue('');
   }
 
   async generateDirectorDecision(context: any, evaluation: any): Promise<DirectorDecision> {
-    // 构建导演决策提示词
-    const directorPrompt = `
-      You are the game director making narrative decisions.
-      Context: ${JSON.stringify(context)}
-      Evaluation: ${JSON.stringify(evaluation)}
-      
-      Respond with a JSON object:
-      {
-        "action": "CONTINUE|ADVANCE_PLOT|INTRODUCE_CONFLICT|etc",
-        "reasoning": "explanation of the decision",
-        "confidence": 0-1,
-        "parameters": { "key": "value" }
-      }
-    `;
+    // 构建导演决策格式化文本提示词
+    const directorPrompt = FormattedTextGenerator.generateDirectorDecisionPrompt(context, evaluation);
 
     // Implement retry mechanism
     const maxRetries = 3;
@@ -141,38 +129,42 @@ export class OpenAIProvider implements LLMProviderAdapter {
           model: this.model,
           messages: [{ role: 'user', content: directorPrompt }],
           temperature: 0.5,
-          response_format: { type: "json_object" }
+          max_tokens: 300
         });
 
         // Update rate limit status
         this.updateRateLimit(1);
         
-        const content = response.choices[0]?.message?.content || '{}';
-        const parsedResponse = JSON.parse(content);
+        const content = response.choices[0]?.message?.content || '';
+        
+        // 使用格式化文本提取器解析响应
+        const result = this.extractor.extractDirectorDecision(content);
         
         return {
-          action: parsedResponse.action || 'CONTINUE',
-          reasoning: parsedResponse.reasoning || '',
-          confidence: parsedResponse.confidence || 0.8,
-          parameters: parsedResponse.parameters || {}
+          action: result.action,
+          reasoning: result.reasoning,
+          confidence: result.confidence,
+          parameters: result.parameters
         };
       } catch (error: any) {
         lastError = error;
         
         // If this is the last attempt, throw the error
         if (attempt === maxRetries) {
-          console.error('OpenAI API error after max retries:', error);
-          throw error;
+          this.logger.error('OpenAI API error after max retries:', error);
+          // 返回默认响应
+          return this.extractor.extractDirectorDecision('');
         }
         
         // Wait before retrying with exponential backoff
         const delay = Math.pow(2, attempt) * 1000;
-        console.warn(`OpenAI API error (attempt ${attempt + 1}/${maxRetries + 1}), retrying in ${delay}ms:`, error.message);
+        this.logger.warn(`OpenAI API error (attempt ${attempt + 1}/${maxRetries + 1}), retrying in ${delay}ms:`, error.message);
         await new Promise(resolve => setTimeout(resolve, delay));
       }
     }
     
-    throw lastError;
+    // This should never be reached, but just in case
+    return this.extractor.extractDirectorDecision('');
   }
 
   getRateLimitStatus(): RateLimitStatus {
