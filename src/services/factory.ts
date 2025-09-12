@@ -132,7 +132,7 @@ export class DefaultServiceFactory implements ServiceFactory {
               }
             } : {})
           },
-          defaultProvider: (process.env.DEFAULT_LLM_PROVIDER as LLMProvider) || 
+          defaultProvider: this.parseLLMProvider(process.env.DEFAULT_LLM_PROVIDER) || 
                         (openaiApiKey ? LLMProvider.OPENAI : 
                         anthropicApiKey ? LLMProvider.ANTHROPIC : 
                         geminiApiKey ? LLMProvider.GEMINI : 
@@ -154,6 +154,28 @@ export class DefaultServiceFactory implements ServiceFactory {
     }
     
     return this.llmService;
+  }
+
+  /**
+   * 解析LLM提供者枚举值
+   */
+  private parseLLMProvider(providerStr?: string): LLMProvider | null {
+    if (!providerStr) return null;
+    
+    // 转换为小写进行比较
+    const lowerProvider = providerStr.toLowerCase();
+    
+    switch (lowerProvider) {
+      case 'openai': return LLMProvider.OPENAI;
+      case 'anthropic': return LLMProvider.ANTHROPIC;
+      case 'gemini': return LLMProvider.GEMINI;
+      case 'openrouter': return LLMProvider.OPENROUTER;
+      case 'local': return LLMProvider.LOCAL;
+      case 'mistral': return LLMProvider.MISTRAL;
+      case 'llama': return LLMProvider.LLAMA;
+      case 'zhipu': return LLMProvider.ZHIPU;
+      default: return null;
+    }
   }
 
   createCharacterService(): CharacterService {

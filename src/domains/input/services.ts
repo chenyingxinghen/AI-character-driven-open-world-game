@@ -227,7 +227,7 @@ export class IntentClassificationService {
         return llmResult;
       }
     } catch (error) {
-      this.logger.warn('LLM classification failed');
+      this.logger.error('LLM classification failed',error as Error);
     }
 
     return ruleBasedResult;
