@@ -136,10 +136,21 @@ export class DomainCoordinator {
     const startTime = Date.now();
     const domainsInvolved: string[] = ['input'];
 
-    this.logger.info(`Processing player input: "${playerInput}" for session ${sessionId}`);
+    this.logger.info(`Processing player input: "${playerInput}"`, {
+      sessionId,
+      playerId,
+      component: 'DomainCoordinator',
+      operation: 'process_input',
+      currentLocation: gameContext.currentLocation
+    });
 
     try {
       // 1. 输入域分析
+      this.logger.debug('Starting input analysis', null, {
+        sessionId,
+        component: 'DomainCoordinator'
+      });
+      
       const inputAnalysis = await this.inputManager.analyzeInput(
         sessionId,
         playerId,
@@ -152,16 +163,29 @@ export class DomainCoordinator {
         }
       );
 
+      // 记录输入处理结果
+      this.logger.logInputProcessing(sessionId, playerId, playerInput, inputAnalysis.classification);
+
       // 2. 根据分析结果决定域协调策略
       let result: DomainCoordinationResult;
 
       if (inputAnalysis.complexAnalysis?.isComplex) {
+        this.logger.debug('Processing as complex scenario', {
+          complexityScore: inputAnalysis.complexAnalysis.complexityScore,
+          requiredDomains: inputAnalysis.complexAnalysis.requiredDomains
+        }, { sessionId, component: 'DomainCoordinator' });
+        
         result = await this.handleComplexScenario(
           inputAnalysis,
           gameContext,
           domainsInvolved
         );
       } else {
+        this.logger.debug('Processing as simple scenario', {
+          intent: inputAnalysis.classification.intent,
+          confidence: inputAnalysis.classification.confidence
+        }, { sessionId, component: 'DomainCoordinator' });
+        
         result = await this.handleSimpleScenario(
           inputAnalysis,
           gameContext,
@@ -170,7 +194,18 @@ export class DomainCoordinator {
       }
 
       // 3. 记录处理结果
-      await this.recordProcessingResult(inputAnalysis, result, startTime);
+      await this.recordProcessingResult(inputAnalysis, result, startTime, sessionId);
+
+      // 记录位置变更
+      if (result.stateChanges.locationChange) {
+        this.logger.logLocationChange(
+          sessionId,
+          playerId,
+          gameContext.currentLocation,
+          result.stateChanges.locationChange,
+          true
+        );
+      }
 
       return result;
 
@@ -186,6 +221,13 @@ export class DomainCoordinator {
         severity: 'high',
         timestamp: new Date(),
         resolved: false
+      });
+
+      this.logger.error('Failed to process player input', error as Error, {
+        sessionId,
+        playerId,
+        component: 'DomainCoordinator',
+        processingTime
       });
 
       return {
@@ -357,10 +399,20 @@ export class DomainCoordinator {
     const updates: any[] = [];
     let locationChange: string | undefined;
 
+    this.logger.debug('Handling world domain logic', {
+      intent: classification.intent,
+      currentLocation: gameContext.currentLocation
+    }, { component: 'DomainCoordinator', operation: 'world_domain' });
+
     if (classification.intent === 'movement') {
       // 处理移动
       const targetLocation = this.extractTargetLocation(classification);
       if (targetLocation) {
+        this.logger.debug('Processing movement request', {
+          from: gameContext.currentLocation,
+          to: targetLocation
+        }, { component: 'DomainCoordinator' });
+        
         const movementResult = await this.worldManager.processLocationMovement(
           gameContext.currentLocation,
           targetLocation,
@@ -375,9 +427,26 @@ export class DomainCoordinator {
             locationId: targetLocation,
             change: 'player_arrived'
           });
+          
+          this.logger.info('Movement completed successfully', {
+            component: 'DomainCoordinator',
+            operation: 'movement',
+            fromLocation: gameContext.currentLocation,
+            toLocation: targetLocation
+          });
         } else {
           description = movementResult.message;
+          this.logger.warn('Movement failed', {
+            component: 'DomainCoordinator',
+            reason: movementResult.message,
+            targetLocation
+          });
         }
+      } else {
+        this.logger.warn('No target location found in movement intent', {
+          component: 'DomainCoordinator',
+          entities: classification.entities
+        });
       }
     } else {
       // 获取当前位置上下文
@@ -436,15 +505,24 @@ export class DomainCoordinator {
   private async recordProcessingResult(
     inputAnalysis: any,
     result: DomainCoordinationResult,
-    startTime: number
+    startTime: number,
+    sessionId: string
   ): Promise<void> {
     const processingTime = Date.now() - startTime;
+
+    // 记录域协调性能
+    this.logger.logDomainCoordination(
+      sessionId,
+      result.metadata.domainsInvolved,
+      processingTime,
+      result.success
+    );
 
     // 记录性能指标
     this.operationsManager.recordPerformance({
       operation: 'domain_coordination',
       executionTime: processingTime,
-      memoryUsage: typeof process !== 'undefined' ? process.memoryUsage().heapUsed : 0,
+      memoryUsage: typeof process !== 'undefined' ? (process as any).memoryUsage().heapUsed : 0,
       cpuUsage: 0,
       timestamp: new Date(),
       success: result.success

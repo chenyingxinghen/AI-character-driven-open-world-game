@@ -13,7 +13,10 @@ import {
   PreprocessedInput,
   ContextHistory,
   ContextualInfo,
-  ExtractedEntity 
+  ExtractedEntity,
+  IntentType,
+  EmotionalTone,
+  UrgencyLevel
 } from './valueObjects';
 import { 
   InputPreprocessingService,
@@ -22,6 +25,7 @@ import {
   ComplexScenarioAnalysisService,
   ChoiceDetectionService
 } from './services';
+import { InputClassificationService } from '../../services/input/InputClassificationService';
 
 /**
  * 输入管理器
@@ -35,6 +39,7 @@ export class InputManager {
   private preprocessingService: InputPreprocessingService;
   private entityExtractionService: EntityExtractionService;
   private intentClassificationService: IntentClassificationService;
+  private inputClassificationService: InputClassificationService;
   private complexAnalysisService: ComplexScenarioAnalysisService;
   private choiceDetectionService: ChoiceDetectionService;
   
@@ -48,6 +53,7 @@ export class InputManager {
     this.preprocessingService = new InputPreprocessingService(logger);
     this.entityExtractionService = new EntityExtractionService(llmService, logger);
     this.intentClassificationService = new IntentClassificationService(llmService, logger);
+    this.inputClassificationService = new InputClassificationService(llmService, logger);
     this.complexAnalysisService = new ComplexScenarioAnalysisService(llmService, logger);
     this.choiceDetectionService = new ChoiceDetectionService(logger);
   }
@@ -102,17 +108,50 @@ export class InputManager {
     // 4. 获取上下文历史
     const contextHistory = session.getContextHistory(5);
 
-    // 5. 分类意图
-    const intentResult = await this.intentClassificationService.classifyIntent(
+    // 5. 使用输入分类服务进行主要分类
+    const inputClassificationResult = await this.inputClassificationService.classifyInput(
       preprocessed.sanitizedInput,
-      entities,
-      contextHistory
+      {
+        sessionId,
+        recentConversation: contextHistory.conversationFlow.map(cf => cf.playerInput),
+        currentLocation: context?.currentLocation || 'unknown',
+        nearbyCharacters: context?.knownCharacters || [],
+        pendingActions: context?.recentEvents || []
+      }
     );
 
-    // 6. 构建完整分类结果
+    // 6. 如果输入分类置信度较低，使用意图识别作为补充
+    let intentResult = {
+      intent: inputClassificationResult.intent,
+      confidence: inputClassificationResult.confidence / 100, // 转换为0-1范围
+      emotionalTone: inputClassificationResult.emotionalTone,
+      urgency: inputClassificationResult.urgency
+    };
+
+    if (inputClassificationResult.confidence < 70) {
+      this.logger.debug('Input classification confidence low, using intent classification as fallback');
+      const fallbackIntentResult = await this.intentClassificationService.classifyIntent(
+        preprocessed.sanitizedInput,
+        entities,
+        contextHistory
+      );
+      
+      // 如果意图识别置信度更高，使用其结果
+      if (fallbackIntentResult.confidence > intentResult.confidence) {
+        intentResult = {
+          intent: this.mapIntentTypeToValidString(fallbackIntentResult.intent),
+          confidence: fallbackIntentResult.confidence,
+          emotionalTone: this.mapEmotionalToneToValidString(fallbackIntentResult.emotionalTone),
+          urgency: this.mapUrgencyLevelToValidString(fallbackIntentResult.urgency)
+        };
+        this.logger.debug('Using intent classification result as it has higher confidence');
+      }
+    }
+
+    // 7. 构建完整分类结果
     const classification: InputClassification = {
       intent: intentResult.intent,
-      confidence: intentResult.confidence,
+      confidence: Math.round(intentResult.confidence * 100), // 转换回0-100范围
       emotionalTone: intentResult.emotionalTone,
       urgency: intentResult.urgency,
       complexity: this.calculateComplexity(preprocessed, entities, intentResult),
@@ -120,7 +159,15 @@ export class InputManager {
       contextualInfo: this.buildContextualInfo(entities, context)
     };
 
-    // 7. 复杂场景分析
+    this.logger.debug('Input classification result:', {
+      intent: classification.intent,
+      confidence: classification.confidence,
+      emotionalTone: classification.emotionalTone,
+      urgency: classification.urgency,
+      entities: classification.entities.map(e => ({ type: e.type, value: e.value }))
+    });
+
+    // 8. 复杂场景分析
     let complexAnalysis: ComplexScenarioAnalysis | undefined;
     if (classification.complexity >= 7) {
       complexAnalysis = await this.complexAnalysisService.analyzeComplexScenario(
@@ -133,16 +180,16 @@ export class InputManager {
       }
     }
 
-    // 8. 选择检测
+    // 9. 选择检测
     const choiceDetection = this.choiceDetectionService.detectChoices(
       preprocessed.sanitizedInput,
       classification
     );
 
-    // 9. 记录分类结果
+    // 10. 记录分类结果
     this.classifier.recordClassification(sessionId, classification);
 
-    // 10. 分析会话模式
+    // 11. 分析会话模式
     const sessionAnalysis = session.analyzeConversationPatterns();
 
     return {
@@ -367,5 +414,54 @@ export class InputManager {
       emotionalIndicators: [], // 可以从文本中提取情绪指示词
       complexityFactors: [] // 可以记录导致复杂性的因素
     };
+  }
+
+  /**
+   * 将意图类型枚举转换为有效的字符串
+   */
+  private mapIntentTypeToValidString(intentType: IntentType): 'dialogue' | 'movement' | 'observation' | 'inquiry' | 'greeting' | 'confirmation' | 'system_help' | 'story_background' | 'story_recap' | 'compound' {
+    const mapping: Record<string, 'dialogue' | 'movement' | 'observation' | 'inquiry' | 'greeting' | 'confirmation' | 'system_help' | 'story_background' | 'story_recap' | 'compound'> = {
+      [IntentType.DIALOGUE]: 'dialogue',
+      [IntentType.MOVEMENT]: 'movement',
+      [IntentType.EXPLORATION]: 'observation',
+      [IntentType.CHARACTER_INTERACTION]: 'dialogue',
+      [IntentType.LOCATION_QUERY]: 'inquiry',
+      [IntentType.INVENTORY_ACTION]: 'observation',
+      [IntentType.COMBAT]: 'compound',
+      [IntentType.INFORMATION_QUERY]: 'inquiry',
+      [IntentType.COMPLEX_SCENARIO]: 'compound',
+      [IntentType.UNKNOWN]: 'dialogue'
+    };
+    return mapping[intentType] || 'dialogue';
+  }
+
+  /**
+   * 将情绪基调枚举转换为有效的字符串
+   */
+  private mapEmotionalToneToValidString(emotionalTone: EmotionalTone): 'neutral' | 'positive' | 'negative' | 'excited' | 'concerned' {
+    const mapping: Record<string, 'neutral' | 'positive' | 'negative' | 'excited' | 'concerned'> = {
+      [EmotionalTone.POSITIVE]: 'positive',
+      [EmotionalTone.NEGATIVE]: 'negative',
+      [EmotionalTone.NEUTRAL]: 'neutral',
+      [EmotionalTone.EXCITED]: 'excited',
+      [EmotionalTone.ANGRY]: 'negative',
+      [EmotionalTone.SAD]: 'negative',
+      [EmotionalTone.FEARFUL]: 'concerned',
+      [EmotionalTone.CONFUSED]: 'concerned'
+    };
+    return mapping[emotionalTone] || 'neutral';
+  }
+
+  /**
+   * 将紧急程度枚举转换为有效的字符串
+   */
+  private mapUrgencyLevelToValidString(urgencyLevel: UrgencyLevel): 'low' | 'medium' | 'high' {
+    const mapping: Record<string, 'low' | 'medium' | 'high'> = {
+      [UrgencyLevel.LOW]: 'low',
+      [UrgencyLevel.MEDIUM]: 'medium',
+      [UrgencyLevel.HIGH]: 'high',
+      [UrgencyLevel.URGENT]: 'high'
+    };
+    return mapping[urgencyLevel] || 'medium';
   }
 }

@@ -74,6 +74,7 @@ export class GameClient {
   private onCharacterResponseHandlers: ((response: GameResponse) => void)[] = [];
   private onSceneUpdateHandlers: ((scene: Scene) => void)[] = [];
   private onActionOptionsUpdateHandlers: ((options: ActionOption[]) => void)[] = [];
+  private onLocationTransitionHandlers: ((transition: any) => void)[] = [];
 
   constructor(config: GameClientConfig) {
     this.wsManager = new WebSocketManager(config.websocketUrl);
@@ -137,6 +138,27 @@ export class GameClient {
     this.wsManager.subscribe('session_created', (data: any) => {
       this.sessionId = data.sessionId;
       console.log('Session created:', this.sessionId);
+    });
+
+    // 新增位置过渡消息处理
+    this.wsManager.subscribe('location_transition_start', (data: any) => {
+      const transition = {
+        type: 'start',
+        fromLocation: data.fromLocation,
+        toLocation: data.toLocation,
+        transitionType: data.transitionType,
+        message: data.message
+      };
+      this.onLocationTransitionHandlers.forEach(handler => handler(transition));
+    });
+
+    this.wsManager.subscribe('location_transition_complete', (data: any) => {
+      const transition = {
+        type: 'complete',
+        newLocation: data.newLocation,
+        message: data.message
+      };
+      this.onLocationTransitionHandlers.forEach(handler => handler(transition));
     });
   }
 
@@ -208,6 +230,10 @@ export class GameClient {
 
   onActionOptionsUpdate(handler: (options: ActionOption[]) => void): void {
     this.onActionOptionsUpdateHandlers.push(handler);
+  }
+
+  onLocationTransition(handler: (transition: any) => void): void {
+    this.onLocationTransitionHandlers.push(handler);
   }
 
   // Getters

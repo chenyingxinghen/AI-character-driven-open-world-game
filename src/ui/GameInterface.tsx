@@ -324,6 +324,10 @@ const GameInterface: React.FC = () => {
     hints: ['与角色对话了解更多信息', '探索不同区域发现秘密']
   });
 
+  // 位置过渡状态
+  const [isTransitioning, setIsTransitioning] = useState(false);
+  const [transitionMessage, setTransitionMessage] = useState('');
+
   // 连接到游戏服务器
   useEffect(() => {
     const connectToGame = async () => {
@@ -340,6 +344,37 @@ const GameInterface: React.FC = () => {
           });
           gameClient.onSceneUpdate(setCurrentScene);
           gameClient.onActionOptionsUpdate(setActionOptions);
+          
+          // 添加位置过渡处理器
+          gameClient.onLocationTransition((transition: any) => {
+            if (transition.type === 'start') {
+              setIsTransitioning(true);
+              setTransitionMessage(transition.message);
+              
+              // 添加系统消息到对话中
+              const transitionResponse: GameResponse = {
+                characterId: 'system',
+                characterName: '系统',
+                content: transition.message,
+                type: 'narration',
+                timestamp: new Date()
+              };
+              setResponses((prev: GameResponse[]) => [...prev, transitionResponse]);
+            } else if (transition.type === 'complete') {
+              setIsTransitioning(false);
+              setTransitionMessage('');
+              
+              // 添加到达消息到对话中
+              const arrivalResponse: GameResponse = {
+                characterId: 'system',
+                characterName: '系统',
+                content: transition.message,
+                type: 'narration',
+                timestamp: new Date()
+              };
+              setResponses((prev: GameResponse[]) => [...prev, arrivalResponse]);
+            }
+          });
         }
       } catch (error) {
         console.error('Failed to connect to game:', error);
@@ -418,8 +453,11 @@ const GameInterface: React.FC = () => {
           <CharacterResponse responses={responses} />
           <PlayerInput 
             onSubmit={handlePlayerInput} 
-            disabled={!isConnected}
-            placeholder={isConnected ? "输入你的行动或对话..." : "连接中..."}
+            disabled={!isConnected || isTransitioning}
+            placeholder={isConnected ? 
+              (isTransitioning ? transitionMessage : "输入你的行动或对话...") : 
+              "连接中..."
+            }
           />
           <ActionOptions 
             options={actionOptions} 

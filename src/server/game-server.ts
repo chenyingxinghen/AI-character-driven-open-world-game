@@ -242,14 +242,44 @@ async function handlePlayerInput(ws: WebSocket, payload: any): Promise<void> {
       
       // Send location description if changed
       if (coordination.responses.locationDescription) {
-        await sendSceneUpdate(ws, {
-          description: coordination.responses.locationDescription,
-          location: coordination.stateChanges.locationChange || session.playerId
-        });
+        // 发送位置变更开始消息
+        if (coordination.stateChanges.locationChange) {
+          sendMessage(ws, 'location_transition_start', {
+            fromLocation: session.playerId, // 这里应该是当前位置，暂时用playerId
+            toLocation: coordination.stateChanges.locationChange,
+            transitionType: 'movement',
+            message: '正在前往新位置...'
+          });
+          
+          // 延迟发送场景更新，模拟移动过程
+          setTimeout(() => {
+            sendSceneUpdate(ws, {
+              description: coordination.responses.locationDescription,
+              location: coordination.stateChanges.locationChange
+            });
+            
+            // 发送位置变更完成消息
+            sendMessage(ws, 'location_transition_complete', {
+              newLocation: coordination.stateChanges.locationChange,
+              message: '已到达目的地'
+            });
+          }, 1000); // 1秒延迟模拟移动时间
+        } else {
+          await sendSceneUpdate(ws, {
+            description: coordination.responses.locationDescription,
+            location: coordination.stateChanges.locationChange || session.playerId
+          });
+        }
       }
       
       // Update game state
-      await sendGameState(ws, { sessionId });
+      if (coordination.stateChanges.locationChange) {
+        // 如果有位置变更，立即更新游戏状态
+        session.playerId = coordination.stateChanges.locationChange; // 这应该是一个location字段，这里临时使用
+        await sendGameState(ws, { sessionId });
+      } else {
+        await sendGameState(ws, { sessionId });
+      }
       
     } else {
       // Send error response

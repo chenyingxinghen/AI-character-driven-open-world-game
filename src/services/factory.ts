@@ -5,7 +5,7 @@ import { InputClassificationService } from './input/InputClassificationService';
 import { container, ServiceIdentifier } from './DependencyInjectionContainer';
 import { RealDatabaseService } from './database/RealDatabaseService';
 import { MockDatabaseService, DatabaseService } from './database/DatabaseService';
-import { Logger } from './Logger';
+import { Logger, LogLevel } from './Logger';
 
 // Import domain managers
 import { CharacterManager } from '../domains/character/aggregates';
@@ -59,7 +59,26 @@ export class DefaultServiceFactory implements ServiceFactory {
 
   createLogger(): Logger {
     if (!this.logger) {
-      this.logger = new Logger();
+      // 根据环境变量设置日志级别
+      const logLevelStr = process.env.LOG_LEVEL?.toUpperCase() || 'INFO';
+      let logLevel = LogLevel.INFO;
+      
+      switch (logLevelStr) {
+        case 'DEBUG':
+          logLevel = LogLevel.DEBUG;
+          break;
+        case 'WARN':
+          logLevel = LogLevel.WARN;
+          break;
+        case 'ERROR':
+          logLevel = LogLevel.ERROR;
+          break;
+        default:
+          logLevel = LogLevel.INFO;
+      }
+      
+      const enableDebug = process.env.NODE_ENV === 'development' || process.env.LOG_LEVEL === 'debug';
+      this.logger = new Logger(logLevel, enableDebug);
     }
     return this.logger;
   }
