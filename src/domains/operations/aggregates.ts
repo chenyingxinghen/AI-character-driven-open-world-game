@@ -31,6 +31,10 @@ export class OperationsManager {
   private healthService: SystemHealthService;
   private analyticsService: AnalyticsReportService;
   
+  // 添加历史数据存储
+  private costHistory: CostMetrics[] = [];
+  private errorHistory: ErrorRecord[] = [];
+  
   constructor(private logger: Logger) {
     this.performanceMonitor = new PerformanceMonitor('main_monitor', 'Main Performance Monitor');
     this.costTracker = new CostTracker('main_tracker', 'USD');
@@ -59,6 +63,14 @@ export class OperationsManager {
   recordCost(cost: CostMetrics): void {
     this.costTracker.recordCost(cost);
     
+    // 同时存储到历史记录中
+    this.costHistory.push(cost);
+    
+    // 保持历史记录在合理范围内
+    if (this.costHistory.length > 10000) {
+      this.costHistory = this.costHistory.slice(-5000); // 保留最近5000条记录
+    }
+    
     // 检查成本告警
     this.checkCostAlerts(cost);
   }
@@ -68,6 +80,14 @@ export class OperationsManager {
    */
   recordError(error: ErrorRecord): void {
     this.errorTracker.recordError(error);
+    
+    // 同时存储到历史记录中
+    this.errorHistory.push(error);
+    
+    // 保持历史记录在合理范围内
+    if (this.errorHistory.length > 10000) {
+      this.errorHistory = this.errorHistory.slice(-5000); // 保留最近5000条记录
+    }
     
     // 根据错误严重程度触发告警
     if (error.severity === 'critical' || error.severity === 'high') {
@@ -514,18 +534,38 @@ export class OperationsManager {
    * 获取时间段内的成本数据
    */
   private getCostDataInPeriod(period: { start: Date; end: Date }): CostMetrics[] {
-    // 这里应该从存储中获取实际数据
-    // 临时实现返回空数组
-    return [];
+    // 从存储中获取实际数据
+    const filteredCosts = this.costHistory.filter(cost => 
+      cost.timestamp >= period.start && cost.timestamp <= period.end
+    );
+    
+    this.logger.debug('Retrieved cost data for period', {
+      periodStart: period.start,
+      periodEnd: period.end,
+      costCount: filteredCosts.length,
+      component: 'OperationsManager'
+    });
+    
+    return filteredCosts;
   }
 
   /**
    * 获取时间段内的错误数据
    */
   private getErrorDataInPeriod(period: { start: Date; end: Date }): ErrorRecord[] {
-    // 这里应该从存储中获取实际数据
-    // 临时实现返回空数组
-    return [];
+    // 从存储中获取实际数据
+    const filteredErrors = this.errorHistory.filter(error => 
+      error.timestamp >= period.start && error.timestamp <= period.end
+    );
+    
+    this.logger.debug('Retrieved error data for period', {
+      periodStart: period.start,
+      periodEnd: period.end,
+      errorCount: filteredErrors.length,
+      component: 'OperationsManager'
+    });
+    
+    return filteredErrors;
   }
 
   /**

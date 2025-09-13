@@ -22,6 +22,7 @@ import { OperationsManager } from './operations/aggregates';
 // 导入值对象
 import { InputClassification, ComplexScenarioAnalysis, EntityType } from './input/valueObjects';
 import { Character } from './character/entities';
+import { CharacterProfile } from './character/valueObjects';
 import { GameLocation } from './world/entities';
 import { PerformanceMetrics } from './operations/valueObjects';
 
@@ -74,9 +75,10 @@ export class DomainCoordinator {
   constructor(
     private llmService: LLMService,
     private logger: Logger,
-    gameContextService?: GameContextService
+    gameContextService?: GameContextService,
+    private databaseService?: any
   ) {
-    this.characterManager = new CharacterManager(llmService, logger);
+    this.characterManager = new CharacterManager(llmService, logger, databaseService);
     this.worldManager = new WorldManager(llmService, logger);
     this.inputManager = new InputManager(llmService, logger, gameContextService);
     this.operationsManager = new OperationsManager(logger);
@@ -293,6 +295,7 @@ export class DomainCoordinator {
     gameContext: GameContext,
     domainsInvolved: string[]
   ): Promise<DomainCoordinationResult> {
+    const startTime = Date.now();
     const responses: any = {};
     const stateChanges: any = {};
     
@@ -328,12 +331,14 @@ export class DomainCoordinator {
       gameContext
     );
 
+    const processingTime = Date.now() - startTime;
+    
     return {
       success: true,
       responses,
       stateChanges,
       metadata: {
-        processingTime: Date.now() - Date.now(),
+        processingTime,
         domainsInvolved,
         complexity: complexAnalysis.complexityScore
       }
@@ -348,6 +353,7 @@ export class DomainCoordinator {
     gameContext: GameContext,
     domainsInvolved: string[]
   ): Promise<DomainCoordinationResult> {
+    const startTime = Date.now();
     const classification = inputAnalysis.classification;
     const responses: any = {};
     const stateChanges: any = {};
@@ -380,14 +386,16 @@ export class DomainCoordinator {
         responses.narrative = await this.generateDefaultResponse(classification, gameContext);
     }
 
+    const processingTime = Date.now() - startTime;
+    
     return {
       success: true,
       responses,
       stateChanges,
       metadata: {
-        processingTime: Date.now() - Date.now(),
+        processingTime,
         domainsInvolved,
-        complexity: classification.complexity
+        complexity: classification.confidence || 0.5
       }
     };
   }
@@ -486,7 +494,9 @@ export class DomainCoordinator {
       } else {
         this.logger.warn('No target location found in movement intent', {
           component: 'DomainCoordinator',
-          entities: classification.entities
+          // entities: classification.entities // 已移除entities字段
+          targetLocation: classification.targetLocation,
+          targetCharacter: classification.targetCharacter
         });
       }
     } else {
@@ -569,15 +579,47 @@ export class DomainCoordinator {
       success: result.success
     });
 
-    // 如果使用了LLM，记录成本
+    // 更精确的LLM成本记录
     if (result.responses.narrative) {
+      // 估算token数量（简单的字符数除以4的方式）
+      const estimatedTokens = Math.ceil((result.responses.narrative.length + 
+        (inputAnalysis.preprocessed?.originalInput?.length || 0)) / 4);
+      
+      // 根据估算的token数计算成本（每1000token约$0.002）
+      const estimatedCost = (estimatedTokens / 1000) * 0.002;
+      
       this.operationsManager.recordCost({
         provider: 'llm_service',
         operation: 'narrative_generation',
-        tokensUsed: 200, // 估算值
-        cost: 0.001, // 估算值
+        tokensUsed: estimatedTokens,
+        cost: estimatedCost,
         currency: 'USD',
         timestamp: new Date()
+      });
+      
+      this.logger.debug('LLM cost recorded', {
+        estimatedTokens,
+        estimatedCost,
+        component: 'DomainCoordinator'
+      });
+    }
+
+    // 记录附加的LLM操作成本
+    if (result.responses.characterResponses && result.responses.characterResponses.length > 0) {
+      result.responses.characterResponses.forEach((response: string, index: number) => {
+        if (response && response.length > 0) {
+          const tokens = Math.ceil(response.length / 4);
+          const cost = (tokens / 1000) * 0.002;
+          
+          this.operationsManager.recordCost({
+            provider: 'llm_service',
+            operation: `character_response_${index}`,
+            tokensUsed: tokens,
+            cost: cost,
+            currency: 'USD',
+            timestamp: new Date()
+          });
+        }
       });
     }
   }
@@ -613,8 +655,29 @@ export class DomainCoordinator {
    * 获取已知角色名称
    */
   private async getKnownCharacterNames(): Promise<string[]> {
-    // 在实际实现中，这里应该从角色管理器获取
-    return ['Guard', 'Merchant', 'Innkeeper'];
+    try {
+      // 使用角色管理器获取实际的角色数据
+      const characters = await this.characterManager.getAllCharacters();
+      const characterNames = characters.map(char => char.name).filter(name => name && name.trim() !== '');
+      
+      if (characterNames.length === 0) {
+        this.logger.info('No characters found, returning default character names', {
+          component: 'DomainCoordinator'
+        });
+        return ['Guard', 'Merchant', 'Innkeeper', 'Villager'];
+      }
+      
+      this.logger.debug('Retrieved character names from character manager', {
+        count: characterNames.length,
+        names: characterNames,
+        component: 'DomainCoordinator'
+      });
+      
+      return characterNames;
+    } catch (error) {
+      this.logger.warn('Failed to get character names from manager, using fallback', error as Error);
+      return ['Guard', 'Merchant', 'Innkeeper'];
+    }
   }
 
   /**
@@ -629,30 +692,154 @@ export class DomainCoordinator {
    * 获取位置中的角色
    */
   private async getCharactersInLocation(locationId: string): Promise<Character[]> {
-    // 模拟实现 - 在实际项目中应该从角色管理器获取
-    const profile = {
-      id: 'npc_1',
-      name: 'Town Guard',
-      background: 'A vigilant guard protecting the town',
-      appearance: 'Tall and sturdy in leather armor',
-      personality: {
-        traits: { friendly: 0.7, cautious: 0.8 },
-        values: { justice: 0.9, order: 0.8 },
-        goals: ['protect the town'],
-        fears: ['chaos', 'crime'],
-        motivations: ['duty', 'honor']
+    try {
+      this.logger.debug(`Getting characters for location: ${locationId}`);
+      
+      // 优先从角色管理器获取实际数据
+      const charactersInLocation = await this.characterManager.getCharactersInLocation(locationId);
+      
+      if (charactersInLocation && charactersInLocation.length > 0) {
+        this.logger.info(`Found ${charactersInLocation.length} characters in location ${locationId}`, {
+          characterNames: charactersInLocation.map(c => c.name),
+          component: 'DomainCoordinator'
+        });
+        return charactersInLocation;
       }
-    };
+      
+      // 如果没有找到角色，检查是否需要为该位置动态创建角色
+      const shouldCreateCharacter = await this.shouldCreateCharacterForLocation(locationId);
+      
+      if (shouldCreateCharacter) {
+        this.logger.info(`Creating dynamic character for location: ${locationId}`);
+        const dynamicCharacter = await this.createDynamicCharacterForLocation(locationId);
+        return [dynamicCharacter];
+      }
+      
+      this.logger.info(`No characters found in location ${locationId} and no dynamic character needed`);
+      return [];
+      
+    } catch (error) {
+      this.logger.error('Failed to get characters in location', error as Error, {
+        locationId,
+        component: 'DomainCoordinator'
+      });
+      return [];
+    }
+  }
 
-    return [this.characterManager.createCharacter(profile)];
+  /**
+   * 判断是否应该为位置创建角色
+   */
+  private async shouldCreateCharacterForLocation(locationId: string): Promise<boolean> {
+    try {
+      // 获取位置信息
+      const locationContext = await this.worldManager.getLocationContext(locationId);
+      
+      // 根据位置类型和特性决定是否需要角色
+      const location = locationContext.location;
+      
+      // 只有在人口密集的地方才创建角色
+      if (location.locationType === 'urban' || 
+          locationId.toLowerCase().includes('town') ||
+          locationId.toLowerCase().includes('market') ||
+          locationId.toLowerCase().includes('tavern')) {
+        return true;
+      }
+      
+      return false;
+    } catch (error) {
+      this.logger.warn('Failed to check if character should be created, defaulting to false', error as Error);
+      return false;
+    }
+  }
+
+  /**
+   * 为位置动态创建角色
+   */
+  private async createDynamicCharacterForLocation(locationId: string): Promise<Character> {
+    // 根据位置类型生成适当的角色配置
+    let characterProfile: CharacterProfile;
+    
+    if (locationId.toLowerCase().includes('guard') || locationId.toLowerCase().includes('gate')) {
+      characterProfile = {
+        id: `guard_${locationId}_${Date.now()}`,
+        name: 'Town Guard',
+        background: 'A dedicated guard protecting this area',
+        appearance: 'Tall and sturdy, wearing leather armor',
+        personality: {
+          traits: { dutiful: 0.9, helpful: 0.7, cautious: 0.8 },
+          values: { justice: 0.9, order: 0.8, protection: 0.9 },
+          goals: ['protect citizens', 'maintain order'],
+          fears: ['chaos', 'crime'],
+          motivations: ['duty', 'honor', 'community']
+        }
+      };
+    } else if (locationId.toLowerCase().includes('market') || locationId.toLowerCase().includes('shop')) {
+      characterProfile = {
+        id: `merchant_${locationId}_${Date.now()}`,
+        name: 'Local Merchant',
+        background: 'A friendly merchant who knows the local area well',
+        appearance: 'Well-dressed with a warm smile',
+        personality: {
+          traits: { friendly: 0.9, knowledgeable: 0.8, helpful: 0.7 },
+          values: { trade: 0.8, community: 0.7, prosperity: 0.8 },
+          goals: ['help customers', 'grow business'],
+          fears: ['loss', 'conflict'],
+          motivations: ['profit', 'community service']
+        }
+      };
+    } else {
+      characterProfile = {
+        id: `resident_${locationId}_${Date.now()}`,
+        name: 'Local Resident',
+        background: `A resident of ${locationId} who can provide local information`,
+        appearance: 'A friendly local person',
+        personality: {
+          traits: { helpful: 0.8, friendly: 0.7, knowledgeable: 0.6 },
+          values: { community: 0.8, helpfulness: 0.7 },
+          goals: ['help visitors', 'share local knowledge'],
+          fears: ['conflict', 'strangers'],
+          motivations: ['community spirit', 'helpfulness']
+        }
+      };
+    }
+
+    // 使用角色管理器创建角色（这将自动处理注册和持久化）
+    const character = this.characterManager.createCharacter(characterProfile);
+    
+    // 更新角色位置
+    await this.characterManager.updateCharacterLocation(character.id, locationId);
+    
+    this.logger.info(`Created dynamic character for location`, {
+      characterId: character.id,
+      characterName: character.name,
+      locationId,
+      component: 'DomainCoordinator'
+    });
+    
+    return character;
   }
 
   /**
    * 从分类中提取目标位置
    */
   private extractTargetLocation(classification: InputClassification): string | undefined {
-    const locationEntities = classification.entities.filter(e => e.type === EntityType.LOCATION);
-    return locationEntities.length > 0 ? locationEntities[0].value : undefined;
+    // 优先使用targetLocation字段
+    if (classification.targetLocation) {
+      return classification.targetLocation;
+    }
+    
+    // 如果没有明确的目标位置，尝试从intent中推断
+    if (classification.intent === 'movement') {
+      // 可以添加基于自然语言处理的位置提取逻辑
+      // 这里暂时返回undefined，让调用者处理
+      this.logger.debug('Movement intent detected but no target location specified', {
+        component: 'DomainCoordinator',
+        classification
+      });
+    }
+    
+    return undefined;
   }
 
   /**
@@ -676,21 +863,75 @@ export class DomainCoordinator {
    * 创建初始角色
    */
   private async createInitialCharacters(): Promise<void> {
-    const guardProfile = {
-      id: 'town_guard',
-      name: 'Town Guard',
-      background: 'A dedicated guard who protects the town square',
-      appearance: 'Tall and sturdy, wearing leather armor',
-      personality: {
-        traits: { friendly: 0.7, dutiful: 0.9, cautious: 0.6 },
-        values: { justice: 0.9, order: 0.8, protection: 0.9 },
-        goals: ['protect citizens', 'maintain order'],
-        fears: ['chaos', 'crime'],
-        motivations: ['duty', 'honor', 'community']
-      }
-    };
+    try {
+      // 创建多个初始角色以供游戏交互
+      const characterProfiles: CharacterProfile[] = [
+        {
+          id: 'town_guard',
+          name: 'Town Guard',
+          background: 'A dedicated guard who protects the town square',
+          appearance: 'Tall and sturdy, wearing leather armor',
+          personality: {
+            traits: { friendly: 0.7, dutiful: 0.9, cautious: 0.6 },
+            values: { justice: 0.9, order: 0.8, protection: 0.9 },
+            goals: ['protect citizens', 'maintain order'],
+            fears: ['chaos', 'crime'],
+            motivations: ['duty', 'honor', 'community']
+          }
+        },
+        {
+          id: 'local_merchant',
+          name: 'Market Merchant',
+          background: 'An experienced trader who knows everyone in town',
+          appearance: 'Well-dressed with a friendly demeanor',
+          personality: {
+            traits: { charismatic: 0.8, knowledgeable: 0.9, ambitious: 0.7 },
+            values: { trade: 0.9, community: 0.8, prosperity: 0.8 },
+            goals: ['expand business', 'help customers'],
+            fears: ['economic downturn', 'conflict'],
+            motivations: ['profit', 'reputation', 'community service']
+          }
+        },
+        {
+          id: 'wise_elder',
+          name: 'Village Elder',
+          background: 'An old resident who remembers the history of this place',
+          appearance: 'Elderly with kind eyes and weathered hands',
+          personality: {
+            traits: { wise: 0.9, patient: 0.8, storyteller: 0.9 },
+            values: { tradition: 0.9, wisdom: 0.9, peace: 0.8 },
+            goals: ['preserve history', 'guide young people'],
+            fears: ['forgotten traditions', 'conflict'],
+            motivations: ['legacy', 'wisdom sharing', 'peace']
+          }
+        }
+      ];
 
-    this.characterManager.createCharacter(guardProfile);
-    this.logger.info('Initial characters created');
+      // 创建所有初始角色
+      for (const profile of characterProfiles) {
+        try {
+          this.characterManager.createCharacter(profile);
+          this.logger.debug(`Created initial character: ${profile.name}`, {
+            characterId: profile.id,
+            component: 'DomainCoordinator'
+          });
+        } catch (error) {
+          this.logger.warn(`Failed to create character ${profile.name}`, error as Error, {
+            characterId: profile.id,
+            component: 'DomainCoordinator'
+          });
+        }
+      }
+
+      this.logger.info(`Attempted to create ${characterProfiles.length} initial characters`, {
+        characterIds: characterProfiles.map(p => p.id),
+        component: 'DomainCoordinator'
+      });
+    } catch (error) {
+      this.logger.error('Failed to create initial characters', error as Error, {
+        component: 'DomainCoordinator'
+      });
+      // 即使创建失败也不抛出异常，保证游戏能够启动
+    }
   }
 }

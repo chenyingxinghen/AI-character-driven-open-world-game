@@ -27,15 +27,24 @@ export enum EntityType {
 
 /**
  * 输入分类结果值对象
+ * 简化版本，移除entities字段，专注于核心分类信息
  */
 export interface InputClassification {
+  readonly type: InputType;
   readonly intent: IntentType;
   readonly confidence: number;
   readonly emotionalTone: EmotionalTone;
   readonly urgency: UrgencyLevel;
   readonly complexity: number;
-  readonly entities: readonly ExtractedEntity[];
-  readonly contextualInfo: ContextualInfo;
+  readonly targetCharacter?: string;
+  readonly targetLocation?: string;
+  readonly extractedAction?: string;
+  readonly extractedSpeech?: string;
+  readonly isDirectSpeech: boolean;
+  readonly isActionDescription: boolean;
+  readonly isSystemQuery: boolean;
+  readonly isCompoundAction: boolean;
+  readonly contextualHints: readonly string[];
 }
 
 /**
@@ -52,15 +61,13 @@ export interface ExtractedEntity {
 }
 
 /**
- * 上下文信息值对象
+ * 上下文信息值对象（简化版）
  */
 export interface ContextualInfo {
   readonly mentionedCharacters: readonly string[];
   readonly mentionedLocations: readonly string[];
   readonly actionSequence: readonly string[];
-  readonly timeReferences: readonly string[];
-  readonly emotionalIndicators: readonly string[];
-  readonly complexityFactors: readonly string[];
+  readonly contextualHints: readonly string[];
 }
 
 /**

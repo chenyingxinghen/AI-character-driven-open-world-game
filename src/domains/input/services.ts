@@ -458,7 +458,7 @@ export class ComplexScenarioAnalysisService {
     let score = classification.complexity;
     
     if (input.length > 100) score += 2;
-    if (classification.entities.length > 3) score += 2;
+    if (classification.contextualHints.length > 3) score += 2;
     
     return {
       isComplex: score >= 7,

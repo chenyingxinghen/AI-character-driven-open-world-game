@@ -114,18 +114,27 @@ export class InputSession {
    * 更新上下文记忆
    */
   private updateContextualMemory(classification: InputClassification): void {
-    // 记录重要对话元素
-    if (classification.entities && classification.entities.length > 0) {
-      for (const entity of classification.entities) {
-        const key = `entity_${entity.type}_${entity.value}`;
-        const existing = this.contextualMemory.get(key) || { count: 0, lastMentioned: new Date(0) };
-        this.contextualMemory.set(key, {
-          count: existing.count + 1,
-          lastMentioned: new Date(),
-          type: entity.type,
-          value: entity.value
-        });
-      }
+    // 使用targetCharacter和targetLocation替代entities
+    if (classification.targetCharacter) {
+      const key = `character_${classification.targetCharacter}`;
+      const existing = this.contextualMemory.get(key) || { count: 0, lastMentioned: new Date(0) };
+      this.contextualMemory.set(key, {
+        count: existing.count + 1,
+        lastMentioned: new Date(),
+        type: 'character',
+        value: classification.targetCharacter
+      });
+    }
+    
+    if (classification.targetLocation) {
+      const key = `location_${classification.targetLocation}`;
+      const existing = this.contextualMemory.get(key) || { count: 0, lastMentioned: new Date(0) };
+      this.contextualMemory.set(key, {
+        count: existing.count + 1,
+        lastMentioned: new Date(),
+        type: 'location',
+        value: classification.targetLocation
+      });
     }
 
     // 记录情绪状态变化

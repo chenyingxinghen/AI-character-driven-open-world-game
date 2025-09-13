@@ -153,15 +153,23 @@ export class InputManager {
       }
     }
 
-    // 7. 构建完整分类结果
+    // 7. 构建完整分类结果（修复接口匹配）
     const classification: InputClassification = {
-      intent: intentResult.intent,
-      confidence: Math.round(intentResult.confidence * 100), // 转换回0-100范围
-      emotionalTone: intentResult.emotionalTone,
-      urgency: intentResult.urgency,
-      complexity: this.calculateComplexity(preprocessed, entities, intentResult),
-      entities,
-      contextualInfo: this.buildContextualInfo(entities, context)
+      type: inputClassificationResult.type,
+      intent: inputClassificationResult.intent,
+      confidence: Math.round(inputClassificationResult.confidence), // 确保为整数
+      emotionalTone: inputClassificationResult.emotionalTone,
+      urgency: inputClassificationResult.urgency,
+      complexity: this.calculateComplexity(preprocessed, inputClassificationResult),
+      targetCharacter: inputClassificationResult.targetCharacter,
+      targetLocation: inputClassificationResult.targetLocation,
+      extractedAction: inputClassificationResult.extractedAction,
+      extractedSpeech: inputClassificationResult.extractedSpeech,
+      isDirectSpeech: inputClassificationResult.isDirectSpeech,
+      isActionDescription: inputClassificationResult.isActionDescription,
+      isSystemQuery: inputClassificationResult.isSystemQuery,
+      isCompoundAction: inputClassificationResult.isCompoundAction,
+      contextualHints: inputClassificationResult.contextualHints
     };
 
     this.logger.debug('Input classification result:', {
@@ -169,7 +177,8 @@ export class InputManager {
       confidence: classification.confidence,
       emotionalTone: classification.emotionalTone,
       urgency: classification.urgency,
-      entities: classification.entities.map(e => ({ type: e.type, value: e.value }))
+      targetCharacter: classification.targetCharacter,
+      targetLocation: classification.targetLocation
     });
 
     // 8. 复杂场景分析
@@ -362,30 +371,27 @@ export class InputManager {
   /**
    * 计算输入复杂度
    */
-  private calculateComplexity(
-    preprocessed: PreprocessedInput,
-    entities: ExtractedEntity[],
-    intentResult: any
-  ): number {
+  private calculateComplexity(preprocessed: any, classificationResult: any): number {
     let complexity = 1;
-
+    
     // 基于输入长度
-    if (preprocessed.inputLength > 50) complexity += 1;
-    if (preprocessed.inputLength > 100) complexity += 1;
-    if (preprocessed.inputLength > 200) complexity += 2;
-
-    // 基于实体数量
-    complexity += Math.min(3, entities.length);
-
-    // 基于实体类型多样性
-    const entityTypes = new Set(entities.map(e => e.type));
-    complexity += entityTypes.size;
-
-    // 基于意图置信度（低置信度表示更复杂）
-    if (intentResult.confidence < 0.7) complexity += 2;
-    if (intentResult.confidence < 0.5) complexity += 2;
-
-    return Math.min(10, complexity);
+    if (preprocessed.sanitizedInput.length > 50) complexity += 1;
+    if (preprocessed.sanitizedInput.length > 100) complexity += 2;
+    
+    // 基于分类置信度（低置信度可能表示复杂输入）
+    if (classificationResult.confidence < 70) complexity += 1;
+    
+    // 基于是否包含复合动作
+    if (classificationResult.isCompoundAction) complexity += 2;
+    
+    // 基于包含的动作词数量
+    const actionWords = ['去', '走', '说', '看', '拿', '使用', 'go', 'walk', 'say', 'look', 'take', 'use'];
+    const actionCount = actionWords.filter(word => 
+      preprocessed.sanitizedInput.toLowerCase().includes(word)
+    ).length;
+    complexity += actionCount;
+    
+    return Math.min(complexity, 10);
   }
 
   /**
@@ -407,17 +413,17 @@ export class InputManager {
       .filter(e => e.type === EntityType.ACTION)
       .map(e => e.value);
 
-    const timeReferences = entities
-      .filter(e => e.type === EntityType.TIME)
-      .map(e => e.value);
+    const contextualHints: string[] = [
+      ...entities.map(e => `${e.type}:${e.value}`),
+      ...(context?.currentLocation ? ['has_location'] : []),
+      ...(context?.knownCharacters?.length > 0 ? ['has_characters'] : [])
+    ];
 
     return {
       mentionedCharacters,
       mentionedLocations,
       actionSequence,
-      timeReferences,
-      emotionalIndicators: [], // 可以从文本中提取情绪指示词
-      complexityFactors: [] // 可以记录导致复杂性的因素
+      contextualHints
     };
   }
 

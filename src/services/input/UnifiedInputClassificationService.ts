@@ -10,26 +10,14 @@ import { FormattedTextExtractorService, InputClassificationResult } from '../llm
 import { GameContextService } from '../game/GameContextService';
 import { Logger } from '../Logger';
 import { PatternRecognitionUtil, ErrorHandlerUtil, CacheUtil } from '../../utils/CommonUtils';
-import { IntentType, UrgencyLevel, EmotionalTone } from '../../domains/input/valueObjects';
+import { IntentType, UrgencyLevel, EmotionalTone, InputType, InputClassification as DomainInputClassification } from '../../domains/input/valueObjects';
 
-export interface InputClassification {
-  type: 'speech' | 'action' | 'question' | 'system_query' | 'compound_action';
-  intent: IntentType;
-  confidence: number; // 0-100
-  targetCharacter?: string;
-  isDirectSpeech: boolean;
-  isActionDescription: boolean;
-  isSystemQuery: boolean;
-  isCompoundAction: boolean;
-  extractedAction?: string;
-  extractedSpeech?: string;
-  contextualHints: string[];
-  urgency: UrgencyLevel;
-  emotionalTone: EmotionalTone;
+export interface InputClassification extends Omit<DomainInputClassification, 'complexity' | 'contextualHints'> {
   // 复合动作支持
   subActions?: SubAction[];
   primaryAction?: SubAction;
   actionSequence?: 'sequential' | 'simultaneous';
+  contextualHints: string[];
 }
 
 export interface SubAction {
@@ -161,7 +149,7 @@ export class UnifiedInputClassificationService {
           const compoundResult = await this.analyzeCompoundAction(input, gameContext);
           return {
             ...llmResult,
-            subActions: compoundResult.subActions,
+            // subActions: compoundResult.subActions, // 复合动作暂时移除
             primaryAction: compoundResult.subActions.length > 0 ? compoundResult.subActions[0] : undefined,
             actionSequence: compoundResult.actionSequence
           };
@@ -227,6 +215,7 @@ export class UnifiedInputClassificationService {
           intent: extractResult.intent,
           confidence: extractResult.confidence,
           targetCharacter: extractResult.targetCharacter,
+          targetLocation: extractResult.targetLocation,
           isDirectSpeech: extractResult.isDirectSpeech,
           isActionDescription: extractResult.isActionDescription,
           isSystemQuery: extractResult.isSystemQuery,
@@ -262,7 +251,7 @@ export class UnifiedInputClassificationService {
    */
   private getDefaultClassification(input: string): InputClassification {
     return {
-      type: 'speech',
+      type: InputType.SPEECH,
       intent: IntentType.DIALOGUE,
       confidence: 50,
       isDirectSpeech: true,
@@ -292,7 +281,7 @@ export class UnifiedInputClassificationService {
     const isQuestion = questionPatterns.some(pattern => pattern.test(trimmedInput));
     if (isQuestion) {
       return {
-        type: 'question',
+        type: InputType.QUESTION,
         intent: IntentType.INFORMATION_QUERY,
         confidence: 85,
         isDirectSpeech: true,
@@ -313,7 +302,7 @@ export class UnifiedInputClassificationService {
     const isAction = actionPatterns.some(pattern => pattern.test(trimmedInput));
     if (isAction) {
       return {
-        type: 'action',
+        type: InputType.ACTION,
         intent: IntentType.MOVEMENT,
         confidence: 80,
         isDirectSpeech: false,
@@ -328,7 +317,7 @@ export class UnifiedInputClassificationService {
     
     // 默认为对话
     return {
-      type: 'speech',
+      type: InputType.SPEECH,
       intent: IntentType.DIALOGUE,
       confidence: 75,
       isDirectSpeech: true,

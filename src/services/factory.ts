@@ -1,7 +1,6 @@
 import { LLMService, MockLLMService, LLMProvider } from './llm/LLMService';
 import { RealLLMService } from './llm/RealLLMService';
 import { CharacterService } from './character/CharacterService';
-import { InputClassificationService } from './input/InputClassificationService';
 import { UnifiedInputClassificationService } from './input/UnifiedInputClassificationService';
 import { container, ServiceIdentifier } from './DependencyInjectionContainer';
 import { RealDatabaseService } from './database/RealDatabaseService';
@@ -20,7 +19,6 @@ import { DomainCoordinator } from '../domains/DomainCoordinator';
 export const SERVICE_IDENTIFIERS = {
   LLM_SERVICE: 'LLM_SERVICE',
   CHARACTER_SERVICE: 'CHARACTER_SERVICE',
-  INPUT_CLASSIFICATION_SERVICE: 'INPUT_CLASSIFICATION_SERVICE',
   UNIFIED_INPUT_CLASSIFICATION_SERVICE: 'UNIFIED_INPUT_CLASSIFICATION_SERVICE',
   DATABASE_SERVICE: 'DATABASE_SERVICE',
   LOGGER: 'LOGGER',
@@ -37,7 +35,6 @@ export const SERVICE_IDENTIFIERS = {
 export interface ServiceFactory {
   createLLMService(): LLMService;
   createCharacterService(): CharacterService;
-  createInputClassificationService(): InputClassificationService;
   createUnifiedInputClassificationService(): UnifiedInputClassificationService;
   createDatabaseService(): DatabaseService;
   createLogger(): Logger;
@@ -213,10 +210,6 @@ export class DefaultServiceFactory implements ServiceFactory {
     );
   }
 
-  createInputClassificationService(): InputClassificationService {
-    return new InputClassificationService(this.createLLMService());
-  }
-
   createUnifiedInputClassificationService(): UnifiedInputClassificationService {
     if (!this.unifiedInputClassificationService) {
       this.unifiedInputClassificationService = new UnifiedInputClassificationService(
@@ -337,7 +330,6 @@ export class DefaultServiceFactory implements ServiceFactory {
     container.register(SERVICE_IDENTIFIERS.LOGGER, () => this.createLogger());
     container.register(SERVICE_IDENTIFIERS.LLM_SERVICE, () => this.createLLMService());
     container.register(SERVICE_IDENTIFIERS.CHARACTER_SERVICE, () => this.createCharacterService());
-    container.register(SERVICE_IDENTIFIERS.INPUT_CLASSIFICATION_SERVICE, () => this.createInputClassificationService());
     container.register(SERVICE_IDENTIFIERS.UNIFIED_INPUT_CLASSIFICATION_SERVICE, () => this.createUnifiedInputClassificationService());
     container.register(SERVICE_IDENTIFIERS.DATABASE_SERVICE, () => this.createDatabaseService());
     container.register(SERVICE_IDENTIFIERS.GAME_CONTEXT_SERVICE, () => this.createGameContextService());

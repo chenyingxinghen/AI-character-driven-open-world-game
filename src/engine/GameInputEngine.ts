@@ -1,7 +1,7 @@
 import { InputManager } from '../domains/input/aggregates';
 import { Logger } from '../services/Logger';
 import { LLMService } from '../services/llm/LLMService';
-import { InputClassification, IntentType, EmotionalTone, UrgencyLevel } from '../domains/input/valueObjects';
+import { InputClassification, IntentType, EmotionalTone, UrgencyLevel, InputType } from '../domains/input/valueObjects';
 
 export class GameInputEngine {
   private inputManager: InputManager;
@@ -26,7 +26,7 @@ export class GameInputEngine {
       return {
         intent: 'unknown',
         confidence: 0,
-        entities: [],
+        // entities: [], // 已移除entities字段
         emotionalTone: 'neutral',
         complexity: 1
       };
@@ -49,20 +49,18 @@ export class GameInputEngine {
     } catch (error) {
       this.logger.error('Input classification with context failed:', error as Error);
       return {
+        type: InputType.SPEECH,
         intent: IntentType.UNKNOWN,
         confidence: 0,
-        entities: [],
+        // entities: [], // 已移除entities字段
         emotionalTone: EmotionalTone.NEUTRAL,
         complexity: 1,
         urgency: UrgencyLevel.MEDIUM,
-        contextualInfo: {
-          mentionedCharacters: [],
-          mentionedLocations: [],
-          actionSequence: [],
-          timeReferences: [],
-          emotionalIndicators: ['neutral'],
-          complexityFactors: []
-        }
+        isDirectSpeech: true,
+        isActionDescription: false,
+        isSystemQuery: false,
+        isCompoundAction: false,
+        contextualHints: ['error', 'fallback']
       };
     }
   }

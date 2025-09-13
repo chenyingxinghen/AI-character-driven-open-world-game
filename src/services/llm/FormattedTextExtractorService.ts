@@ -10,13 +10,14 @@ import {
   FormattedTextResponse 
 } from './FormattedTextResponse';
 import { Logger } from '../Logger';
-import { IntentType, EmotionalTone, UrgencyLevel } from '../../domains/input/valueObjects';
+// 导入相关枚举类型
+import { IntentType, EmotionalTone, UrgencyLevel, InputType } from '../../domains/input/valueObjects';
 
 /**
- * 输入分类结果接口
+ * 输入分类结果接口（简化版）
  */
 export interface InputClassificationResult {
-  type: 'speech' | 'action' | 'question' | 'system_query' | 'compound_action';
+  type: InputType;
   intent: IntentType;
   confidence: number;
   targetCharacter?: string;
@@ -29,7 +30,6 @@ export interface InputClassificationResult {
   extractedSpeech?: string;
   urgency: UrgencyLevel;
   emotionalTone: EmotionalTone;
-  entities?: Array<{ type: string; value: string }>;
   contextualHints: string[];
 }
 
@@ -66,14 +66,13 @@ export interface CompoundActionResult {
 }
 
 /**
- * 意图分类结果接口
+ * 意图分类结果接口（简化版）
  */
 export interface IntentClassificationResult {
   intent: IntentType;
   confidence: number;
   emotionalTone: EmotionalTone;
   urgency: UrgencyLevel;
-  entities: Array<{ type: string; value: string }>;
 }
 
 /**
@@ -95,7 +94,7 @@ export class FormattedTextExtractorService {
       const fields = this.parseFields(section);
 
       const result: InputClassificationResult = {
-        type: this.validateAndGetField(fields, 'TYPE', ['speech', 'action', 'question', 'system_query', 'compound_action']) as any,
+        type: this.validateAndGetField(fields, 'TYPE', Object.values(InputType)) as InputType,
         intent: this.mapToIntentType(this.validateAndGetField(fields, 'INTENT', Object.values(IntentType))),
         confidence: this.parseNumber(fields.CONFIDENCE, 0, 100),
         targetCharacter: this.getOptionalField(fields, 'TARGET_CHARACTER'),
@@ -108,7 +107,6 @@ export class FormattedTextExtractorService {
         extractedSpeech: this.getOptionalField(fields, 'EXTRACTED_SPEECH'),
         urgency: this.mapToUrgencyLevel(this.validateAndGetField(fields, 'URGENCY', Object.values(UrgencyLevel))),
         emotionalTone: this.mapToEmotionalTone(this.validateAndGetField(fields, 'EMOTIONAL_TONE', Object.values(EmotionalTone))),
-        entities: this.parseEntities(fields.ENTITIES),
         contextualHints: this.parseList(fields.CONTEXTUAL_HINTS)
       };
 
@@ -203,8 +201,7 @@ export class FormattedTextExtractorService {
         intent: this.mapToIntentType(this.validateAndGetField(fields, 'INTENT', Object.values(IntentType))),
         confidence: this.parseNumber(fields.CONFIDENCE, 0.0, 1.0),
         emotionalTone: this.mapToEmotionalTone(this.validateAndGetField(fields, 'EMOTIONAL_TONE', Object.values(EmotionalTone))),
-        urgency: this.mapToUrgencyLevel(this.validateAndGetField(fields, 'URGENCY', Object.values(UrgencyLevel))),
-        entities: this.parseEntities(fields.ENTITIES)
+        urgency: this.mapToUrgencyLevel(this.validateAndGetField(fields, 'URGENCY', Object.values(UrgencyLevel)))
       };
 
       this.logger.info('Successfully extracted intent classification result');
@@ -349,34 +346,11 @@ export class FormattedTextExtractorService {
   }
 
   /**
-   * 解析实体
-   */
-  private parseEntities(value: string): Array<{ type: string; value: string }> {
-    if (!value || value === 'none' || value === '') {
-      return [];
-    }
-
-    const entities: Array<{ type: string; value: string }> = [];
-    const pairs = value.split(',');
-
-    for (const pair of pairs) {
-      const colonIndex = pair.indexOf(':');
-      if (colonIndex > 0) {
-        const type = pair.substring(0, colonIndex).trim();
-        const val = pair.substring(colonIndex + 1).trim();
-        entities.push({ type, value: val });
-      }
-    }
-
-    return entities;
-  }
-
-  /**
    * 获取默认输入分类结果
    */
   private getDefaultInputClassification(): InputClassificationResult {
     return {
-      type: 'speech',
+      type: InputType.SPEECH,
       intent: IntentType.DIALOGUE,
       confidence: 50,
       isDirectSpeech: true,
@@ -434,8 +408,7 @@ export class FormattedTextExtractorService {
       intent: IntentType.UNKNOWN,
       confidence: 0.5,
       emotionalTone: EmotionalTone.NEUTRAL,
-      urgency: UrgencyLevel.MEDIUM,
-      entities: []
+      urgency: UrgencyLevel.MEDIUM
     };
   }
 

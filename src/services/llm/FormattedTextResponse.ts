@@ -39,17 +39,16 @@ export const INPUT_CLASSIFICATION_TEMPLATE = `
 TYPE: {type}                          // 可选值: ${Object.values(InputType).join(' | ')}
 INTENT: {intent}                      // 可选值: ${Object.values(IntentType).map(t => `'${t}'`).join(' | ')}
 CONFIDENCE: {confidence}              // 数值范围: 0-100
-TARGET_CHARACTER: {targetCharacter}   // 字符串或 'none'
-TARGET_LOCATION: {targetLocation}     // 字符串或 'none'
+TARGET_CHARACTER: {targetCharacter}   // 指向的目标角色或 'none'
+TARGET_LOCATION: {targetLocation}     // 指向的地点或 'none'
 IS_DIRECT_SPEECH: {isDirectSpeech}    // 布尔值: true | false
 IS_ACTION_DESCRIPTION: {isActionDescription} // 布尔值: true | false
 IS_SYSTEM_QUERY: {isSystemQuery}      // 布尔值: true | false
 IS_COMPOUND_ACTION: {isCompoundAction} // 布尔值: true | false
 EXTRACTED_ACTION: {extractedAction}   // 字符串或 'none'
 EXTRACTED_SPEECH: {extractedSpeech}   // 字符串或 'none'
-URGENCY: {urgency}                    // 可选值: UrgencyLevel 枚举 - ${Object.values(UrgencyLevel).map(u => `'${u}'`).join(' | ')}
-EMOTIONAL_TONE: {emotionalTone}       // 可选值: EmotionalTone 枚举 - ${Object.values(EmotionalTone).map(e => `'${e}'`).join(' | ')}
-ENTITIES: {entities}                  // 格式: type:value,type:value (type可选值: ${Object.values(EntityType).join(' | ')})
+URGENCY: {urgency}                    // 可选值: ${Object.values(UrgencyLevel).map(u => `'${u}'`).join(' | ')}
+EMOTIONAL_TONE: {emotionalTone}       // 可选值: ${Object.values(EmotionalTone).map(e => `'${e}'`).join(' | ')}
 CONTEXTUAL_HINTS: {contextualHints}   // 逗号分隔的字符串列表
 === END_CLASSIFICATION ===
 `.trim();
@@ -137,7 +136,8 @@ ${INPUT_CLASSIFICATION_TEMPLATE}
 - INTENT: 意图类型，可选: ${Object.values(IntentType).join(' | ')}
 - URGENCY: 紧急程度，可选: ${Object.values(UrgencyLevel).join(' | ')}
 - EMOTIONAL_TONE: 情绪基调，可选: ${Object.values(EmotionalTone).join(' | ')}
-- ENTITIES: 实体格式为 type:value，type可选: ${Object.values(EntityType).join(' | ')}
+- TARGET_CHARACTER: 目标角色，如无则填 'none'
+- TARGET_LOCATION: 目标位置，如无则填 'none'
 
 注意：请严格按照上述格式输出，不要添加额外的解释或说明。
     `.trim();
