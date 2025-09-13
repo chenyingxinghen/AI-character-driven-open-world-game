@@ -7,6 +7,7 @@ import { Logger } from '../../services/Logger';
 import { LLMService } from '../../services/llm/LLMService';
 import { FormattedTextGenerator } from '../../services/llm/FormattedTextResponse';
 import { FormattedTextExtractorService } from '../../services/llm/FormattedTextExtractorService';
+import { GameContextService } from '../../services/game/GameContextService';
 import { 
   InputClassification, 
   ExtractedEntity, 
@@ -206,7 +207,8 @@ export class IntentClassificationService {
   
   constructor(
     private llmService: LLMService,
-    private logger: Logger
+    private logger: Logger,
+    private gameContextService?: GameContextService
   ) {
     this.extractor = new FormattedTextExtractorService(logger);
   }
@@ -214,7 +216,9 @@ export class IntentClassificationService {
   async classifyIntent(
     input: string,
     entities: ExtractedEntity[],
-    context?: ContextHistory
+    context?: ContextHistory,
+    sessionId?: string,
+    playerId?: string
   ): Promise<{
     intent: IntentType;
     confidence: number;
@@ -228,7 +232,7 @@ export class IntentClassificationService {
     }
 
     try {
-      const llmResult = await this.llmBasedClassification(input, context);
+      const llmResult = await this.llmBasedClassification(input, context, sessionId, playerId);
       if (llmResult.confidence > ruleBasedResult.confidence) {
         return llmResult;
       }
@@ -278,10 +282,54 @@ export class IntentClassificationService {
     };
   }
 
-  private async llmBasedClassification(input: string, context?: ContextHistory): Promise<any> {
+  private async llmBasedClassification(
+    input: string, 
+    context?: ContextHistory,
+    sessionId?: string,
+    playerId?: string
+  ): Promise<any> {
     try {
+      let promptContext;
+      
+      // 如果有GameContextService且提供了sessionId和playerId，使用动态上下文
+      if (this.gameContextService && sessionId && playerId) {
+        try {
+          const gameContext = await this.gameContextService.getInputClassificationContext(sessionId, playerId);
+          promptContext = {
+            sessionId: gameContext.sessionId,
+            currentLocation: gameContext.currentLocation,
+            nearbyCharacters: gameContext.nearbyCharacters,
+            recentConversation: [...gameContext.recentConversation] // 转换为可变数组
+          };
+          
+          this.logger.debug('Using dynamic game context for intent classification', {
+            sessionId,
+            currentLocation: gameContext.currentLocation,
+            nearbyCharactersCount: gameContext.nearbyCharacters.length,
+            component: 'IntentClassificationService'
+          });
+        } catch (error) {
+          this.logger.warn('Failed to get dynamic context, using fallback', error as Error);
+          // 使用备用上下文
+          promptContext = {
+            sessionId: sessionId || 'temp-session',
+            currentLocation: 'unknown',
+            nearbyCharacters: [],
+            recentConversation: [...(context?.recentInputs || [])] // 转换为可变数组
+          };
+        }
+      } else {
+        // 使用基本上下文格式（兼容旧代码）
+        promptContext = {
+          sessionId: sessionId || 'temp-session',
+          currentLocation: 'unknown',
+          nearbyCharacters: [],
+          recentConversation: [...(context?.recentInputs || [])] // 转换为可变数组
+        };
+      }
+      
       // 生成格式化文本提示词
-      const prompt = FormattedTextGenerator.generateIntentClassificationPrompt(input, context);
+      const prompt = FormattedTextGenerator.generateInputClassificationPrompt(input, promptContext);
       
       const response = await this.llmService.generateText(prompt, {
         temperature: 0.3,

@@ -15,13 +15,18 @@ import {
 } from './valueObjects';
 
 /**
- * 游戏位置实体
- * 代表游戏世界中的一个具体位置
+ * 游戏位置实体（增强版）
+ * 代表游戏世界中的一个具体位置，包含动态特性
  */
 export class GameLocation {
   private connections: Map<string, LocationConnection> = new Map();
   private events: WorldEvent[] = [];
   private state: LocationState;
+  private resources: Map<string, number> = new Map();
+  private occupants: Set<string> = new Set(); // 当前位置的角色ID
+  private items: Map<string, number> = new Map(); // 物品和数量
+  private weatherHistory: Array<{ weather: string; timestamp: Date }> = [];
+  private visitHistory: Array<{ playerId: string; timestamp: Date }> = [];
   
   constructor(
     public readonly id: string,
@@ -29,6 +34,7 @@ export class GameLocation {
     public readonly description: string,
     public readonly position: Location,
     public readonly regionId: string,
+    public readonly locationType: 'urban' | 'rural' | 'wilderness' | 'underground' | 'mystical' = 'urban',
     initialState?: LocationState
   ) {
     this.state = initialState || {
@@ -36,7 +42,10 @@ export class GameLocation {
       accessibility: 100,
       dangerLevel: 0,
       activityLevel: 50,
-      lastUpdated: new Date()
+      lastUpdated: new Date(),
+      prosperity: 50,
+      security: 50,
+      cleanliness: 50
     };
   }
 
@@ -123,6 +132,173 @@ export class GameLocation {
     }
     
     return true;
+  }
+
+  /**
+   * 添加占据者（角色或玩家）
+   */
+  addOccupant(entityId: string): void {
+    this.occupants.add(entityId);
+    this.updateActivityLevel(5);
+  }
+
+  /**
+   * 移除占据者
+   */
+  removeOccupant(entityId: string): void {
+    this.occupants.delete(entityId);
+    this.updateActivityLevel(-3);
+  }
+
+  /**
+   * 获取当前占据者
+   */
+  getOccupants(): string[] {
+    return Array.from(this.occupants);
+  }
+
+  /**
+   * 添加资源
+   */
+  addResource(resourceType: string, amount: number): void {
+    const current = this.resources.get(resourceType) || 0;
+    this.resources.set(resourceType, current + amount);
+  }
+
+  /**
+   * 消耗资源
+   */
+  consumeResource(resourceType: string, amount: number): boolean {
+    const current = this.resources.get(resourceType) || 0;
+    if (current >= amount) {
+      this.resources.set(resourceType, current - amount);
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * 获取资源量
+   */
+  getResourceAmount(resourceType: string): number {
+    return this.resources.get(resourceType) || 0;
+  }
+
+  /**
+   * 添加物品
+   */
+  addItem(itemId: string, quantity: number = 1): void {
+    const current = this.items.get(itemId) || 0;
+    this.items.set(itemId, current + quantity);
+  }
+
+  /**
+   * 移除物品
+   */
+  removeItem(itemId: string, quantity: number = 1): boolean {
+    const current = this.items.get(itemId) || 0;
+    if (current >= quantity) {
+      const newAmount = current - quantity;
+      if (newAmount === 0) {
+        this.items.delete(itemId);
+      } else {
+        this.items.set(itemId, newAmount);
+      }
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * 获取所有物品
+   */
+  getItems(): Array<{ id: string; quantity: number }> {
+    return Array.from(this.items.entries()).map(([id, quantity]) => ({ id, quantity }));
+  }
+
+  /**
+   * 记录访问历史
+   */
+  recordVisit(playerId: string): void {
+    this.visitHistory.push({ playerId, timestamp: new Date() });
+    
+    // 保持访问历史在合理大小
+    if (this.visitHistory.length > 100) {
+      this.visitHistory = this.visitHistory.slice(-50);
+    }
+  }
+
+  /**
+   * 获取访问统计
+   */
+  getVisitStatistics(): {
+    totalVisits: number;
+    uniqueVisitors: number;
+    recentVisits: number;
+    popularityScore: number;
+  } {
+    const totalVisits = this.visitHistory.length;
+    const uniqueVisitors = new Set(this.visitHistory.map(v => v.playerId)).size;
+    
+    const recentCutoff = new Date(Date.now() - 24 * 60 * 60 * 1000); // 24小时前
+    const recentVisits = this.visitHistory.filter(v => v.timestamp > recentCutoff).length;
+    
+    const popularityScore = Math.min(100, (recentVisits * 10) + (uniqueVisitors * 5));
+    
+    return {
+      totalVisits,
+      uniqueVisitors,
+      recentVisits,
+      popularityScore
+    };
+  }
+
+  /**
+   * 更新活动等级
+   */
+  private updateActivityLevel(delta: number): void {
+    const newLevel = Math.max(0, Math.min(100, this.state.activityLevel + delta));
+    this.updateState({ activityLevel: newLevel });
+  }
+
+  /**
+   * 动态更新状态（基于时间和事件）
+   */
+  updateDynamicState(currentTime: GameTime): void {
+    const timeDelta = Date.now() - this.state.lastUpdated.getTime();
+    const hoursPassed = timeDelta / (1000 * 60 * 60);
+    
+    // 自然恢复趋向
+    const activityDecay = Math.max(0, this.state.activityLevel - (hoursPassed * 2));
+    const dangerRecovery = Math.max(0, this.state.dangerLevel - (hoursPassed * 1));
+    
+    // 基于位置类型的特性调整
+    let baseActivity = 50;
+    let baseDanger = 10;
+    
+    switch (this.locationType) {
+      case 'urban':
+        baseActivity = 70;
+        baseDanger = 5;
+        break;
+      case 'wilderness':
+        baseActivity = 20;
+        baseDanger = 30;
+        break;
+      case 'underground':
+        baseActivity = 10;
+        baseDanger = 50;
+        break;
+      case 'mystical':
+        baseActivity = 40;
+        baseDanger = 25;
+        break;
+    }
+    
+    this.updateState({
+      activityLevel: Math.max(baseActivity, activityDecay),
+      dangerLevel: Math.max(baseDanger, dangerRecovery)
+    });
   }
 }
 

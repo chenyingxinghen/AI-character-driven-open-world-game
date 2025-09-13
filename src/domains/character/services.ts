@@ -311,22 +311,22 @@ export class BehaviorDecisionService {
       let score = 0;
       
       // 基于个性特征评分
-      if (personality.traits.risk_taking > 0.7 && option.riskLevel > 0.5) {
+      if (personality.traits.risk_taking > 0.7 && (option.riskLevel || 0) > 0.5) {
         score += 20;
-      } else if (personality.traits.risk_taking < 0.3 && option.riskLevel < 0.3) {
+      } else if (personality.traits.risk_taking < 0.3 && (option.riskLevel || 0) < 0.3) {
         score += 20;
       }
       
       // 基于情绪状态评分
-      if (emotionalState.intensity > 70 && option.difficulty < 0.5) {
+      if (emotionalState.intensity > 70 && (option.difficulty || 0) < 0.5) {
         score += 15; // 高情绪强度时偏好简单行为
       }
       
       // 基于预期奖励评分
-      score += option.expectedReward * 10;
+      score += (option.expectedReward || 0) * 10;
       
       // 基于困难度惩罚
-      score -= option.difficulty * 10;
+      score -= (option.difficulty || 0) * 10;
       
       if (score > bestScore) {
         bestScore = score;
@@ -335,11 +335,11 @@ export class BehaviorDecisionService {
     }
     
     return {
-      action: bestOption.action,
+      action: bestOption.action || 'default_action',
       reasoning: `Selected based on personality compatibility and current emotional state`,
       confidence: Math.min(100, Math.max(0, bestScore)),
       emotionalImpact: this.calculateEmotionalImpact(bestOption, emotionalState),
-      expectedOutcome: `Expected positive outcome from ${bestOption.action}`
+      expectedOutcome: `Expected positive outcome from ${bestOption.action || 'selected action'}`
     };
   }
 
@@ -350,12 +350,12 @@ export class BehaviorDecisionService {
     let impact = 0;
     
     // 风险因素影响情绪
-    if (option.riskLevel > 0.7) {
+    if ((option.riskLevel || 0) > 0.7) {
       impact += currentState.intensity > 50 ? 10 : -5;
     }
     
     // 预期奖励影响情绪
-    impact += option.expectedReward * 5;
+    impact += (option.expectedReward || 0) * 5;
     
     return Math.max(-50, Math.min(50, impact));
   }

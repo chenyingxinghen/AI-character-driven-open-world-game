@@ -1,67 +1,86 @@
 import { ConversationRecord } from './DatabaseService';
-import { BaseRepository } from './BaseRepository';
+import { BaseRepository, AbstractBaseRepository, PaginationOptions, PaginatedResult } from './BaseRepository';
 import { DatabaseService } from './DatabaseService';
 
 export interface ConversationRepository extends BaseRepository<ConversationRecord> {
+  // Conversation-specific query methods
   findByCharacterAndSession(characterId: string, sessionId: string, limit?: number): Promise<ConversationRecord[]>;
-  findBySessionId(sessionId: string, limit?: number): Promise<ConversationRecord[]>;
+  findBySessionId(sessionId: string, options?: PaginationOptions): Promise<PaginatedResult<ConversationRecord>>;
+  findByMessageType(sessionId: string, messageType: string, options?: PaginationOptions): Promise<PaginatedResult<ConversationRecord>>;
   findRecentConversations(characterId: string, sessionId: string, hours?: number): Promise<ConversationRecord[]>;
+  findConversationHistory(sessionId: string, limit?: number): Promise<ConversationRecord[]>;
+  searchConversations(sessionId: string, query: string, limit?: number): Promise<ConversationRecord[]>;
+  getConversationStatistics(sessionId: string): Promise<{ totalMessages: number; messagesByType: Record<string, number>; uniqueCharacters: number }>;
 }
 
-export class ConversationRepositoryImpl implements ConversationRepository {
-  constructor(private databaseService: DatabaseService) {}
-
-  async create(item: ConversationRecord): Promise<ConversationRecord> {
-    await this.databaseService.storeConversation(item);
-    return item;
-  }
-
-  async findById(id: string): Promise<ConversationRecord | null> {
-    // This would require a specific query method in the database service
-    throw new Error('Method not implemented in repository, use database service directly');
-  }
-
-  async update(id: string, item: Partial<ConversationRecord>): Promise<void> {
-    // Conversations are typically immutable, so update might not be needed
-    throw new Error('Conversations are typically immutable');
-  }
-
-  async delete(id: string): Promise<void> {
-    // In a real implementation, this would delete from the database
-    throw new Error('Method not implemented in repository, use database service directly');
-  }
-
-  async findAll(): Promise<ConversationRecord[]> {
-    // This would require a specific query method in the database service
-    throw new Error('Method not implemented in repository, use database service directly');
+export class ConversationRepositoryImpl extends AbstractBaseRepository<ConversationRecord> implements ConversationRepository {
+  constructor(databaseService: DatabaseService) {
+    super(databaseService, 'conversations');
   }
 
   async findByCharacterAndSession(characterId: string, sessionId: string, limit: number = 50): Promise<ConversationRecord[]> {
     return this.databaseService.getCharacterConversations(characterId, sessionId, limit);
   }
 
-  async findBySessionId(sessionId: string, limit: number = 100): Promise<ConversationRecord[]> {
-    // This would require a specific query method in the database service
-    // For now, we'll need to get session characters first and then get conversations for each
-    const characters = await this.databaseService.getSessionCharacters(sessionId);
-    const allConversations: ConversationRecord[] = [];
+  async findBySessionId(sessionId: string, options?: PaginationOptions): Promise<PaginatedResult<ConversationRecord>> {
+    return this.findWhere({ session_id: sessionId } as Partial<ConversationRecord>, options);
+  }
+  
+  async findByMessageType(sessionId: string, messageType: string, options?: PaginationOptions): Promise<PaginatedResult<ConversationRecord>> {
+    const criteria = {
+      session_id: sessionId,
+      message_type: messageType
+    } as Partial<ConversationRecord>;
     
-    for (const character of characters) {
-      const conversations = await this.databaseService.getCharacterConversations(character.id, sessionId, Math.ceil(limit / characters.length));
-      allConversations.push(...conversations);
-    }
-    
-    // Sort by created_at and limit
-    return allConversations
-      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-      .slice(0, limit);
+    return this.findWhere(criteria, options);
   }
 
   async findRecentConversations(characterId: string, sessionId: string, hours: number = 24): Promise<ConversationRecord[]> {
-    // In a real implementation, this would query by time range
-    // For now, we'll get recent conversations and filter in memory
-    const conversations = await this.findByCharacterAndSession(characterId, sessionId, 100);
-    const cutoffTime = new Date(Date.now() - hours * 60 * 60 * 1000);
-    return conversations.filter(conv => new Date(conv.created_at) > cutoffTime);
+    const sql = `
+      SELECT * FROM conversations 
+      WHERE character_id = $1 AND session_id = $2 
+        AND created_at >= NOW() - INTERVAL '${hours} hours'
+      ORDER BY created_at DESC
+    `;
+    
+    return await this.databaseService.query<ConversationRecord>(sql, [characterId, sessionId]);
+  }
+  
+  async findConversationHistory(sessionId: string, limit: number = 100): Promise<ConversationRecord[]> {
+    return this.databaseService.getConversationHistory(sessionId, limit);
+  }
+  
+  async searchConversations(sessionId: string, query: string, limit: number = 50): Promise<ConversationRecord[]> {
+    const sql = `
+      SELECT * FROM conversations 
+      WHERE session_id = $1 AND content ILIKE $2
+      ORDER BY created_at DESC
+      LIMIT $3
+    `;
+    
+    return await this.databaseService.query<ConversationRecord>(sql, [sessionId, `%${query}%`, limit]);
+  }
+  
+  async getConversationStatistics(sessionId: string): Promise<{ totalMessages: number; messagesByType: Record<string, number>; uniqueCharacters: number }> {
+    const totalSql = 'SELECT COUNT(*) as count FROM conversations WHERE session_id = $1';
+    const typeSql = 'SELECT message_type, COUNT(*) as count FROM conversations WHERE session_id = $1 GROUP BY message_type';
+    const charactersSql = 'SELECT COUNT(DISTINCT character_id) as count FROM conversations WHERE session_id = $1 AND character_id IS NOT NULL';
+    
+    const [totalResult, typeResult, charactersResult] = await Promise.all([
+      this.databaseService.query<{ count: string }>(totalSql, [sessionId]),
+      this.databaseService.query<{ message_type: string; count: string }>(typeSql, [sessionId]),
+      this.databaseService.query<{ count: string }>(charactersSql, [sessionId])
+    ]);
+    
+    const messagesByType: Record<string, number> = {};
+    typeResult.forEach(row => {
+      messagesByType[row.message_type] = parseInt(row.count);
+    });
+    
+    return {
+      totalMessages: parseInt(totalResult[0].count),
+      messagesByType,
+      uniqueCharacters: parseInt(charactersResult[0].count)
+    };
   }
 }

@@ -225,14 +225,163 @@ export class OperationsManager {
   }
 
   /**
-   * 清理旧数据
+   * 获取增强的运维仪表板数据
    */
-  cleanupOldData(olderThan: Date): void {
-    this.performanceMonitor.cleanup(olderThan);
-    this.costTracker.cleanup(olderThan);
-    this.errorTracker.cleanup(olderThan);
+  async getEnhancedDashboardData(): Promise<{
+    systemHealth: SystemHealth;
+    healthTrends: any;
+    realtimeMetrics: PerformanceMetrics[];
+    performanceAlerts: any[];
+    errorPatterns: any[];
+    optimizationRecommendations: any[];
+    predictiveInsights: {
+      performanceTrends: any;
+      errorPredictions: any;
+      capacityForecasts: any;
+    };
+    totalCost: { daily: number; weekly: number; monthly: number };
+    activeAlerts: Alert[];
+  }> {
+    const systemHealth = await this.getSystemHealth();
+    const healthTrends = this.healthService.getHealthTrends();
+    const realtimeMetrics = this.performanceMonitor.getRealtimeMetrics();
+    const performanceAlerts = this.performanceMonitor.getPerformanceAlerts();
+    const errorPatterns = this.errorTracker.getErrorPatterns();
+    const optimizationRecommendations = this.performanceMonitor.getOptimizationRecommendations();
     
-    this.logger.info(`Cleaned up operations data older than ${olderThan.toISOString()}`);
+    // 获取预测洞察
+    const predictiveInsights = {
+      performanceTrends: this.performanceMonitor.getTrendAnalysis(),
+      errorPredictions: this.errorTracker.getErrorTrends(),
+      capacityForecasts: this.generateCapacityForecasts()
+    };
+    
+    // 计算成本趋势
+    const now = new Date();
+    const totalCost = {
+      daily: this.costTracker.getTotalCost({
+        start: new Date(now.getTime() - 24 * 60 * 60 * 1000),
+        end: now
+      }),
+      weekly: this.costTracker.getTotalCost({
+        start: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000),
+        end: now
+      }),
+      monthly: this.costTracker.getTotalCost({
+        start: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000),
+        end: now
+      })
+    };
+    
+    const activeAlerts = this.alertManager.getActiveAlerts();
+    
+    return {
+      systemHealth,
+      healthTrends,
+      realtimeMetrics,
+      performanceAlerts,
+      errorPatterns,
+      optimizationRecommendations,
+      predictiveInsights,
+      totalCost,
+      activeAlerts
+    };
+  }
+
+  /**
+   * 获取系统健康评估报告
+   */
+  getSystemHealthAssessment(): {
+    overallScore: number;
+    healthTrends: any;
+    criticalIssues: any[];
+    recommendations: any[];
+    riskAssessment: {
+      performanceRisk: 'low' | 'medium' | 'high' | 'critical';
+      reliabilityRisk: 'low' | 'medium' | 'high' | 'critical';
+      securityRisk: 'low' | 'medium' | 'high' | 'critical';
+      capacityRisk: 'low' | 'medium' | 'high' | 'critical';
+    };
+  } {
+    const healthTrends = this.healthService.getHealthTrends();
+    const overallScore = this.calculateOverallSystemScore();
+    const criticalIssues = this.identifyCriticalIssues();
+    const recommendations = this.healthService.getIntelligentHealthRecommendations();
+    const riskAssessment = this.assessSystemRisks();
+    
+    return {
+      overallScore,
+      healthTrends,
+      criticalIssues,
+      recommendations,
+      riskAssessment
+    };
+  }
+
+  /**
+   * 获取智能运维建议
+   */
+  getIntelligentOperationsRecommendations(): Array<{
+    category: 'performance' | 'reliability' | 'cost' | 'security' | 'capacity';
+    priority: 'low' | 'medium' | 'high' | 'critical';
+    title: string;
+    description: string;
+    actionItems: string[];
+    expectedBenefits: string[];
+    implementationEffort: 'low' | 'medium' | 'high';
+    timeline: string;
+  }> {
+    const recommendations = [];
+    
+    // 性能优化建议
+    const performanceRecs = this.performanceMonitor.getOptimizationRecommendations();
+    for (const rec of performanceRecs) {
+      recommendations.push({
+        category: 'performance' as const,
+        priority: rec.severity,
+        title: `Optimize ${rec.operation} Performance`,
+        description: rec.issue,
+        actionItems: [rec.recommendation],
+        expectedBenefits: [rec.expectedImprovement],
+        implementationEffort: this.assessImplementationEffort(rec.recommendation),
+        timeline: this.estimateImplementationTimeline(rec.severity)
+      });
+    }
+    
+    // 错误恢复建议
+    const errorRecs = this.errorTracker.getRecoveryRecommendations();
+    for (const rec of errorRecs) {
+      recommendations.push({
+        category: 'reliability' as const,
+        priority: rec.priority,
+        title: `Improve ${rec.errorType} Reliability`,
+        description: rec.issue,
+        actionItems: [rec.recommendation],
+        expectedBenefits: rec.preventiveMeasures,
+        implementationEffort: 'medium' as const,
+        timeline: this.estimateImplementationTimeline(rec.priority)
+      });
+    }
+    
+    // 健康建议
+    const healthRecs = this.healthService.getIntelligentHealthRecommendations();
+    for (const rec of healthRecs) {
+      recommendations.push({
+        category: rec.category as any,
+        priority: rec.priority,
+        title: `System Health: ${rec.category}`,
+        description: rec.issue,
+        actionItems: [rec.recommendation],
+        expectedBenefits: [rec.expectedImprovement],
+        implementationEffort: rec.implementationComplexity,
+        timeline: rec.estimatedTimeframe
+      });
+    }
+    
+    return recommendations.sort((a, b) => {
+      const priorityOrder = { critical: 4, high: 3, medium: 2, low: 1 };
+      return priorityOrder[b.priority] - priorityOrder[a.priority];
+    });
   }
 
   /**
@@ -377,5 +526,200 @@ export class OperationsManager {
     // 这里应该从存储中获取实际数据
     // 临时实现返回空数组
     return [];
+  }
+
+  /**
+   * 生成容量预测
+   */
+  private generateCapacityForecasts(): {
+    cpuCapacity: { current: number; predicted: number; recommendedAction: string };
+    memoryCapacity: { current: number; predicted: number; recommendedAction: string };
+    storageCapacity: { current: number; predicted: number; recommendedAction: string };
+    networkCapacity: { current: number; predicted: number; recommendedAction: string };
+  } {
+    // 简化实现，实际情况下应该基于历史数据进行复杂预测
+    return {
+      cpuCapacity: {
+        current: 65,
+        predicted: 75,
+        recommendedAction: 'Consider scaling CPU resources in next 2 weeks'
+      },
+      memoryCapacity: {
+        current: 70,
+        predicted: 85,
+        recommendedAction: 'Plan memory upgrade within next month'
+      },
+      storageCapacity: {
+        current: 45,
+        predicted: 60,
+        recommendedAction: 'Storage levels healthy, continue monitoring'
+      },
+      networkCapacity: {
+        current: 30,
+        predicted: 40,
+        recommendedAction: 'Network utilization optimal'
+      }
+    };
+  }
+
+  /**
+   * 计算整体系统评分
+   */
+  private calculateOverallSystemScore(): number {
+    const recentPerformance = this.performanceMonitor.getRecentMetrics(50);
+    const recentErrors = this.errorTracker.getUnresolvedErrors();
+    
+    let score = 100;
+    
+    // 性能评分
+    if (recentPerformance.length > 0) {
+      const avgResponseTime = recentPerformance.reduce((sum, p) => sum + p.executionTime, 0) / recentPerformance.length;
+      const successRate = recentPerformance.filter(p => p.success).length / recentPerformance.length;
+      
+      if (avgResponseTime > 2000) score -= 20;
+      if (successRate < 0.95) score -= 25;
+    }
+    
+    // 错误评分
+    if (recentErrors.length > 10) score -= 30;
+    if (recentErrors.some(e => e.severity === 'critical')) score -= 40;
+    
+    return Math.max(0, Math.min(100, score));
+  }
+
+  /**
+   * 识别关键问题
+   */
+  private identifyCriticalIssues(): Array<{
+    type: string;
+    severity: 'high' | 'critical';
+    description: string;
+    impact: string;
+    urgency: number;
+  }> {
+    const issues = [];
+    
+    // 性能关键问题
+    const performanceAlerts = this.performanceMonitor.getPerformanceAlerts();
+    for (const alert of performanceAlerts) {
+      if (alert.alertType === 'HIGH_EXECUTION_TIME') {
+        issues.push({
+          type: 'performance',
+          severity: 'high' as const,
+          description: `High execution time detected for ${alert.operation}`,
+          impact: 'User experience degradation and potential timeout issues',
+          urgency: 8
+        });
+      }
+    }
+    
+    // 错误关键问题
+    const errorPatterns = this.errorTracker.getErrorPatterns();
+    for (const pattern of errorPatterns) {
+      if (pattern.severity === 'critical' || pattern.count > 50) {
+        issues.push({
+          type: 'reliability',
+          severity: pattern.severity === 'critical' ? 'critical' as const : 'high' as const,
+          description: `Critical error pattern detected: ${pattern.pattern}`,
+          impact: 'System instability and potential service outages',
+          urgency: pattern.severity === 'critical' ? 10 : 7
+        });
+      }
+    }
+    
+    return issues.sort((a, b) => b.urgency - a.urgency);
+  }
+
+  /**
+   * 评估系统风险
+   */
+  private assessSystemRisks(): {
+    performanceRisk: 'low' | 'medium' | 'high' | 'critical';
+    reliabilityRisk: 'low' | 'medium' | 'high' | 'critical';
+    securityRisk: 'low' | 'medium' | 'high' | 'critical';
+    capacityRisk: 'low' | 'medium' | 'high' | 'critical';
+  } {
+    // 性能风险评估
+    const recentMetrics = this.performanceMonitor.getRecentMetrics(100);
+    const avgResponseTime = recentMetrics.length > 0 ? 
+      recentMetrics.reduce((sum, m) => sum + m.executionTime, 0) / recentMetrics.length : 0;
+    
+    let performanceRisk: 'low' | 'medium' | 'high' | 'critical' = 'low';
+    if (avgResponseTime > 3000) performanceRisk = 'critical';
+    else if (avgResponseTime > 2000) performanceRisk = 'high';
+    else if (avgResponseTime > 1000) performanceRisk = 'medium';
+    
+    // 可靠性风险评估
+    const unresolvedErrors = this.errorTracker.getUnresolvedErrors();
+    let reliabilityRisk: 'low' | 'medium' | 'high' | 'critical' = 'low';
+    if (unresolvedErrors.length > 20) reliabilityRisk = 'critical';
+    else if (unresolvedErrors.length > 10) reliabilityRisk = 'high';
+    else if (unresolvedErrors.length > 5) reliabilityRisk = 'medium';
+    
+    // 安全风险评估（简化）
+    const securityRisk: 'low' | 'medium' | 'high' | 'critical' = 'low';
+    
+    // 容量风险评估（简化）
+    const capacityRisk: 'low' | 'medium' | 'high' | 'critical' = 'medium';
+    
+    return {
+      performanceRisk,
+      reliabilityRisk,
+      securityRisk,
+      capacityRisk
+    };
+  }
+
+  /**
+   * 评估实施难度
+   */
+  private assessImplementationEffort(recommendation: string): 'low' | 'medium' | 'high' {
+    const lowEffortKeywords = ['cache', 'config', 'setting', 'parameter'];
+    const highEffortKeywords = ['refactor', 'redesign', 'architecture', 'infrastructure'];
+    
+    const lowerRec = recommendation.toLowerCase();
+    
+    if (highEffortKeywords.some(keyword => lowerRec.includes(keyword))) {
+      return 'high';
+    }
+    
+    if (lowEffortKeywords.some(keyword => lowerRec.includes(keyword))) {
+      return 'low';
+    }
+    
+    return 'medium';
+  }
+
+  /**
+   * 估算实施时间表
+   */
+  private estimateImplementationTimeline(priority: 'low' | 'medium' | 'high' | 'critical'): string {
+    const timelines = {
+      critical: '1-3 days',
+      high: '1-2 weeks',
+      medium: '2-4 weeks',
+      low: '1-2 months'
+    };
+    
+    return timelines[priority];
+  }
+
+  /**
+   * 清理旧数据
+   */
+  cleanupOldData(cutoffDate: Date): void {
+    this.performanceMonitor.cleanup(cutoffDate);
+    this.costTracker.cleanup(cutoffDate);
+    this.errorTracker.cleanup(cutoffDate);
+    this.alertManager.cleanupResolvedAlerts(cutoffDate);
+  }
+
+  /**
+   * 清理系统资源
+   */
+  async cleanupSystem(olderThanHours: number = 24): Promise<void> {
+    const cutoffDate = new Date(Date.now() - olderThanHours * 60 * 60 * 1000);
+    this.cleanupOldData(cutoffDate);
+    this.logger.info(`Operations cleanup completed for data older than ${olderThanHours} hours`);
   }
 }

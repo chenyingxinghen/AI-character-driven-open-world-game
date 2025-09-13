@@ -2,10 +2,12 @@ import { LLMService, MockLLMService, LLMProvider } from './llm/LLMService';
 import { RealLLMService } from './llm/RealLLMService';
 import { CharacterService } from './character/CharacterService';
 import { InputClassificationService } from './input/InputClassificationService';
+import { UnifiedInputClassificationService } from './input/UnifiedInputClassificationService';
 import { container, ServiceIdentifier } from './DependencyInjectionContainer';
 import { RealDatabaseService } from './database/RealDatabaseService';
 import { MockDatabaseService, DatabaseService } from './database/DatabaseService';
 import { Logger, LogLevel } from './Logger';
+import { GameContextService } from './game/GameContextService';
 
 // Import domain managers
 import { CharacterManager } from '../domains/character/aggregates';
@@ -19,8 +21,10 @@ export const SERVICE_IDENTIFIERS = {
   LLM_SERVICE: 'LLM_SERVICE',
   CHARACTER_SERVICE: 'CHARACTER_SERVICE',
   INPUT_CLASSIFICATION_SERVICE: 'INPUT_CLASSIFICATION_SERVICE',
+  UNIFIED_INPUT_CLASSIFICATION_SERVICE: 'UNIFIED_INPUT_CLASSIFICATION_SERVICE',
   DATABASE_SERVICE: 'DATABASE_SERVICE',
   LOGGER: 'LOGGER',
+  GAME_CONTEXT_SERVICE: 'GAME_CONTEXT_SERVICE',
   
   // Domain service identifiers
   CHARACTER_MANAGER: 'CHARACTER_MANAGER',
@@ -34,8 +38,10 @@ export interface ServiceFactory {
   createLLMService(): LLMService;
   createCharacterService(): CharacterService;
   createInputClassificationService(): InputClassificationService;
+  createUnifiedInputClassificationService(): UnifiedInputClassificationService;
   createDatabaseService(): DatabaseService;
   createLogger(): Logger;
+  createGameContextService(): GameContextService;
   
   // Domain manager creation methods
   createCharacterManager(): CharacterManager;
@@ -49,6 +55,8 @@ export class DefaultServiceFactory implements ServiceFactory {
   private logger?: Logger;
   private llmService?: LLMService;
   private databaseService?: DatabaseService;
+  private gameContextService?: GameContextService;
+  private unifiedInputClassificationService?: UnifiedInputClassificationService;
   
   // Domain managers (lazy initialization)
   private characterManager?: CharacterManager;
@@ -209,6 +217,17 @@ export class DefaultServiceFactory implements ServiceFactory {
     return new InputClassificationService(this.createLLMService());
   }
 
+  createUnifiedInputClassificationService(): UnifiedInputClassificationService {
+    if (!this.unifiedInputClassificationService) {
+      this.unifiedInputClassificationService = new UnifiedInputClassificationService(
+        this.createLLMService(),
+        this.createGameContextService(),
+        this.createLogger()
+      );
+    }
+    return this.unifiedInputClassificationService;
+  }
+
   createDatabaseService(): DatabaseService {
     if (!this.databaseService) {
       // Check if we have database credentials
@@ -247,6 +266,16 @@ export class DefaultServiceFactory implements ServiceFactory {
     }
     
     return this.databaseService;
+  }
+
+  createGameContextService(): GameContextService {
+    if (!this.gameContextService) {
+      this.gameContextService = new GameContextService(
+        this.createDatabaseService(),
+        this.createLogger()
+      );
+    }
+    return this.gameContextService;
   }
 
   // Domain manager creation methods
@@ -293,7 +322,8 @@ export class DefaultServiceFactory implements ServiceFactory {
     if (!this.domainCoordinator) {
       this.domainCoordinator = new DomainCoordinator(
         this.createLLMService(),
-        this.createLogger()
+        this.createLogger(),
+        this.createGameContextService()
       );
     }
     return this.domainCoordinator;
@@ -308,7 +338,9 @@ export class DefaultServiceFactory implements ServiceFactory {
     container.register(SERVICE_IDENTIFIERS.LLM_SERVICE, () => this.createLLMService());
     container.register(SERVICE_IDENTIFIERS.CHARACTER_SERVICE, () => this.createCharacterService());
     container.register(SERVICE_IDENTIFIERS.INPUT_CLASSIFICATION_SERVICE, () => this.createInputClassificationService());
+    container.register(SERVICE_IDENTIFIERS.UNIFIED_INPUT_CLASSIFICATION_SERVICE, () => this.createUnifiedInputClassificationService());
     container.register(SERVICE_IDENTIFIERS.DATABASE_SERVICE, () => this.createDatabaseService());
+    container.register(SERVICE_IDENTIFIERS.GAME_CONTEXT_SERVICE, () => this.createGameContextService());
     
     // Register domain managers
     container.register(SERVICE_IDENTIFIERS.CHARACTER_MANAGER, () => this.createCharacterManager());

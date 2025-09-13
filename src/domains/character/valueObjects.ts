@@ -19,17 +19,56 @@ export interface CharacterMemory {
 }
 
 /**
- * 角色情绪状态值对象
+ * 角色情绪状态值对象（增强版）
  */
 export interface EmotionalState {
   readonly mood: string;
   readonly intensity: number;
   readonly stability: number;
   readonly triggers: readonly string[];
+  readonly dominantEmotions: readonly string[];
+  readonly emotionalHistory: readonly Partial<EmotionalState>[];
+  readonly lastMoodChange: Date;
+  readonly baselineStability: number;
 }
 
 /**
- * 角色关系值对象
+ * 情绪触发器值对象
+ */
+export interface EmotionalTrigger {
+  readonly type: string;
+  readonly intensity: number;
+  readonly source: string;
+  readonly timestamp: Date;
+}
+
+/**
+ * 记忆访问模式值对象
+ */
+export interface MemoryAccessPattern {
+  readonly memoryId: string;
+  accessCount: number;
+  lastAccessed: Date;
+  accessFrequency: number;
+  contextualTriggers: string[];
+}
+
+/**
+ * 记忆聚类值对象
+ */
+export interface MemoryCluster {
+  readonly id: string;
+  readonly theme: string;
+  memoryIds: string[];
+  significance: number;
+  emotionalTone: number;
+  readonly createdAt: Date;
+  lastUpdated: Date;
+  readonly averageSignificance: number;
+}
+
+/**
+ * 角色关系值对象（增强版）
  */
 export interface CharacterRelationship {
   readonly characterId: string;
@@ -38,28 +77,44 @@ export interface CharacterRelationship {
   readonly trustLevel: number;
   readonly lastInteraction: Date;
   readonly interactionHistory: readonly string[];
+  readonly relationshipHistory?: readonly any[];
+  readonly emotionalBond?: number;
+  readonly trustTrajectory?: readonly number[];
+  readonly conflictHistory?: readonly any[];
 }
 
 /**
- * 角色行为决策值对象
+ * 行为决策值对象
  */
 export interface BehaviorDecision {
-  readonly action: string;
+  readonly action?: string;
   readonly reasoning: string;
   readonly confidence: number;
-  readonly emotionalImpact: number;
-  readonly expectedOutcome: string;
+  readonly emotionalImpact?: number;
+  readonly expectedOutcome?: string;
+  selectedOption?: BehaviorOption;
+  readonly alternativeOptions?: BehaviorOption[];
+  readonly timestamp?: Date;
+  readonly contextualFactors?: Record<string, any>;
 }
 
 /**
- * 角色行为选项值对象
+ * 行为选项值对象
  */
 export interface BehaviorOption {
-  readonly action: string;
-  readonly motivation: string;
-  readonly difficulty: number;
-  readonly riskLevel: number;
-  readonly expectedReward: number;
+  readonly id?: string;
+  readonly name?: string;
+  readonly description?: string;
+  readonly action?: string;
+  readonly motivation?: string;
+  readonly difficulty?: number;
+  readonly riskLevel?: number;
+  readonly expectedReward?: number;
+  baseScore?: number;
+  personalityFactors?: Record<string, number>;
+  emotionalFactors?: Record<string, number>;
+  readonly consequences?: string[];
+  readonly requirements?: string[];
 }
 
 /**
@@ -102,3 +157,4 @@ export interface CharacterProfile {
   readonly appearance: string;
   readonly personality: CharacterPersonality;
 }
+

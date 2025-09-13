@@ -1,51 +1,96 @@
 import { CharacterRecord } from './DatabaseService';
-import { BaseRepository } from './BaseRepository';
+import { BaseRepository, AbstractBaseRepository, PaginationOptions, PaginatedResult } from './BaseRepository';
 import { DatabaseService } from './DatabaseService';
 
 export interface CharacterRepository extends BaseRepository<CharacterRecord> {
-  findBySessionId(sessionId: string): Promise<CharacterRecord[]>;
-  findByName(name: string): Promise<CharacterRecord[]>;
-  updateBySessionId(characterId: string, sessionId: string, updates: Partial<CharacterRecord>): Promise<void>;
+  // Character-specific query methods
+  findBySessionId(sessionId: string, options?: PaginationOptions): Promise<PaginatedResult<CharacterRecord>>;
+  findByName(name: string, sessionId?: string): Promise<CharacterRecord[]>;
+  findByLocation(location: string, sessionId: string): Promise<CharacterRecord[]>;
+  findActiveInSession(sessionId: string): Promise<CharacterRecord[]>;
+  updateLocation(characterId: string, sessionId: string, newLocation: string): Promise<void>;
+  updateEmotionalState(characterId: string, sessionId: string, emotionalState: any): Promise<void>;
+  deactivateCharacter(characterId: string, sessionId: string): Promise<void>;
+  activateCharacter(characterId: string, sessionId: string): Promise<void>;
 }
 
-export class CharacterRepositoryImpl implements CharacterRepository {
-  constructor(private databaseService: DatabaseService) {}
-
-  async create(item: CharacterRecord): Promise<CharacterRecord> {
-    // In a real implementation, this would insert into the database
-    // For now, we'll just return the item
-    return item;
+export class CharacterRepositoryImpl extends AbstractBaseRepository<CharacterRecord> implements CharacterRepository {
+  constructor(databaseService: DatabaseService) {
+    super(databaseService, 'characters');
   }
 
-  async findById(id: string): Promise<CharacterRecord | null> {
-    // This would be implemented in the database service
-    throw new Error('Method not implemented in repository, use database service directly');
+  async findBySessionId(sessionId: string, options?: PaginationOptions): Promise<PaginatedResult<CharacterRecord>> {
+    return this.findWhere({ session_id: sessionId } as Partial<CharacterRecord>, options);
   }
 
-  async update(id: string, item: Partial<CharacterRecord>): Promise<void> {
-    // This would be implemented in the database service
-    throw new Error('Method not implemented in repository, use database service directly');
+  async findByName(name: string, sessionId?: string): Promise<CharacterRecord[]> {
+    let sql = 'SELECT * FROM characters WHERE name ILIKE $1';
+    let params: any[] = [`%${name}%`];
+    
+    if (sessionId) {
+      sql += ' AND session_id = $2';
+      params.push(sessionId);
+    }
+    
+    return await this.databaseService.query<CharacterRecord>(sql, params);
   }
-
-  async delete(id: string): Promise<void> {
-    // In a real implementation, this would delete from the database
+  
+  async findByLocation(location: string, sessionId: string): Promise<CharacterRecord[]> {
+    const sql = `
+      SELECT * FROM characters 
+      WHERE current_location = $1 AND session_id = $2 AND is_active = true
+    `;
+    
+    return await this.databaseService.query<CharacterRecord>(sql, [location, sessionId]);
   }
-
-  async findAll(): Promise<CharacterRecord[]> {
-    // In a real implementation, this would select all from the database
-    return [];
+  
+  async findActiveInSession(sessionId: string): Promise<CharacterRecord[]> {
+    const sql = `
+      SELECT * FROM characters 
+      WHERE session_id = $1 AND is_active = true
+      ORDER BY created_at ASC
+    `;
+    
+    return await this.databaseService.query<CharacterRecord>(sql, [sessionId]);
   }
-
-  async findBySessionId(sessionId: string): Promise<CharacterRecord[]> {
-    return this.databaseService.getSessionCharacters(sessionId);
+  
+  async updateLocation(characterId: string, sessionId: string, newLocation: string): Promise<void> {
+    const sql = `
+      UPDATE characters 
+      SET current_location = $3, updated_at = NOW()
+      WHERE id = $1 AND session_id = $2
+    `;
+    
+    await this.databaseService.query(sql, [characterId, sessionId, newLocation]);
   }
-
-  async findByName(name: string): Promise<CharacterRecord[]> {
-    // In a real implementation, this would query by name
-    return [];
+  
+  async updateEmotionalState(characterId: string, sessionId: string, emotionalState: any): Promise<void> {
+    const sql = `
+      UPDATE characters 
+      SET emotional_state = $3, updated_at = NOW()
+      WHERE id = $1 AND session_id = $2
+    `;
+    
+    await this.databaseService.query(sql, [characterId, sessionId, emotionalState]);
   }
-
-  async updateBySessionId(characterId: string, sessionId: string, updates: Partial<CharacterRecord>): Promise<void> {
-    return this.databaseService.updateCharacter(characterId, sessionId, updates);
+  
+  async deactivateCharacter(characterId: string, sessionId: string): Promise<void> {
+    const sql = `
+      UPDATE characters 
+      SET is_active = false, updated_at = NOW()
+      WHERE id = $1 AND session_id = $2
+    `;
+    
+    await this.databaseService.query(sql, [characterId, sessionId]);
+  }
+  
+  async activateCharacter(characterId: string, sessionId: string): Promise<void> {
+    const sql = `
+      UPDATE characters 
+      SET is_active = true, updated_at = NOW()
+      WHERE id = $1 AND session_id = $2
+    `;
+    
+    await this.databaseService.query(sql, [characterId, sessionId]);
   }
 }

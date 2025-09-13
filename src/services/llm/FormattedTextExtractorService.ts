@@ -19,6 +19,7 @@ export interface InputClassificationResult {
   intent: 'dialogue' | 'movement' | 'observation' | 'inquiry' | 'greeting' | 'confirmation' | 'system_help' | 'story_background' | 'story_recap' | 'compound';
   confidence: number;
   targetCharacter?: string;
+  targetLocation?: string;
   isDirectSpeech: boolean;
   isActionDescription: boolean;
   isSystemQuery: boolean;
@@ -27,6 +28,7 @@ export interface InputClassificationResult {
   extractedSpeech?: string;
   urgency: 'low' | 'medium' | 'high';
   emotionalTone: 'neutral' | 'positive' | 'negative' | 'excited' | 'concerned';
+  entities?: Array<{ type: string; value: string }>;
   contextualHints: string[];
 }
 
@@ -96,6 +98,7 @@ export class FormattedTextExtractorService {
         intent: this.validateAndGetField(fields, 'INTENT', ['dialogue', 'movement', 'observation', 'inquiry', 'greeting', 'confirmation', 'system_help', 'story_background', 'story_recap', 'compound']) as any,
         confidence: this.parseNumber(fields.CONFIDENCE, 0, 100),
         targetCharacter: this.getOptionalField(fields, 'TARGET_CHARACTER'),
+        targetLocation: this.getOptionalField(fields, 'TARGET_LOCATION'),
         isDirectSpeech: this.parseBoolean(fields.IS_DIRECT_SPEECH),
         isActionDescription: this.parseBoolean(fields.IS_ACTION_DESCRIPTION),
         isSystemQuery: this.parseBoolean(fields.IS_SYSTEM_QUERY),
@@ -104,6 +107,7 @@ export class FormattedTextExtractorService {
         extractedSpeech: this.getOptionalField(fields, 'EXTRACTED_SPEECH'),
         urgency: this.validateAndGetField(fields, 'URGENCY', ['low', 'medium', 'high']) as any,
         emotionalTone: this.validateAndGetField(fields, 'EMOTIONAL_TONE', ['neutral', 'positive', 'negative', 'excited', 'concerned']) as any,
+        entities: this.parseEntities(fields.ENTITIES),
         contextualHints: this.parseList(fields.CONTEXTUAL_HINTS)
       };
 

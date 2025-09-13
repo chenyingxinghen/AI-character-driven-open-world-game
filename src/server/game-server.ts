@@ -6,6 +6,7 @@ import { container } from '../services/DependencyInjectionContainer';
 import { DefaultServiceFactory, SERVICE_IDENTIFIERS } from '../services/factory';
 import { DatabaseService } from '../services/database/DatabaseService';
 import path from 'path';
+import { GameContextService } from '../services/game/GameContextService';
 import * as dotenv from 'dotenv';
 
 // Load environment variables
@@ -39,6 +40,7 @@ const clients: Map<WebSocket, ConnectedClient> = new Map();
 let orchestrator: Orchestrator;
 let logger: Logger;
 let databaseService: DatabaseService;
+let gameContextService: GameContextService;
 
 // Initialize game orchestrator and logger
 async function initializeGameServer() {
@@ -52,6 +54,10 @@ async function initializeGameServer() {
     databaseService = container.resolve<DatabaseService>(SERVICE_IDENTIFIERS.DATABASE_SERVICE);
     await databaseService.connect();
     logger.info('Database service initialized successfully');
+    
+    // Initialize game context service
+    gameContextService = container.resolve<GameContextService>(SERVICE_IDENTIFIERS.GAME_CONTEXT_SERVICE);
+    logger.info('Game context service initialized successfully');
     
     orchestrator = new Orchestrator();
     await orchestrator.initializeGame();
@@ -334,7 +340,19 @@ async function handlePlayerAction(ws: WebSocket, payload: any): Promise<void> {
         inputText = '询问关于镇上的历史';
         break;
       case '2':
-        inputText = '前往图书馆';
+        // 使用动态位置而非硬编码
+        try {
+          const gameContext = await gameContextService.getGameContext(sessionId, playerId);
+          const availableLocations = gameContext.availableLocations.filter(loc => loc.accessibility === 'direct');
+          if (availableLocations.length > 0) {
+            inputText = `前往${availableLocations[0].name}`;
+          } else {
+            inputText = '寻找可以前往的地方';
+          }
+        } catch (error) {
+          logger.warn('Failed to get dynamic location, using fallback');
+          inputText = '寻找可以前往的地方';
+        }
         break;
       case '3':
         inputText = '观察周围环境';
@@ -403,13 +421,25 @@ async function sendGameState(ws: WebSocket, payload: any): Promise<void> {
   }
   
   try {
+    // 使用动态上下文获取当前位置
+    let currentLocation = '未知位置';
+    try {
+      if (session.playerId) {
+        const gameContext = await gameContextService.getGameContext(sessionId, session.playerId);
+        currentLocation = gameContext.currentLocation.name;
+      }
+    } catch (error) {
+      logger.warn('Failed to get dynamic location from GameContextService, using fallback');
+      currentLocation = '默认位置';
+    }
+    
     // Get system status from orchestrator
     const systemStatus = await orchestrator.getSystemStatus();
     
     sendMessage(ws, 'game_state_update', {
       status: 'playing',
       currentTime: new Date().toLocaleTimeString('zh-CN'),
-      currentLocation: session.playerId ? '镇中心广场' : '未知位置',
+      currentLocation,
       hints: [
         '与角色对话了解更多信息',
         '探索不同区域发现秘密',
@@ -427,20 +457,38 @@ async function sendInitialState(ws: WebSocket, sessionId: string): Promise<void>
     // Send initial game state
     await sendGameState(ws, { sessionId });
     
-    // Send initial scene
-    await sendSceneUpdate(ws, {
+    // 获取动态位置信息而非硬编码
+    let locationInfo = {
       location: 'town_square',
-      description: '你站在迷雾镇的中心广场，周围是古老的建筑和熙熙攘攘的人群。喷泉在中央静静流淌，发出轻柔的水声。'
-    });
+      description: '你站在一个未知的地方，周围的景色模糊不清。',
+      title: '神秘之地'
+    };
+    
+    try {
+      const client = clients.get(ws);
+      if (client?.playerId) {
+        const gameContext = await gameContextService.getGameContext(sessionId, client.playerId);
+        locationInfo = {
+          location: gameContext.currentLocation.id,
+          description: gameContext.currentLocation.description,
+          title: gameContext.currentLocation.name
+        };
+      }
+    } catch (error) {
+      logger.warn('Failed to get dynamic location info, using fallback');
+    }
+    
+    // Send initial scene
+    await sendSceneUpdate(ws, locationInfo);
     
     // Send initial action options
-    await sendActionOptions(ws);
+    await sendActionOptions(ws, sessionId);
     
     // Send welcome message
     sendMessage(ws, 'character_response', {
       characterId: 'narrator',
       characterName: '叙述者',
-      content: '欢迎来到AI角色驱动的开放世界游戏！你现在站在迷雾镇的中心广场。你可以与角色对话、探索环境，或使用下方的快捷操作。',
+      content: `欢迎来到AI角色驱动的开放世界游戏！你现在位于${locationInfo.title}。你可以与角色对话、探索环境，或使用下方的快捷操作。`,
       type: 'narration',
       timestamp: new Date().toISOString()
     });
@@ -451,31 +499,63 @@ async function sendInitialState(ws: WebSocket, sessionId: string): Promise<void>
   }
 }
 
-async function sendActionOptions(ws: WebSocket): Promise<void> {
-  const options = [
-    { id: '1', label: '询问关于镇上的历史', type: 'dialogue' },
-    { id: '2', label: '前往图书馆', type: 'movement' },
+async function sendActionOptions(ws: WebSocket, sessionId?: string): Promise<void> {
+  let options = [
+    { id: '1', label: '询问关于当地的历史', type: 'dialogue' },
+    { id: '2', label: '寻找可以前往的地方', type: 'movement' },
     { id: '3', label: '观察周围环境', type: 'interaction' },
     { id: '4', label: '查看背包', type: 'interaction' },
-    { id: '5', label: '与守卫交谈', type: 'dialogue' },
-    { id: '6', label: '检查公告栏', type: 'interaction' }
+    { id: '5', label: '与附近的人交谈', type: 'dialogue' },
+    { id: '6', label: '查看周围的信息', type: 'interaction' }
   ];
+  
+  // 如果有sessionId，尝试获取动态选项
+  if (sessionId) {
+    try {
+      const client = Array.from(clients.values()).find(c => c.sessionId === sessionId);
+      if (client?.playerId) {
+        const gameContext = await gameContextService.getGameContext(sessionId, client.playerId);
+        
+        // 动态生成移动选项
+        if (gameContext.availableLocations.length > 0) {
+          options[1] = {
+            id: '2',
+            label: `前往${gameContext.availableLocations[0].name}`,
+            type: 'movement'
+          };
+        }
+        
+        // 动态生成对话选项
+        if (gameContext.nearbyCharacters.length > 0) {
+          options[4] = {
+            id: '5',
+            label: `与${gameContext.nearbyCharacters[0].name}交谈`,
+            type: 'dialogue'
+          };
+        }
+      }
+    } catch (error) {
+      logger.warn('Failed to get dynamic action options, using default options');
+    }
+  }
   
   sendMessage(ws, 'action_options_update', { options });
 }
 
 async function sendSceneUpdate(ws: WebSocket, sceneData: any): Promise<void> {
-  sendMessage(ws, 'scene_update', {
-    id: sceneData.location || 'town_square',
-    title: '镇中心广场',
-    description: sceneData.description || '你站在迷雾镇的中心广场。',
-    imageUrl: '/scenes/town_square.jpg',
-    charactersPresent: ['town_guard', 'merchant'],
-    objects: [
-      { id: 'fountain', name: '古老喷泉', description: '镇上的标志性建筑，据说有神秘的力量' },
-      { id: 'notice_board', name: '公告栏', description: '张贴着各种通知和信息' }
+  // 使用传入的动态数据，如果没有则使用默认值
+  const sceneInfo = {
+    id: sceneData.location || 'unknown_location',
+    title: sceneData.title || '未知地点',
+    description: sceneData.description || '你站在一个神秘的地方。',
+    imageUrl: `/scenes/${sceneData.location || 'default'}.jpg`,
+    charactersPresent: sceneData.charactersPresent || [],
+    objects: sceneData.objects || [
+      { id: 'mystery_object', name: '神秘物品', description: '一个看起来很有趣的物品' }
     ]
-  });
+  };
+  
+  sendMessage(ws, 'scene_update', sceneInfo);
 }
 
 function sendMessage(ws: WebSocket, type: string, payload: any): void {

@@ -82,7 +82,7 @@ export interface WorldEventEffect {
 }
 
 /**
- * 位置状态值对象
+ * 位置状态值对象（增强版）
  */
 export interface LocationState {
   readonly population: number;
@@ -90,6 +90,44 @@ export interface LocationState {
   readonly dangerLevel: number;
   readonly activityLevel: number;
   readonly lastUpdated: Date;
+  readonly prosperity: number;
+  readonly security: number;
+  readonly cleanliness: number;
+}
+
+/**
+ * 动态位置配置值对象
+ */
+export interface DynamicLocationConfig {
+  readonly maxPopulation: number;
+  readonly growthRate: number;
+  readonly baseResources: Record<string, number>;
+  readonly seasonalModifiers: Record<string, Partial<EnvironmentalFactors>>;
+  readonly eventProbabilities: Record<string, number>;
+}
+
+/**
+ * 环境变化事件值对象
+ */
+export interface EnvironmentalChange {
+  readonly id: string;
+  readonly type: 'weather' | 'disaster' | 'seasonal' | 'artificial';
+  readonly description: string;
+  readonly duration: number; // 小时
+  readonly effects: Record<keyof EnvironmentalFactors, number>;
+  readonly affectedRegions: readonly string[];
+}
+
+/**
+ * 位置特性值对象
+ */
+export interface LocationFeature {
+  readonly id: string;
+  readonly name: string;
+  readonly description: string;
+  readonly type: 'landmark' | 'resource' | 'hazard' | 'portal' | 'hidden';
+  readonly effects: Record<string, number>;
+  readonly discoverable: boolean;
 }
 
 /**

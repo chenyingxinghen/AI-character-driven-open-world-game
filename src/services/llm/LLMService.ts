@@ -1,3 +1,5 @@
+import { LLMServiceConfig } from './types/LLMTypes';
+
 export interface LLMRequest {
   agentId: string;
   prompt: string;
@@ -71,30 +73,7 @@ export enum RequestPriority {
   CRITICAL = 3
 }
 
-export interface LLMServiceConfig {
-  providers: {
-    [key in LLMProvider]?: {
-      apiKey: string;
-      baseUrl?: string;
-      defaultModel: string;
-      rateLimit: {
-        requestsPerMinute: number;
-        tokensPerMinute: number;
-      };
-      pricing: {
-        inputTokenPrice: number;  // per 1000 tokens
-        outputTokenPrice: number; // per 1000 tokens
-      };
-    };
-  };
-  defaultProvider: LLMProvider;
-  retryConfig: {
-    maxAttempts: number;
-    backoffMultiplier: number;
-    maxBackoffMs: number;
-  };
-  timeoutMs: number;
-}
+
 
 export interface LLMService {
   // 角色对话生成

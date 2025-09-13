@@ -16,7 +16,27 @@ import { AnthropicProvider } from './providers/AnthropicProvider';
 import { GeminiProvider } from './providers/GeminiProvider';
 import { OpenRouterProvider } from './providers/OpenRouterProvider';
 import { OpenAILikeProvider } from './providers/OpenAILikeProvider';
+import { OllamaProvider } from './providers/OllamaProvider';
 import { LLMProviderAdapter } from './types/LLMTypes';
+
+export interface ProviderHealth {
+  isHealthy: boolean;
+  latency: number;
+  lastCheck: Date;
+  errorCount: number;
+}
+
+export interface LoadBalancingStrategy {
+  type: 'round-robin' | 'least-latency' | 'random' | 'weighted';
+  weights?: Record<LLMProvider, number>;
+}
+
+export interface FailoverConfig {
+  enabled: boolean;
+  healthCheckInterval: number;
+  maxFailures: number;
+  fallbackOrder: LLMProvider[];
+}
 
 export class RealLLMService implements LLMService {
   private config: LLMServiceConfig;
@@ -24,11 +44,27 @@ export class RealLLMService implements LLMService {
   private defaultProvider: LLMProvider;
   private requestQueue: { request: LLMRequest, priority: RequestPriority }[] = [];
   private costTracking: { [key in LLMProvider]?: number } = {};
+  private providerHealth: Map<LLMProvider, ProviderHealth> = new Map();
+  private currentProviderIndex: number = 0;
+  private loadBalancingStrategy: LoadBalancingStrategy = { type: 'round-robin' };
+  private failoverConfig: FailoverConfig;
+  private healthCheckTimer?: NodeJS.Timeout;
+  private configWatcher?: any; // File watcher for dynamic config
 
-  constructor(config: LLMServiceConfig) {
+  constructor(config: LLMServiceConfig, loadBalancingStrategy?: LoadBalancingStrategy, failoverConfig?: FailoverConfig) {
     this.config = config;
     this.defaultProvider = config.defaultProvider;
+    this.loadBalancingStrategy = loadBalancingStrategy || { type: 'round-robin' };
+    this.failoverConfig = failoverConfig || {
+      enabled: true,
+      healthCheckInterval: 30000, // 30 seconds
+      maxFailures: 3,
+      fallbackOrder: [LLMProvider.OPENAI, LLMProvider.ANTHROPIC, LLMProvider.GEMINI, LLMProvider.OPENROUTER]
+    };
+    
     this.initializeProviders();
+    this.startHealthMonitoring();
+    this.watchConfigChanges();
   }
 
   private initializeProviders(): void {
@@ -80,7 +116,31 @@ export class RealLLMService implements LLMService {
       this.costTracking[LLMProvider.OPENROUTER] = 0;
     }
 
-    // 可以继续添加其他提供者...
+    // 初始化本地模型提供者 (Ollama)
+    if (this.config.providers[LLMProvider.LOCAL]) {
+      const localConfig = this.config.providers[LLMProvider.LOCAL]!;
+      this.providers.set(
+        LLMProvider.LOCAL,
+        new OllamaProvider({
+          baseUrl: localConfig.baseUrl || 'http://localhost:11434',
+          model: localConfig.defaultModel
+        })
+      );
+      this.costTracking[LLMProvider.LOCAL] = 0;
+    }
+
+    // 初始化OpenAI兼容的提供者
+    if (this.config.providers[LLMProvider.OPENAI] && this.config.providers[LLMProvider.OPENAI]?.baseUrl) {
+      const openaiConfig = this.config.providers[LLMProvider.OPENAI]!;
+      this.providers.set(
+        LLMProvider.OPENAI,
+        new OpenAILikeProvider(
+          openaiConfig.apiKey,
+          openaiConfig.baseUrl!,
+          openaiConfig.defaultModel
+        )
+      );
+    }
   }
 
   async generateCharacterResponse(
@@ -116,16 +176,24 @@ export class RealLLMService implements LLMService {
       provider?: LLMProvider;
     }
   ): Promise<string> {
-    const providerKey = options?.provider || this.defaultProvider;
-    const provider = this.providers.get(providerKey);
-    if (!provider) {
-      throw new Error(`Provider ${providerKey} not initialized`);
+    if (options?.provider) {
+      // Use specified provider
+      const provider = this.providers.get(options.provider);
+      if (!provider) {
+        throw new Error(`Provider ${options.provider} not initialized`);
+      }
+      return provider.generateText(prompt, {
+        maxTokens: options?.maxTokens,
+        temperature: options?.temperature
+      });
+    } else {
+      // Use intelligent selection
+      return this.generateTextWithIntelligentSelection(prompt, {
+        maxTokens: options?.maxTokens,
+        temperature: options?.temperature,
+        fallbackEnabled: true
+      });
     }
-
-    return provider.generateText(prompt, {
-      maxTokens: options?.maxTokens,
-      temperature: options?.temperature
-    });
   }
 
   async processBatchRequests(
@@ -310,5 +378,287 @@ export class RealLLMService implements LLMService {
   // Get current cost tracking
   getCostTracking(): { [key in LLMProvider]?: number } {
     return { ...this.costTracking };
+  }
+  
+  // Load balancing and intelligent provider selection
+  private selectOptimalProvider(): LLMProvider {
+    const availableProviders = this.getHealthyProviders();
+    
+    if (availableProviders.length === 0) {
+      throw new Error('No healthy providers available');
+    }
+    
+    switch (this.loadBalancingStrategy.type) {
+      case 'round-robin':
+        return this.selectRoundRobin(availableProviders);
+      case 'least-latency':
+        return this.selectLeastLatency(availableProviders);
+      case 'random':
+        return this.selectRandom(availableProviders);
+      case 'weighted':
+        return this.selectWeighted(availableProviders);
+      default:
+        return availableProviders[0];
+    }
+  }
+  
+  private getHealthyProviders(): LLMProvider[] {
+    return Array.from(this.providers.keys()).filter(provider => {
+      const health = this.providerHealth.get(provider);
+      return health?.isHealthy ?? true;
+    });
+  }
+  
+  private selectRoundRobin(providers: LLMProvider[]): LLMProvider {
+    const provider = providers[this.currentProviderIndex % providers.length];
+    this.currentProviderIndex++;
+    return provider;
+  }
+  
+  private selectLeastLatency(providers: LLMProvider[]): LLMProvider {
+    return providers.reduce((best, current) => {
+      const bestHealth = this.providerHealth.get(best);
+      const currentHealth = this.providerHealth.get(current);
+      
+      if (!bestHealth) return current;
+      if (!currentHealth) return best;
+      
+      return currentHealth.latency < bestHealth.latency ? current : best;
+    });
+  }
+  
+  private selectRandom(providers: LLMProvider[]): LLMProvider {
+    return providers[Math.floor(Math.random() * providers.length)];
+  }
+  
+  private selectWeighted(providers: LLMProvider[]): LLMProvider {
+    if (!this.loadBalancingStrategy.weights) {
+      return this.selectRandom(providers);
+    }
+    
+    const weights = this.loadBalancingStrategy.weights;
+    const totalWeight = providers.reduce((sum, provider) => sum + (weights[provider] || 1), 0);
+    let random = Math.random() * totalWeight;
+    
+    for (const provider of providers) {
+      random -= weights[provider] || 1;
+      if (random <= 0) {
+        return provider;
+      }
+    }
+    
+    return providers[0];
+  }
+  
+  // Health monitoring
+  private startHealthMonitoring(): void {
+    if (!this.failoverConfig.enabled) {
+      return;
+    }
+    
+    this.healthCheckTimer = setInterval(async () => {
+      await this.performHealthChecks();
+    }, this.failoverConfig.healthCheckInterval);
+  }
+  
+  private async performHealthChecks(): Promise<void> {
+    for (const [provider, providerAdapter] of this.providers.entries()) {
+      const startTime = Date.now();
+      
+      try {
+        const isHealthy = await providerAdapter.healthCheck();
+        const latency = Date.now() - startTime;
+        
+        const currentHealth = this.providerHealth.get(provider) || {
+          isHealthy: true,
+          latency: 0,
+          lastCheck: new Date(),
+          errorCount: 0
+        };
+        
+        this.providerHealth.set(provider, {
+          isHealthy,
+          latency,
+          lastCheck: new Date(),
+          errorCount: isHealthy ? 0 : currentHealth.errorCount + 1
+        });
+        
+        // Mark as unhealthy if too many failures
+        if (currentHealth.errorCount >= this.failoverConfig.maxFailures) {
+          this.providerHealth.set(provider, {
+            ...currentHealth,
+            isHealthy: false
+          });
+        }
+        
+      } catch (error) {
+        const currentHealth = this.providerHealth.get(provider) || {
+          isHealthy: true,
+          latency: 0,
+          lastCheck: new Date(),
+          errorCount: 0
+        };
+        
+        this.providerHealth.set(provider, {
+          isHealthy: false,
+          latency: Date.now() - startTime,
+          lastCheck: new Date(),
+          errorCount: currentHealth.errorCount + 1
+        });
+        
+        console.error(`Health check failed for provider ${provider}:`, error);
+      }
+    }
+  }
+  
+  // Dynamic configuration management
+  private watchConfigChanges(): void {
+    // In a real implementation, this would watch for config file changes
+    // For now, we'll just set up a basic structure
+    console.log('Config watcher initialized (placeholder implementation)');
+  }
+  
+  async reloadConfig(newConfig?: Partial<LLMServiceConfig>): Promise<void> {
+    if (newConfig) {
+      this.config = { ...this.config, ...newConfig };
+      this.initializeProviders();
+      console.log('Configuration reloaded from provided config');
+    } else {
+      // In real implementation, reload from file
+      console.log('Configuration reload requested (would reload from file)');
+    }
+  }
+  
+  // Enhanced generateText with intelligent provider selection
+  async generateTextWithIntelligentSelection(
+    prompt: string,
+    options?: {
+      maxTokens?: number;
+      temperature?: number;
+      preferredProviders?: LLMProvider[];
+      fallbackEnabled?: boolean;
+    }
+  ): Promise<string> {
+    const preferredProviders = options?.preferredProviders || [this.selectOptimalProvider()];
+    const fallbackEnabled = options?.fallbackEnabled ?? true;
+    
+    let lastError: any;
+    
+    for (const provider of preferredProviders) {
+      try {
+        const providerAdapter = this.providers.get(provider);
+        if (!providerAdapter) {
+          throw new Error(`Provider ${provider} not available`);
+        }
+        
+        const health = this.providerHealth.get(provider);
+        if (health && !health.isHealthy) {
+          throw new Error(`Provider ${provider} is currently unhealthy`);
+        }
+        
+        return await providerAdapter.generateText(prompt, {
+          maxTokens: options?.maxTokens,
+          temperature: options?.temperature
+        });
+        
+      } catch (error) {
+        lastError = error;
+        console.warn(`Provider ${provider} failed, trying next:`, (error as Error).message);
+        
+        // Update health status
+        const currentHealth = this.providerHealth.get(provider);
+        if (currentHealth) {
+          this.providerHealth.set(provider, {
+            ...currentHealth,
+            errorCount: currentHealth.errorCount + 1
+          });
+        }
+      }
+    }
+    
+    if (fallbackEnabled && this.failoverConfig.enabled) {
+      // Try fallback providers
+      for (const fallbackProvider of this.failoverConfig.fallbackOrder) {
+        if (preferredProviders.includes(fallbackProvider)) {
+          continue; // Already tried
+        }
+        
+        try {
+          const providerAdapter = this.providers.get(fallbackProvider);
+          if (!providerAdapter) continue;
+          
+          console.log(`Falling back to provider ${fallbackProvider}`);
+          return await providerAdapter.generateText(prompt, {
+            maxTokens: options?.maxTokens,
+            temperature: options?.temperature
+          });
+          
+        } catch (error) {
+          console.warn(`Fallback provider ${fallbackProvider} also failed:`, (error as Error).message);
+        }
+      }
+    }
+    
+    throw lastError || new Error('All providers failed');
+  }
+  
+  // Provider statistics
+  getProviderStatistics(): Record<LLMProvider, {
+    health: ProviderHealth;
+    totalRequests: number;
+    totalCost: number;
+    averageLatency: number;
+  }> {
+    const stats: any = {};
+    
+    for (const provider of this.providers.keys()) {
+      const health = this.providerHealth.get(provider) || {
+        isHealthy: true,
+        latency: 0,
+        lastCheck: new Date(),
+        errorCount: 0
+      };
+      
+      stats[provider] = {
+        health,
+        totalRequests: 0, // Would track in real implementation
+        totalCost: this.costTracking[provider] || 0,
+        averageLatency: health.latency
+      };
+    }
+    
+    return stats;
+  }
+  
+  // Update load balancing strategy
+  setLoadBalancingStrategy(strategy: LoadBalancingStrategy): void {
+    this.loadBalancingStrategy = strategy;
+    console.log(`Load balancing strategy updated to: ${strategy.type}`);
+  }
+  
+  // Update failover configuration
+  setFailoverConfig(config: Partial<FailoverConfig>): void {
+    this.failoverConfig = { ...this.failoverConfig, ...config };
+    
+    // Restart health monitoring with new config
+    if (this.healthCheckTimer) {
+      clearInterval(this.healthCheckTimer);
+    }
+    this.startHealthMonitoring();
+    
+    console.log('Failover configuration updated');
+  }
+  
+  // Cleanup method
+  async shutdown(): Promise<void> {
+    if (this.healthCheckTimer) {
+      clearInterval(this.healthCheckTimer);
+    }
+    
+    if (this.configWatcher) {
+      // Close config watcher if implemented
+    }
+    
+    console.log('LLM Service shutdown completed');
   }
 }

@@ -11,4 +11,4 @@ export * from './character/CharacterService';
 export * from './game/GameService';
 
 // Input Services
-export * from './input/InputService';
+export * from './input';

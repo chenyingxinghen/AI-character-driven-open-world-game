@@ -456,3 +456,311 @@ export class WorldEventService {
     }
   }
 }
+
+/**
+ * 动态位置服务
+ * 处理位置的动态生成、更新和管理
+ */
+export class DynamicLocationService {
+  private locationTemplates: Map<string, any> = new Map();
+  private procedureGenerators: Map<string, Function> = new Map();
+  
+  constructor(
+    private llmService: LLMService,
+    private logger: Logger
+  ) {
+    this.initializeLocationTemplates();
+    this.initializeProcedureGenerators();
+  }
+
+  /**
+   * 动态创建位置
+   */
+  async createDynamicLocation(
+    name: string,
+    regionId: string,
+    playerContext: {
+      level: number;
+      preferences: string[];
+      visitedLocations: string[];
+    },
+    worldContext: {
+      currentTime: GameTime;
+      nearbyLocations: GameLocation[];
+      regionalTheme: string;
+    }
+  ): Promise<GameLocation> {
+    this.logger.info(`Creating dynamic location: ${name}`);
+
+    // 选择适合的位置模板
+    const template = this.selectLocationTemplate(playerContext, worldContext);
+    
+    // 生成位置特性
+    const features = await this.generateLocationFeatures(name, template, worldContext);
+    
+    // 创建位置实体
+    const location = new GameLocation(
+      `dyn_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      name,
+      features.description,
+      features.position,
+      regionId,
+      template.locationType,
+      features.initialState
+    );
+    
+    // 添加动态特性
+    this.applyDynamicFeatures(location, features);
+    
+    return location;
+  }
+
+  /**
+   * 更新位置态态（基于玩家行为和时间）
+   */
+  updateLocationEcosystem(
+    location: GameLocation,
+    playerActions: Array<{
+      type: string;
+      timestamp: Date;
+      impact: number;
+    }>,
+    currentTime: GameTime
+  ): void {
+    // 分析玩家行为影响
+    const behaviorImpact = this.analyzeBehaviorImpact(playerActions);
+    
+    // 应用时间影响
+    this.applyTemporalChanges(location, currentTime);
+    
+    // 应用行为影响
+    this.applyBehaviorImpact(location, behaviorImpact);
+    
+    // 更新动态状态
+    location.updateDynamicState(currentTime);
+  }
+
+  /**
+   * 生成程序化内容
+   */
+  generateProceduralContent(
+    location: GameLocation,
+    contentType: 'items' | 'npcs' | 'events' | 'secrets',
+    playerLevel: number
+  ): any[] {
+    const generator = this.procedureGenerators.get(contentType);
+    if (!generator) {
+      this.logger.warn(`No generator found for content type: ${contentType}`);
+      return [];
+    }
+    
+    return generator(location, playerLevel);
+  }
+
+  /**
+   * 初始化位置模板
+   */
+  private initializeLocationTemplates(): void {
+    // 城市模板
+    this.locationTemplates.set('urban', {
+      locationType: 'urban',
+      baseResources: { 'gold': 50, 'information': 80, 'safety': 70 },
+      commonFeatures: ['market', 'tavern', 'guard_post'],
+      rarityModifiers: { 'common': 0.7, 'uncommon': 0.2, 'rare': 0.1 }
+    });
+    
+    // 荒野模板
+    this.locationTemplates.set('wilderness', {
+      locationType: 'wilderness',
+      baseResources: { 'herbs': 70, 'wood': 80, 'danger': 60 },
+      commonFeatures: ['forest', 'river', 'cave'],
+      rarityModifiers: { 'common': 0.5, 'uncommon': 0.3, 'rare': 0.2 }
+    });
+    
+    // 地下模板
+    this.locationTemplates.set('underground', {
+      locationType: 'underground',
+      baseResources: { 'minerals': 90, 'danger': 80, 'mystery': 70 },
+      commonFeatures: ['tunnel', 'chamber', 'crystal'],
+      rarityModifiers: { 'common': 0.3, 'uncommon': 0.4, 'rare': 0.3 }
+    });
+  }
+
+  /**
+   * 初始化程序生成器
+   */
+  private initializeProcedureGenerators(): void {
+    // 物品生成器
+    this.procedureGenerators.set('items', (location: GameLocation, playerLevel: number) => {
+      const items = [];
+      const itemCount = Math.floor(Math.random() * 3) + 1;
+      
+      for (let i = 0; i < itemCount; i++) {
+        items.push({
+          id: `item_${Date.now()}_${i}`,
+          name: this.generateItemName(location.locationType),
+          type: this.selectItemType(location.locationType),
+          value: Math.floor(Math.random() * playerLevel * 10) + 5
+        });
+      }
+      
+      return items;
+    });
+    
+    // 事件生成器
+    this.procedureGenerators.set('events', (location: GameLocation, playerLevel: number) => {
+      const events = [];
+      
+      if (Math.random() < 0.3) { // 30%概率生成事件
+        events.push({
+          id: `event_${Date.now()}`,
+          type: this.selectEventType(location.locationType),
+          description: this.generateEventDescription(location),
+          probability: Math.min(0.8, playerLevel * 0.1)
+        });
+      }
+      
+      return events;
+    });
+  }
+
+  /**
+   * 选择位置模板
+   */
+  private selectLocationTemplate(playerContext: any, worldContext: any): any {
+    const availableTemplates = Array.from(this.locationTemplates.values());
+    
+    // 根据上下文选择最适合的模板
+    if (worldContext.regionalTheme) {
+      const matchingTemplate = this.locationTemplates.get(worldContext.regionalTheme);
+      if (matchingTemplate) return matchingTemplate;
+    }
+    
+    // 随机选择
+    return availableTemplates[Math.floor(Math.random() * availableTemplates.length)];
+  }
+
+  /**
+   * 生成位置特性
+   */
+  private async generateLocationFeatures(name: string, template: any, worldContext: any): Promise<any> {
+    const description = await this.generateDynamicDescription(name, template, worldContext);
+    const position = this.calculateOptimalPosition(worldContext.nearbyLocations);
+    
+    const initialState = {
+      population: Math.floor(Math.random() * 100),
+      accessibility: 50 + Math.floor(Math.random() * 50),
+      dangerLevel: template.baseResources.danger || 10,
+      activityLevel: 30 + Math.floor(Math.random() * 40),
+      lastUpdated: new Date(),
+      prosperity: 50,
+      security: 70,
+      cleanliness: 60
+    };
+    
+    return {
+      description,
+      position,
+      initialState,
+      resources: { ...template.baseResources },
+      features: template.commonFeatures
+    };
+  }
+
+  /**
+   * 生成动态描述
+   */
+  private async generateDynamicDescription(name: string, template: any, worldContext: any): Promise<string> {
+    const prompt = `
+为名为"${name}"的${template.locationType}类型位置生成描述。
+
+上下文：
+- 时间：${worldContext.currentTime.timeOfDay}，${worldContext.currentTime.season}
+- 区域主题：${worldContext.regionalTheme}
+- 附近位置：${worldContext.nearbyLocations.map((l: GameLocation) => l.name).slice(0, 3).join(', ')}
+
+请生成一个简洁但引人入胜的描述（50-100字）：
+`;
+    
+    try {
+      const response = await this.llmService.generateText(prompt, {
+        temperature: 0.8,
+        maxTokens: 150
+      });
+      
+      return response || `A ${template.locationType} location named ${name}`;
+    } catch (error) {
+      this.logger.error('Error generating dynamic description:', error as Error);
+      return `A ${template.locationType} location named ${name}`;
+    }
+  }
+
+  // 简化的辅助方法
+  private calculateOptimalPosition(nearbyLocations: GameLocation[]): Location {
+    if (nearbyLocations.length === 0) {
+      return { x: Math.random() * 1000, y: Math.random() * 1000 };
+    }
+    
+    const avgX = nearbyLocations.reduce((sum, loc) => sum + loc.position.x, 0) / nearbyLocations.length;
+    const avgY = nearbyLocations.reduce((sum, loc) => sum + loc.position.y, 0) / nearbyLocations.length;
+    
+    return {
+      x: avgX + (Math.random() - 0.5) * 300,
+      y: avgY + (Math.random() - 0.5) * 300
+    };
+  }
+
+  private applyDynamicFeatures(location: GameLocation, features: any): void {
+    // 添加资源
+    for (const [resource, amount] of Object.entries(features.resources)) {
+      location.addResource(resource, amount as number);
+    }
+  }
+  
+  private analyzeBehaviorImpact(actions: any[]): any {
+    return { prosperity: 0, security: 0, cleanliness: 0 };
+  }
+  
+  private applyTemporalChanges(location: GameLocation, currentTime: GameTime): void {
+    // 时间影响逻辑
+  }
+  
+  private applyBehaviorImpact(location: GameLocation, impact: any): void {
+    // 行为影响逻辑
+  }
+  
+  private generateItemName(locationType: string): string {
+    const names = {
+      urban: ['古董', '工具', '书籍'],
+      wilderness: ['药草', '木材', '皙甩'],
+      underground: ['水晶', '矿物', '宝石']
+    };
+    
+    const typeNames = names[locationType as keyof typeof names] || names.urban;
+    return typeNames[Math.floor(Math.random() * typeNames.length)];
+  }
+  
+  private selectItemType(locationType: string): string {
+    const types = {
+      urban: 'tool',
+      wilderness: 'resource',
+      underground: 'treasure'
+    };
+    
+    return types[locationType as keyof typeof types] || 'misc';
+  }
+  
+  private selectEventType(locationType: string): string {
+    const types = {
+      urban: 'social',
+      wilderness: 'encounter',
+      underground: 'discovery'
+    };
+    
+    return types[locationType as keyof typeof types] || 'random';
+  }
+  
+  private generateEventDescription(location: GameLocation): string {
+    return `Something interesting happens at ${location.name}`;
+  }
+}

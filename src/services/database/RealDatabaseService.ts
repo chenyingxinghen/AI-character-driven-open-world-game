@@ -1,91 +1,24 @@
 import { Pool, PoolClient, QueryResult } from 'pg';
 import { createClient, RedisClientType } from 'redis';
 import { v4 as uuidv4 } from 'uuid';
+import { 
+  DatabaseService,
+  DatabaseConfig,
+  QueryOptions,
+  DatabaseRecord,
+  CharacterRecord,
+  CharacterMemoryRecord,
+  ConversationRecord,
+  CharacterRelationshipRecord,
+  StoryEventRecord
+} from './DatabaseService';
 
-export interface DatabaseConfig {
-  postgres: {
-    host: string;
-    port: number;
-    database: string;
-    user: string;
-    password: string;
-    max: number;
-    idleTimeoutMillis: number;
-    connectionTimeoutMillis: number;
-  };
-  redis?: {
-    host: string;
-    port: number;
-    password?: string;
-    db: number;
-  };
-}
-
-export interface QueryOptions {
-  timeout?: number;
-  retries?: number;
-}
-
-export interface DatabaseRecord {
-  id: string;
-  created_at: Date;
-  updated_at: Date;
-}
-
-export interface CharacterRecord extends DatabaseRecord {
-  name: string;
-  personality: any;
-  background: string;
-  current_location: string;
-  emotional_state: any;
-  is_active: boolean;
-  character_data?: any;
-  session_id: string;
-}
-
-export interface CharacterMemoryRecord extends DatabaseRecord {
-  character_id: string;
-  session_id: string;
-  content: string;
-  emotional_weight: number;
-  associated_characters: string[];
-  tags: string[];
-  memory_type: 'dialogue' | 'observation' | 'action';
-  significance: number;
-}
-
-export interface ConversationRecord extends DatabaseRecord {
-  session_id: string;
-  character_id: string;
-  message_type: 'player_input' | 'character_response' | 'narration' | 'system_message';
-  content: string;
-  context?: any;
-}
-
-export interface CharacterRelationshipRecord extends DatabaseRecord {
-  character_id: string;
-  target_character_id: string;
-  relationship_type: string;
-  strength: number;
-  relationship_data?: any;
-  session_id: string;
-}
-
-export interface StoryEventRecord extends DatabaseRecord {
-  session_id: string;
-  event_type: string;
-  description: string;
-  location: string;
-  involved_characters: string[];
-  impact_level: number;
-  story_data?: any;
-}
-
-export class RealDatabaseService {
+export class RealDatabaseService implements DatabaseService {
   private postgresPool?: Pool;
   private redisClient?: any; // Use 'any' type to avoid Redis client type issues
   private redisEnabled = false;
   private isInitialized = false;
+  private schemaInitialized = false;
 
   constructor(private config: DatabaseConfig) {}
 
@@ -108,6 +41,9 @@ export class RealDatabaseService {
       await testClient.query('SELECT NOW()');
       testClient.release();
       console.log('PostgreSQL connection established successfully');
+
+      // Initialize database schema
+      await this.initializeDatabaseSchema();
 
       // Initialize Redis connection (optional)
       if (this.config.redis) {
@@ -149,19 +85,50 @@ export class RealDatabaseService {
     }
   }
 
+  // Connection management
+  isConnected(): boolean {
+    return this.isInitialized && !!this.postgresPool;
+  }
+  
+  async healthCheck(): Promise<boolean> {
+    if (!this.isConnected()) {
+      return false;
+    }
+    
+    try {
+      const client = await this.postgresPool!.connect();
+      await client.query('SELECT 1');
+      client.release();
+      
+      // Also check Redis if enabled
+      if (this.redisEnabled && this.redisClient) {
+        await this.redisClient.ping();
+      }
+      
+      return true;
+    } catch (error) {
+      console.error('Health check failed:', error);
+      return false;
+    }
+  }
+  
   async disconnect(): Promise<void> {
     try {
       console.log('Shutting down database connections...');
 
       if (this.postgresPool) {
         await this.postgresPool.end();
+        this.postgresPool = undefined;
       }
 
       if (this.redisClient) {
         await this.redisClient.quit();
+        this.redisClient = undefined;
       }
 
       this.isInitialized = false;
+      this.redisEnabled = false;
+      this.schemaInitialized = false;
       console.log('Database connections shut down successfully');
 
     } catch (error) {
@@ -198,6 +165,31 @@ export class RealDatabaseService {
     }
 
     throw lastError;
+  }
+  
+  async executeTransaction<T>(queries: Array<{ sql: string; params?: any[] }>): Promise<T[]> {
+    if (!this.isInitialized || !this.postgresPool) {
+      throw new Error('Database not initialized');
+    }
+
+    const client = await this.postgresPool.connect();
+    try {
+      await client.query('BEGIN');
+      const results: T[] = [];
+      
+      for (const query of queries) {
+        const result = await client.query(query.sql, query.params);
+        results.push(...(result.rows as T[]));
+      }
+      
+      await client.query('COMMIT');
+      return results;
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   async getCharacter(id: string, sessionId: string): Promise<CharacterRecord | null> {
@@ -796,6 +788,748 @@ export class RealDatabaseService {
       }
     } catch (error) {
       console.warn('Redis cache delete pattern failed:', error);
+    }
+  }
+
+  async getGameState(sessionId: string): Promise<any> {
+    if (!this.isInitialized) {
+      throw new Error('Database not initialized');
+    }
+
+    // 优先从缓存获取
+    const cacheKey = `game_state:${sessionId}`;
+    const cached = await this.cacheGet(cacheKey);
+    if (cached) {
+      try {
+        return JSON.parse(cached);
+      } catch (error) {
+        console.warn('Failed to parse cached game state:', error);
+      }
+    }
+
+    if (!this.postgresPool) {
+      throw new Error('PostgreSQL not initialized');
+    }
+
+    const sql = `
+      SELECT game_state FROM game_sessions 
+      WHERE id = $1
+      LIMIT 1
+    `;
+    
+    const client = await this.postgresPool.connect();
+    try {
+      const result = await client.query(sql, [sessionId]);
+      const gameState = result.rows.length > 0 ? result.rows[0].game_state : null;
+      
+      // 缓存结果5分钟
+      if (gameState && this.redisEnabled) {
+        await this.cacheSet(cacheKey, JSON.stringify(gameState), 300);
+      }
+      
+      return gameState;
+    } finally {
+      client.release();
+    }
+  }
+
+  async getPlayerPreferences(playerId: string): Promise<any> {
+    if (!this.isInitialized) {
+      throw new Error('Database not initialized');
+    }
+
+    // 优先从缓存获取
+    const cacheKey = `player_preferences:${playerId}`;
+    const cached = await this.cacheGet(cacheKey);
+    if (cached) {
+      try {
+        return JSON.parse(cached);
+      } catch (error) {
+        console.warn('Failed to parse cached player preferences:', error);
+      }
+    }
+
+    if (!this.postgresPool) {
+      throw new Error('PostgreSQL not initialized');
+    }
+
+    // 假设存在player_preferences表
+    const sql = `
+      SELECT preferences FROM player_preferences 
+      WHERE player_id = $1
+      LIMIT 1
+    `;
+    
+    const client = await this.postgresPool.connect();
+    try {
+      const result = await client.query(sql, [playerId]);
+      const preferences = result.rows.length > 0 ? result.rows[0].preferences : null;
+      
+      // 缓存结果15分钟
+      if (preferences && this.redisEnabled) {
+        await this.cacheSet(cacheKey, JSON.stringify(preferences), 900);
+      }
+      
+      return preferences;
+    } finally {
+      client.release();
+    }
+  }
+  
+  // Session management methods
+  async deleteSession(sessionId: string): Promise<void> {
+    if (!this.isInitialized || !this.postgresPool) {
+      throw new Error('Database not initialized');
+    }
+
+    const queries = [
+      { sql: 'DELETE FROM conversations WHERE session_id = $1', params: [sessionId] },
+      { sql: 'DELETE FROM character_memories WHERE session_id = $1', params: [sessionId] },
+      { sql: 'DELETE FROM character_relationships WHERE session_id = $1', params: [sessionId] },
+      { sql: 'DELETE FROM story_events WHERE session_id = $1', params: [sessionId] },
+      { sql: 'DELETE FROM characters WHERE session_id = $1', params: [sessionId] },
+      { sql: 'DELETE FROM game_sessions WHERE id = $1', params: [sessionId] }
+    ];
+
+    await this.executeTransaction(queries);
+
+    // Clear related cache
+    if (this.redisEnabled) {
+      const keys = await this.cacheKeys(`*${sessionId}*`);
+      for (const key of keys) {
+        await this.cacheDel(key);
+      }
+    }
+  }
+  
+  async getPlayerSessions(playerId: string): Promise<any[]> {
+    if (!this.isInitialized || !this.postgresPool) {
+      throw new Error('Database not initialized');
+    }
+
+    const sql = `
+      SELECT * FROM game_sessions 
+      WHERE player_id = $1
+      ORDER BY updated_at DESC
+    `;
+    
+    const client = await this.postgresPool.connect();
+    try {
+      const result = await client.query(sql, [playerId]);
+      return result.rows;
+    } finally {
+      client.release();
+    }
+  }
+  
+  async getAllActiveSessions(): Promise<any[]> {
+    if (!this.isInitialized || !this.postgresPool) {
+      throw new Error('Database not initialized');
+    }
+
+    const sql = `
+      SELECT * FROM game_sessions 
+      WHERE is_active = true
+      ORDER BY updated_at DESC
+    `;
+    
+    const client = await this.postgresPool.connect();
+    try {
+      const result = await client.query(sql);
+      return result.rows;
+    } finally {
+      client.release();
+    }
+  }
+  
+  // Character management methods
+  async createCharacter(character: Omit<CharacterRecord, 'created_at' | 'updated_at'>): Promise<CharacterRecord> {
+    if (!this.isInitialized || !this.postgresPool) {
+      throw new Error('Database not initialized');
+    }
+
+    const sql = `
+      INSERT INTO characters (
+        id, name, personality, background, current_location, 
+        emotional_state, is_active, character_data, session_id, created_at, updated_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
+      RETURNING *
+    `;
+    
+    const params = [
+      character.id,
+      character.name,
+      character.personality,
+      character.background,
+      character.current_location,
+      character.emotional_state,
+      character.is_active,
+      character.character_data,
+      character.session_id
+    ];
+    
+    const client = await this.postgresPool.connect();
+    try {
+      const result = await client.query<CharacterRecord>(sql, params);
+      const createdCharacter = result.rows[0];
+      
+      // Clear related cache
+      if (this.redisEnabled) {
+        await this.cacheDel(`session_characters:${character.session_id}`);
+      }
+      
+      return createdCharacter;
+    } finally {
+      client.release();
+    }
+  }
+  
+  async deleteCharacter(characterId: string, sessionId: string): Promise<void> {
+    if (!this.isInitialized || !this.postgresPool) {
+      throw new Error('Database not initialized');
+    }
+
+    const queries = [
+      { sql: 'DELETE FROM character_memories WHERE character_id = $1 AND session_id = $2', params: [characterId, sessionId] },
+      { sql: 'DELETE FROM character_relationships WHERE (character_id = $1 OR target_character_id = $1) AND session_id = $2', params: [characterId, sessionId] },
+      { sql: 'DELETE FROM conversations WHERE character_id = $1 AND session_id = $2', params: [characterId, sessionId] },
+      { sql: 'DELETE FROM characters WHERE id = $1 AND session_id = $2', params: [characterId, sessionId] }
+    ];
+
+    await this.executeTransaction(queries);
+
+    // Clear related cache
+    if (this.redisEnabled) {
+      await this.cacheDel(`character:${characterId}:${sessionId}`);
+      await this.cacheDel(`session_characters:${sessionId}`);
+    }
+  }
+  
+  // Memory management methods
+  async searchMemories(characterId: string, sessionId: string, query: string, limit: number = 50): Promise<CharacterMemoryRecord[]> {
+    if (!this.isInitialized || !this.postgresPool) {
+      throw new Error('Database not initialized');
+    }
+
+    const sql = `
+      SELECT * FROM character_memories 
+      WHERE character_id = $1 AND session_id = $2
+        AND (content ILIKE $3 OR $3 = ANY(tags))
+      ORDER BY significance DESC, created_at DESC
+      LIMIT $4
+    `;
+    
+    const client = await this.postgresPool.connect();
+    try {
+      const result = await client.query<CharacterMemoryRecord>(sql, [characterId, sessionId, `%${query}%`, limit]);
+      return result.rows;
+    } finally {
+      client.release();
+    }
+  }
+  
+  async deleteMemory(memoryId: string): Promise<void> {
+    if (!this.isInitialized || !this.postgresPool) {
+      throw new Error('Database not initialized');
+    }
+
+    const sql = 'DELETE FROM character_memories WHERE id = $1';
+    
+    const client = await this.postgresPool.connect();
+    try {
+      await client.query(sql, [memoryId]);
+    } finally {
+      client.release();
+    }
+  }
+  
+  // Conversation management methods
+  async getConversationHistory(sessionId: string, limit: number = 50): Promise<ConversationRecord[]> {
+    if (!this.isInitialized || !this.postgresPool) {
+      throw new Error('Database not initialized');
+    }
+
+    const sql = `
+      SELECT * FROM conversations 
+      WHERE session_id = $1
+      ORDER BY created_at DESC
+      LIMIT $2
+    `;
+    
+    const client = await this.postgresPool.connect();
+    try {
+      const result = await client.query<ConversationRecord>(sql, [sessionId, limit]);
+      return result.rows;
+    } finally {
+      client.release();
+    }
+  }
+  
+  // Relationship management methods
+  async updateRelationshipStrength(characterId: string, targetCharacterId: string, sessionId: string, delta: number): Promise<void> {
+    if (!this.isInitialized || !this.postgresPool) {
+      throw new Error('Database not initialized');
+    }
+
+    const sql = `
+      UPDATE character_relationships 
+      SET strength = GREATEST(-100, LEAST(100, strength + $4)), updated_at = NOW()
+      WHERE character_id = $1 AND target_character_id = $2 AND session_id = $3
+    `;
+    
+    const client = await this.postgresPool.connect();
+    try {
+      await client.query(sql, [characterId, targetCharacterId, sessionId, delta]);
+      
+      // Clear related cache
+      if (this.redisEnabled) {
+        await this.cacheDel(`character_relationships:${characterId}:${sessionId}`);
+      }
+    } finally {
+      client.release();
+    }
+  }
+  
+  // Story event management methods
+  async getStoryEventsByLocation(locationId: string, sessionId: string, limit: number = 50): Promise<StoryEventRecord[]> {
+    if (!this.isInitialized || !this.postgresPool) {
+      throw new Error('Database not initialized');
+    }
+
+    const sql = `
+      SELECT * FROM story_events 
+      WHERE location = $1 AND session_id = $2
+      ORDER BY created_at DESC
+      LIMIT $3
+    `;
+    
+    const client = await this.postgresPool.connect();
+    try {
+      const result = await client.query<StoryEventRecord>(sql, [locationId, sessionId, limit]);
+      return result.rows;
+    } finally {
+      client.release();
+    }
+  }
+  
+  // Cache management methods
+  async cacheKeys(pattern: string): Promise<string[]> {
+    if (!this.redisEnabled || !this.redisClient) {
+      return [];
+    }
+
+    try {
+      return await this.redisClient.keys(pattern);
+    } catch (error) {
+      console.warn('Redis keys operation failed:', error);
+      return [];
+    }
+  }
+  
+  async cacheFlush(): Promise<void> {
+    if (!this.redisEnabled || !this.redisClient) {
+      return;
+    }
+
+    try {
+      await this.redisClient.flushAll();
+    } catch (error) {
+      console.warn('Redis flush operation failed:', error);
+    }
+  }
+  
+  // Game state methods
+  async setGameState(sessionId: string, gameState: any): Promise<void> {
+    if (!this.isInitialized || !this.postgresPool) {
+      throw new Error('Database not initialized');
+    }
+
+    const sql = `
+      UPDATE game_sessions 
+      SET game_state = $2, updated_at = NOW()
+      WHERE id = $1
+    `;
+    
+    const client = await this.postgresPool.connect();
+    try {
+      await client.query(sql, [sessionId, gameState]);
+      
+      // Clear related cache
+      if (this.redisEnabled) {
+        await this.cacheDel(`game_state:${sessionId}`);
+      }
+    } finally {
+      client.release();
+    }
+  }
+  
+  async setPlayerPreferences(playerId: string, preferences: any): Promise<void> {
+    if (!this.isInitialized || !this.postgresPool) {
+      throw new Error('Database not initialized');
+    }
+
+    const sql = `
+      INSERT INTO player_preferences (player_id, preferences, created_at, updated_at)
+      VALUES ($1, $2, NOW(), NOW())
+      ON CONFLICT (player_id) DO UPDATE SET
+        preferences = EXCLUDED.preferences,
+        updated_at = NOW()
+    `;
+    
+    const client = await this.postgresPool.connect();
+    try {
+      await client.query(sql, [playerId, preferences]);
+      
+      // Clear related cache
+      if (this.redisEnabled) {
+        await this.cacheDel(`player_preferences:${playerId}`);
+      }
+    } finally {
+      client.release();
+    }
+  }
+  
+  // Batch operations
+  async batchInsert<T extends DatabaseRecord>(tableName: string, records: T[]): Promise<void> {
+    if (!this.isInitialized || !this.postgresPool || records.length === 0) {
+      return;
+    }
+
+    // This is a simplified implementation - in a real scenario, you'd need
+    // to handle different table schemas dynamically
+    const queries = records.map(record => ({
+      sql: `INSERT INTO ${tableName} (${Object.keys(record).join(', ')}) VALUES (${Object.keys(record).map((_, i) => `$${i + 1}`).join(', ')})`,
+      params: Object.values(record)
+    }));
+
+    await this.executeTransaction(queries);
+  }
+  
+  async batchUpdate<T extends DatabaseRecord>(tableName: string, updates: Array<{ id: string; data: Partial<T> }>): Promise<void> {
+    if (!this.isInitialized || !this.postgresPool || updates.length === 0) {
+      return;
+    }
+
+    const queries = updates.map(update => {
+      const fields = Object.keys(update.data).filter(key => key !== 'id');
+      const setClause = fields.map((field, i) => `${field} = $${i + 2}`).join(', ');
+      return {
+        sql: `UPDATE ${tableName} SET ${setClause}, updated_at = NOW() WHERE id = $1`,
+        params: [update.id, ...fields.map(field => (update.data as any)[field])]
+      };
+    });
+
+    await this.executeTransaction(queries);
+  }
+  
+  // Analytics and statistics
+  async getSessionStatistics(sessionId: string): Promise<any> {
+    if (!this.isInitialized || !this.postgresPool) {
+      throw new Error('Database not initialized');
+    }
+
+    const queries = [
+      { sql: 'SELECT COUNT(*) as character_count FROM characters WHERE session_id = $1', params: [sessionId] },
+      { sql: 'SELECT COUNT(*) as conversation_count FROM conversations WHERE session_id = $1', params: [sessionId] },
+      { sql: 'SELECT COUNT(*) as memory_count FROM character_memories WHERE session_id = $1', params: [sessionId] },
+      { sql: 'SELECT COUNT(*) as event_count FROM story_events WHERE session_id = $1', params: [sessionId] }
+    ];
+
+    const client = await this.postgresPool.connect();
+    try {
+      const results = await Promise.all(
+        queries.map(query => client.query(query.sql, query.params))
+      );
+      
+      return {
+        characterCount: parseInt(results[0].rows[0].character_count),
+        conversationCount: parseInt(results[1].rows[0].conversation_count),
+        memoryCount: parseInt(results[2].rows[0].memory_count),
+        eventCount: parseInt(results[3].rows[0].event_count)
+      };
+    } finally {
+      client.release();
+    }
+  }
+  
+  async getCharacterInteractionCount(characterId: string, sessionId: string): Promise<number> {
+    if (!this.isInitialized || !this.postgresPool) {
+      throw new Error('Database not initialized');
+    }
+
+    const sql = `
+      SELECT COUNT(*) as interaction_count 
+      FROM conversations 
+      WHERE character_id = $1 AND session_id = $2
+    `;
+    
+    const client = await this.postgresPool.connect();
+    try {
+      const result = await client.query(sql, [characterId, sessionId]);
+      return parseInt(result.rows[0].interaction_count);
+    } finally {
+      client.release();
+    }
+  }
+  
+  async getPopularLocations(sessionId: string, limit: number = 10): Promise<Array<{ location: string; visits: number }>> {
+    if (!this.isInitialized || !this.postgresPool) {
+      throw new Error('Database not initialized');
+    }
+
+    const sql = `
+      SELECT location, COUNT(*) as visits
+      FROM story_events 
+      WHERE session_id = $1
+      GROUP BY location
+      ORDER BY visits DESC
+      LIMIT $2
+    `;
+    
+    const client = await this.postgresPool.connect();
+    try {
+      const result = await client.query(sql, [sessionId, limit]);
+      return result.rows.map(row => ({
+        location: row.location,
+        visits: parseInt(row.visits)
+      }));
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * 初始化数据库架构
+   */
+  private async initializeDatabaseSchema(): Promise<void> {
+    if (this.schemaInitialized || !this.postgresPool) {
+      return;
+    }
+
+    const client = await this.postgresPool.connect();
+    try {
+      console.log('开始初始化数据库架构...');
+
+      // 按照依赖关系顺序创建表
+      const schemaSql = `
+        -- 创建游戏会话表（无外键依赖）
+        CREATE TABLE IF NOT EXISTS game_sessions (
+            id VARCHAR(36) PRIMARY KEY,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            player_id VARCHAR(36),
+            game_state JSONB,
+            is_active BOOLEAN DEFAULT true,
+            current_location VARCHAR(100) DEFAULT 'town_square'
+        );
+
+        -- 创建玩家偏好设置表
+        CREATE TABLE IF NOT EXISTS player_preferences (
+            player_id VARCHAR(36) PRIMARY KEY,
+            preferences JSONB,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
+        -- 创建角色表（依赖game_sessions）
+        CREATE TABLE IF NOT EXISTS characters (
+            id VARCHAR(36) PRIMARY KEY,
+            session_id VARCHAR(36) REFERENCES game_sessions(id) ON DELETE CASCADE,
+            name VARCHAR(100) NOT NULL,
+            personality JSONB,
+            background TEXT,
+            current_location VARCHAR(100),
+            emotional_state JSONB,
+            is_active BOOLEAN DEFAULT true,
+            character_data JSONB,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
+        -- 创建角色记忆表（依赖characters和game_sessions）
+        CREATE TABLE IF NOT EXISTS character_memories (
+            id VARCHAR(36) PRIMARY KEY,
+            character_id VARCHAR(36) REFERENCES characters(id) ON DELETE CASCADE,
+            session_id VARCHAR(36) REFERENCES game_sessions(id) ON DELETE CASCADE,
+            content TEXT NOT NULL,
+            emotional_weight NUMERIC(3,2) DEFAULT 0.5,
+            associated_characters TEXT[],
+            tags TEXT[],
+            memory_type VARCHAR(20) CHECK (memory_type IN ('dialogue', 'observation', 'action')) DEFAULT 'dialogue',
+            significance INTEGER DEFAULT 5,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
+        -- 创建对话记录表（依赖game_sessions和characters）
+        CREATE TABLE IF NOT EXISTS conversations (
+            id VARCHAR(36) PRIMARY KEY,
+            session_id VARCHAR(36) REFERENCES game_sessions(id) ON DELETE CASCADE,
+            character_id VARCHAR(36) REFERENCES characters(id) ON DELETE CASCADE,
+            message_type VARCHAR(20) CHECK (message_type IN ('player_input', 'character_response', 'narration', 'system_message')) DEFAULT 'player_input',
+            content TEXT NOT NULL,
+            context JSONB,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
+        -- 创建角色关系表（依赖characters和game_sessions）
+        CREATE TABLE IF NOT EXISTS character_relationships (
+            id VARCHAR(36) PRIMARY KEY,
+            character_id VARCHAR(36) REFERENCES characters(id) ON DELETE CASCADE,
+            target_character_id VARCHAR(36) REFERENCES characters(id) ON DELETE CASCADE,
+            relationship_type VARCHAR(50),
+            strength NUMERIC(3,2) DEFAULT 0.5,
+            relationship_data JSONB,
+            session_id VARCHAR(36) REFERENCES game_sessions(id) ON DELETE CASCADE,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(character_id, target_character_id, session_id)
+        );
+
+        -- 创建故事事件表（依赖game_sessions）
+        CREATE TABLE IF NOT EXISTS story_events (
+            id VARCHAR(36) PRIMARY KEY,
+            session_id VARCHAR(36) REFERENCES game_sessions(id) ON DELETE CASCADE,
+            event_type VARCHAR(50),
+            description TEXT,
+            location VARCHAR(100),
+            involved_characters TEXT[],
+            impact_level INTEGER DEFAULT 1,
+            story_data JSONB,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+      `;
+
+      // 执行架构创建SQL
+      await client.query(schemaSql);
+
+      // 创建索引以提高查询性能
+      const indexesSql = `
+        CREATE INDEX IF NOT EXISTS idx_characters_session_id ON characters(session_id);
+        CREATE INDEX IF NOT EXISTS idx_characters_active ON characters(is_active);
+        CREATE INDEX IF NOT EXISTS idx_character_memories_character_id ON character_memories(character_id);
+        CREATE INDEX IF NOT EXISTS idx_character_memories_session_id ON character_memories(session_id);
+        CREATE INDEX IF NOT EXISTS idx_character_memories_created_at ON character_memories(created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_conversations_session_id ON conversations(session_id);
+        CREATE INDEX IF NOT EXISTS idx_conversations_character_id ON conversations(character_id);
+        CREATE INDEX IF NOT EXISTS idx_conversations_created_at ON conversations(created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_character_relationships_character_id ON character_relationships(character_id);
+        CREATE INDEX IF NOT EXISTS idx_character_relationships_session_id ON character_relationships(session_id);
+        CREATE INDEX IF NOT EXISTS idx_story_events_session_id ON story_events(session_id);
+        CREATE INDEX IF NOT EXISTS idx_story_events_created_at ON story_events(created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_game_sessions_player_id ON game_sessions(player_id);
+        CREATE INDEX IF NOT EXISTS idx_game_sessions_active ON game_sessions(is_active);
+      `;
+
+      await client.query(indexesSql);
+
+      // 插入一些基础数据（如果不存在的话）
+      await this.insertInitialData(client);
+
+      this.schemaInitialized = true;
+      console.log('数据库架构初始化完成');
+
+    } catch (error) {
+      console.error('数据库架构初始化失败:', error);
+      // 不抛出错误，让系统继续运行
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * 插入初始化数据
+   */
+  private async insertInitialData(client: PoolClient): Promise<void> {
+    try {
+      // 检查是否已有基础数据
+      const existingSessionsResult = await client.query('SELECT COUNT(*) as count FROM game_sessions');
+      const existingSessionsCount = parseInt(existingSessionsResult.rows[0].count);
+
+      if (existingSessionsCount === 0) {
+        console.log('插入初始化数据...');
+
+        // 创建一个示例会话
+        const sampleSessionId = uuidv4();
+        const samplePlayerId = uuidv4();
+
+        await client.query(`
+          INSERT INTO game_sessions (id, player_id, game_state, is_active)
+          VALUES ($1, $2, $3, $4)
+        `, [
+          sampleSessionId,
+          samplePlayerId,
+          JSON.stringify({
+            timeOfDay: 'afternoon',
+            weather: 'sunny',
+            atmosphere: 'peaceful',
+            playerLevel: 1,
+            completedQuests: []
+          }),
+          true
+        ]);
+
+        // 创建一些基础角色
+        const characters = [
+          {
+            id: uuidv4(),
+            name: '城镇守卫',
+            personality: { traits: ['dutiful', 'protective', 'serious'], mood: 'neutral' },
+            background: '一位尽职尽责的城镇守卫，负责维护镇中心广场的安全与秩序。',
+            current_location: 'town_square'
+          },
+          {
+            id: uuidv4(),
+            name: '图书管理员',
+            personality: { traits: ['knowledgeable', 'patient', 'helpful'], mood: 'friendly' },
+            background: '博学的图书管理员，掌握着古老的知识和智慧。',
+            current_location: 'library'
+          },
+          {
+            id: uuidv4(),
+            name: '商人',
+            personality: { traits: ['friendly', 'talkative', 'business-minded'], mood: 'cheerful' },
+            background: '热情的商人，总是eager to share stories and sell goods.',
+            current_location: 'market'
+          }
+        ];
+
+        for (const character of characters) {
+          await client.query(`
+            INSERT INTO characters (id, session_id, name, personality, background, current_location, is_active)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+          `, [
+            character.id,
+            sampleSessionId,
+            character.name,
+            JSON.stringify(character.personality),
+            character.background,
+            character.current_location,
+            true
+          ]);
+        }
+
+        // 插入玩家偏好设置
+        await client.query(`
+          INSERT INTO player_preferences (player_id, preferences)
+          VALUES ($1, $2)
+        `, [
+          samplePlayerId,
+          JSON.stringify({
+            language: 'zh',
+            difficulty: 'normal',
+            narrativeStyle: 'immersive'
+          })
+        ]);
+
+        console.log('初始化数据插入完成');
+      }
+    } catch (error) {
+      console.warn('插入初始化数据时出现错误:', error);
+      // 不抛出错误，让系统继续运行
     }
   }
 }

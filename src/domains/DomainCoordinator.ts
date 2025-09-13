@@ -11,6 +11,7 @@
 
 import { Logger } from '../services/Logger';
 import { LLMService } from '../services/llm/LLMService';
+import { GameContextService } from '../services/game/GameContextService';
 
 // 导入各域的管理器
 import { CharacterManager } from './character/aggregates';
@@ -68,15 +69,18 @@ export class DomainCoordinator {
   private worldManager: WorldManager;
   private inputManager: InputManager;
   private operationsManager: OperationsManager;
+  private gameContextService?: GameContextService;
 
   constructor(
     private llmService: LLMService,
-    private logger: Logger
+    private logger: Logger,
+    gameContextService?: GameContextService
   ) {
     this.characterManager = new CharacterManager(llmService, logger);
     this.worldManager = new WorldManager(llmService, logger);
-    this.inputManager = new InputManager(llmService, logger);
+    this.inputManager = new InputManager(llmService, logger, gameContextService);
     this.operationsManager = new OperationsManager(logger);
+    this.gameContextService = gameContextService;
 
     this.logger.info('Domain Coordinator initialized with all domain managers');
   }
@@ -151,16 +155,53 @@ export class DomainCoordinator {
         component: 'DomainCoordinator'
       });
       
-      const inputAnalysis = await this.inputManager.analyzeInput(
-        sessionId,
-        playerId,
-        playerInput,
-        {
+      let contextData;
+      if (this.gameContextService) {
+        try {
+          // 使用GameContextService获取动态上下文
+          const gameContext = await this.gameContextService.getGameContext(sessionId, playerId);
+          contextData = {
+            knownCharacters: gameContext.nearbyCharacters.map(char => char.name),
+            knownLocations: gameContext.availableLocations.map(loc => loc.name),
+            currentLocation: gameContext.currentLocation.name,
+            recentEvents: gameContext.recentConversation.slice(-5).map(conv => ({
+              type: 'conversation',
+              content: conv.content,
+              speaker: conv.speaker,
+              timestamp: conv.timestamp
+            }))
+          };
+          
+          this.logger.debug('Using dynamic game context', {
+            currentLocation: gameContext.currentLocation.name,
+            nearbyCharactersCount: gameContext.nearbyCharacters.length,
+            recentConversationCount: gameContext.recentConversation.length,
+            component: 'DomainCoordinator'
+          });
+        } catch (error) {
+          this.logger.warn('Failed to get dynamic context, using basic context', error as Error);
+          contextData = {
+            knownCharacters: await this.getKnownCharacterNames(),
+            knownLocations: await this.getKnownLocationNames(),
+            currentLocation: gameContext.currentLocation,
+            recentEvents: []
+          };
+        }
+      } else {
+        // 备用方案：使用静态方法
+        contextData = {
           knownCharacters: await this.getKnownCharacterNames(),
           knownLocations: await this.getKnownLocationNames(),
           currentLocation: gameContext.currentLocation,
           recentEvents: []
-        }
+        };
+      }
+      
+      const inputAnalysis = await this.inputManager.analyzeInput(
+        sessionId,
+        playerId,
+        playerInput,
+        contextData
       );
 
       // 记录输入处理结果

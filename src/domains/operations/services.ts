@@ -16,14 +16,26 @@ import {
 } from './valueObjects';
 
 /**
- * 系统健康检查服务
- * 监控系统整体健康状况
+ * 系统健康检查服务（增强版）
+ * 监控系统整体健康状况，支持智能评估、预测分析和自动优化建议
  */
 export class SystemHealthService {
-  constructor(private logger: Logger) {}
+  private healthHistory: SystemHealth[] = [];
+  private healthScores: Map<string, number[]> = new Map();
+  private predictiveModels: Map<string, { trend: number; prediction: number; confidence: number }> = new Map();
+  private systemBaseline: {
+    responseTime: number;
+    errorRate: number;
+    throughput: number;
+    resourceUsage: { memory: number; cpu: number; storage: number };
+  } | null = null;
+
+  constructor(private logger: Logger) {
+    this.initializeHealthTracking();
+  }
 
   /**
-   * 执行系统健康检查
+   * 执行系统健康检查（增强版）
    */
   async performHealthCheck(
     performanceData: PerformanceMetrics[],
@@ -44,8 +56,8 @@ export class SystemHealthService {
     const resourceIssues = this.checkResourceHealth(resourceUsage);
     issues.push(...resourceIssues);
     
-    // 计算整体状态
-    const status = this.calculateOverallStatus(issues);
+    // 计算整体状态（增强版）
+    const status = this.calculateOverallStatus(issues, performanceData, errorData, resourceUsage);
     
     // 计算响应时间
     const responseTime = this.calculateAverageResponseTime(performanceData);
@@ -53,15 +65,29 @@ export class SystemHealthService {
     // 计算错误率
     const errorRate = this.calculateErrorRate(errorData);
     
-    return {
+    // 计算吐吐量
+    const throughput = this.calculateThroughput(performanceData);
+    
+    const healthCheck: SystemHealth = {
       status,
       uptime: this.calculateUptime(),
       responseTime,
       errorRate,
-      throughput: this.calculateThroughput(performanceData),
+      throughput,
       timestamp: new Date(),
       issues
     };
+    
+    // 记录健康历史
+    this.recordHealthHistory(healthCheck);
+    
+    // 更新健康评分
+    this.updateHealthScores(healthCheck);
+    
+    // 更新预测模型
+    this.updatePredictiveModels(healthCheck);
+    
+    return healthCheck;
   }
 
   /**
@@ -187,10 +213,18 @@ export class SystemHealthService {
   }
 
   /**
-   * 计算整体状态
+   * 计算整体状态（增强版）
    */
-  private calculateOverallStatus(issues: HealthIssue[]): SystemHealth['status'] {
-    if (issues.length === 0) return 'healthy';
+  private calculateOverallStatus(
+    issues: HealthIssue[],
+    performanceData?: PerformanceMetrics[],
+    errorData?: ErrorRecord[],
+    resourceUsage?: ResourceUsage
+  ): SystemHealth['status'] {
+    if (issues.length === 0) {
+      // 即使没有明显问题，也要检查系统指标
+      return this.assessOverallHealthScore(performanceData, errorData, resourceUsage);
+    }
     
     const hasCritical = issues.some(i => i.severity === 'critical');
     if (hasCritical) return 'critical';
@@ -198,7 +232,10 @@ export class SystemHealthService {
     const hasHigh = issues.some(i => i.severity === 'high');
     if (hasHigh) return 'warning';
     
-    return 'warning';
+    const hasMedium = issues.some(i => i.severity === 'medium');
+    if (hasMedium) return 'warning';
+    
+    return 'healthy';
   }
 
   /**
@@ -247,6 +284,398 @@ export class SystemHealthService {
   private getSystemStartTime(): number {
     // 在实际实现中，这应该从系统启动时记录的时间戳获取
     return Date.now() - 24 * 60 * 60 * 1000; // 假设24小时前启动
+  }
+
+  /**
+   * 初始化健康追踪
+   */
+  private initializeHealthTracking(): void {
+    // 每分钟计算基线指标
+    setInterval(() => {
+      this.calculateSystemBaseline();
+    }, 60 * 1000); // 1分钟
+  }
+
+  /**
+   * 记录健康历史
+   */
+  private recordHealthHistory(health: SystemHealth): void {
+    this.healthHistory.push(health);
+    
+    // 保持最近100条记录
+    if (this.healthHistory.length > 100) {
+      this.healthHistory.shift();
+    }
+  }
+
+  /**
+   * 更新健康评分
+   */
+  private updateHealthScores(health: SystemHealth): void {
+    const score = this.calculateHealthScore(health);
+    
+    const metrics = ['overall', 'performance', 'errors', 'resources'];
+    
+    for (const metric of metrics) {
+      const existing = this.healthScores.get(metric) || [];
+      existing.push(score);
+      
+      // 保持最近50个评分
+      if (existing.length > 50) {
+        existing.shift();
+      }
+      
+      this.healthScores.set(metric, existing);
+    }
+  }
+
+  /**
+   * 计算健康评分
+   */
+  private calculateHealthScore(health: SystemHealth): number {
+    let score = 100;
+    
+    // 根据问题严重程度减分
+    for (const issue of health.issues) {
+      switch (issue.severity) {
+        case 'critical': score -= 30; break;
+        case 'high': score -= 20; break;
+        case 'medium': score -= 10; break;
+        case 'low': score -= 5; break;
+      }
+    }
+    
+    // 根据性能指标调整
+    if (this.systemBaseline) {
+      if (health.responseTime > this.systemBaseline.responseTime * 1.5) {
+        score -= 15;
+      }
+      if (health.errorRate > this.systemBaseline.errorRate * 2) {
+        score -= 20;
+      }
+      if (health.throughput < this.systemBaseline.throughput * 0.7) {
+        score -= 10;
+      }
+    }
+    
+    return Math.max(0, Math.min(100, score));
+  }
+
+  /**
+   * 更新预测模型
+   */
+  private updatePredictiveModels(health: SystemHealth): void {
+    const metrics = ['responseTime', 'errorRate', 'throughput'];
+    
+    for (const metric of metrics) {
+      const values = this.healthHistory.map(h => {
+        switch (metric) {
+          case 'responseTime': return h.responseTime;
+          case 'errorRate': return h.errorRate;
+          case 'throughput': return h.throughput;
+          default: return 0;
+        }
+      });
+      
+      if (values.length >= 5) {
+        const trend = this.calculateTrend(values);
+        const prediction = this.predictNextValue(values, trend);
+        const confidence = this.calculatePredictionConfidence(values, trend);
+        
+        this.predictiveModels.set(metric, { trend, prediction, confidence });
+      }
+    }
+  }
+
+  /**
+   * 计算趋势
+   */
+  private calculateTrend(values: number[]): number {
+    if (values.length < 2) return 0;
+    
+    const n = values.length;
+    const x = Array.from({length: n}, (_, i) => i);
+    const y = values;
+    
+    const sumX = x.reduce((a, b) => a + b, 0);
+    const sumY = y.reduce((a, b) => a + b, 0);
+    const sumXY = x.reduce((sum, xi, i) => sum + xi * y[i], 0);
+    const sumXX = x.reduce((sum, xi) => sum + xi * xi, 0);
+    
+    const slope = (n * sumXY - sumX * sumY) / (n * sumXX - sumX * sumX);
+    return slope || 0;
+  }
+
+  /**
+   * 预测下一个值
+   */
+  private predictNextValue(values: number[], trend: number): number {
+    if (values.length === 0) return 0;
+    
+    const lastValue = values[values.length - 1];
+    return Math.max(0, lastValue + trend);
+  }
+
+  /**
+   * 计算预测置信度
+   */
+  private calculatePredictionConfidence(values: number[], trend: number): number {
+    if (values.length < 3) return 0.3;
+    
+    // 计算方差
+    const mean = values.reduce((a, b) => a + b, 0) / values.length;
+    const variance = values.reduce((sum, value) => sum + Math.pow(value - mean, 2), 0) / values.length;
+    const standardDeviation = Math.sqrt(variance);
+    
+    // 方差越小，预测置信度越高
+    const normalizedStdDev = standardDeviation / (mean || 1);
+    const confidence = Math.max(0.1, Math.min(0.9, 1 - normalizedStdDev));
+    
+    return confidence;
+  }
+
+  /**
+   * 计算系统基线
+   */
+  private calculateSystemBaseline(): void {
+    if (this.healthHistory.length < 10) return;
+    
+    const recentHealth = this.healthHistory.slice(-10);
+    
+    const avgResponseTime = recentHealth.reduce((sum, h) => sum + h.responseTime, 0) / recentHealth.length;
+    const avgErrorRate = recentHealth.reduce((sum, h) => sum + h.errorRate, 0) / recentHealth.length;
+    const avgThroughput = recentHealth.reduce((sum, h) => sum + h.throughput, 0) / recentHealth.length;
+    
+    this.systemBaseline = {
+      responseTime: avgResponseTime,
+      errorRate: avgErrorRate,
+      throughput: avgThroughput,
+      resourceUsage: {
+        memory: 70,
+        cpu: 60,
+        storage: 50
+      }
+    };
+  }
+
+  /**
+   * 评估整体健康评分
+   */
+  private assessOverallHealthScore(
+    performanceData?: PerformanceMetrics[],
+    errorData?: ErrorRecord[],
+    resourceUsage?: ResourceUsage
+  ): SystemHealth['status'] {
+    if (!this.systemBaseline) return 'healthy';
+    
+    let score = 100;
+    
+    // 性能评估
+    if (performanceData && performanceData.length > 0) {
+      const avgResponseTime = performanceData.reduce((sum, p) => sum + p.executionTime, 0) / performanceData.length;
+      if (avgResponseTime > this.systemBaseline.responseTime * 2) {
+        score -= 25;
+      } else if (avgResponseTime > this.systemBaseline.responseTime * 1.5) {
+        score -= 15;
+      }
+    }
+    
+    // 错误率评估
+    if (errorData) {
+      const recentErrors = errorData.filter(e => 
+        e.timestamp > new Date(Date.now() - 60 * 60 * 1000)
+      );
+      const errorRate = recentErrors.length / 100; // 假设每小时100个请求
+      
+      if (errorRate > this.systemBaseline.errorRate * 3) {
+        score -= 30;
+      } else if (errorRate > this.systemBaseline.errorRate * 2) {
+        score -= 20;
+      }
+    }
+    
+    // 资源使用评估
+    if (resourceUsage) {
+      if (resourceUsage.memory.percentage > 90) score -= 20;
+      if (resourceUsage.cpu.usage > 90) score -= 20;
+      if (resourceUsage.storage.percentage > 95) score -= 15;
+    }
+    
+    if (score >= 90) return 'healthy';
+    if (score >= 70) return 'warning';
+    if (score >= 50) return 'critical';
+    return 'down';
+  }
+
+  /**
+   * 获取健康趋势分析
+   */
+  getHealthTrends(): {
+    overallTrend: 'improving' | 'stable' | 'declining';
+    responseTimeTrend: { trend: number; prediction: number; confidence: number };
+    errorRateTrend: { trend: number; prediction: number; confidence: number };
+    throughputTrend: { trend: number; prediction: number; confidence: number };
+    healthScoreHistory: number[];
+    predictions: {
+      nextHour: { healthScore: number; confidence: number };
+      nextDay: { healthScore: number; confidence: number };
+    };
+  } {
+    const healthScores = this.healthScores.get('overall') || [];
+    const overallTrend = this.determineOverallTrend(healthScores);
+    
+    const responseTimeTrend = this.predictiveModels.get('responseTime') || { trend: 0, prediction: 0, confidence: 0 };
+    const errorRateTrend = this.predictiveModels.get('errorRate') || { trend: 0, prediction: 0, confidence: 0 };
+    const throughputTrend = this.predictiveModels.get('throughput') || { trend: 0, prediction: 0, confidence: 0 };
+    
+    const predictions = this.generateHealthPredictions(healthScores);
+    
+    return {
+      overallTrend,
+      responseTimeTrend,
+      errorRateTrend,
+      throughputTrend,
+      healthScoreHistory: [...healthScores],
+      predictions
+    };
+  }
+
+  /**
+   * 确定整体趋势
+   */
+  private determineOverallTrend(scores: number[]): 'improving' | 'stable' | 'declining' {
+    if (scores.length < 5) return 'stable';
+    
+    const recentScores = scores.slice(-5);
+    const earlierScores = scores.slice(-10, -5);
+    
+    if (earlierScores.length === 0) return 'stable';
+    
+    const recentAvg = recentScores.reduce((a, b) => a + b, 0) / recentScores.length;
+    const earlierAvg = earlierScores.reduce((a, b) => a + b, 0) / earlierScores.length;
+    
+    if (recentAvg > earlierAvg + 5) return 'improving';
+    if (recentAvg < earlierAvg - 5) return 'declining';
+    return 'stable';
+  }
+
+  /**
+   * 生成健康预测
+   */
+  private generateHealthPredictions(scores: number[]): {
+    nextHour: { healthScore: number; confidence: number };
+    nextDay: { healthScore: number; confidence: number };
+  } {
+    if (scores.length < 3) {
+      return {
+        nextHour: { healthScore: 80, confidence: 0.3 },
+        nextDay: { healthScore: 80, confidence: 0.2 }
+      };
+    }
+    
+    const trend = this.calculateTrend(scores);
+    const lastScore = scores[scores.length - 1];
+    
+    const nextHourScore = Math.max(0, Math.min(100, lastScore + trend));
+    const nextDayScore = Math.max(0, Math.min(100, lastScore + trend * 24));
+    
+    const confidence = this.calculatePredictionConfidence(scores, trend);
+    
+    return {
+      nextHour: { healthScore: Math.round(nextHourScore), confidence },
+      nextDay: { healthScore: Math.round(nextDayScore), confidence: confidence * 0.7 }
+    };
+  }
+
+  /**
+   * 获取智能健康建议
+   */
+  getIntelligentHealthRecommendations(): Array<{
+    category: string;
+    priority: 'low' | 'medium' | 'high' | 'critical';
+    issue: string;
+    recommendation: string;
+    expectedImprovement: string;
+    implementationComplexity: 'low' | 'medium' | 'high';
+    estimatedTimeframe: string;
+  }>{
+    const recommendations: Array<{
+      category: string;
+      priority: 'low' | 'medium' | 'high' | 'critical';
+      issue: string;
+      recommendation: string;
+      expectedImprovement: string;
+      implementationComplexity: 'low' | 'medium' | 'high';
+      estimatedTimeframe: string;
+    }> = [];
+    const recentHealth = this.healthHistory.slice(-5);
+    
+    if (recentHealth.length === 0) return recommendations;
+    
+    // 分析性能趋势
+    const responseTimeTrend = this.predictiveModels.get('responseTime');
+    if (responseTimeTrend && responseTimeTrend.trend > 0 && responseTimeTrend.confidence > 0.6) {
+      recommendations.push({
+        category: 'performance',
+        priority: responseTimeTrend.trend > 50 ? 'high' : 'medium',
+        issue: 'Response time is trending upward',
+        recommendation: 'Implement performance monitoring and optimization strategies',
+        expectedImprovement: 'Reduce response time by 20-40%',
+        implementationComplexity: 'medium',
+        estimatedTimeframe: '1-2 weeks'
+      });
+    }
+    
+    // 分析错误率趋势
+    const errorRateTrend = this.predictiveModels.get('errorRate');
+    if (errorRateTrend && errorRateTrend.trend > 0 && errorRateTrend.confidence > 0.6) {
+      recommendations.push({
+        category: 'reliability',
+        priority: errorRateTrend.trend > 0.01 ? 'critical' : 'high',
+        issue: 'Error rate is increasing',
+        recommendation: 'Implement comprehensive error tracking and automated recovery',
+        expectedImprovement: 'Reduce error rate by 50-70%',
+        implementationComplexity: 'high',
+        estimatedTimeframe: '2-4 weeks'
+      });
+    }
+    
+    // 分析吐吐量趋势
+    const throughputTrend = this.predictiveModels.get('throughput');
+    if (throughputTrend && throughputTrend.trend < 0 && throughputTrend.confidence > 0.6) {
+      recommendations.push({
+        category: 'capacity',
+        priority: 'medium',
+        issue: 'System throughput is declining',
+        recommendation: 'Scale infrastructure and optimize bottlenecks',
+        expectedImprovement: 'Increase throughput by 30-50%',
+        implementationComplexity: 'medium',
+        estimatedTimeframe: '1-3 weeks'
+      });
+    }
+    
+    // 分析整体健康评分
+    const healthScores = this.healthScores.get('overall') || [];
+    if (healthScores.length >= 5) {
+      const recentAvg = healthScores.slice(-5).reduce((a, b) => a + b, 0) / 5;
+      
+      if (recentAvg < 70) {
+        recommendations.push({
+          category: 'system_health',
+          priority: recentAvg < 50 ? 'critical' : 'high',
+          issue: 'Overall system health is declining',
+          recommendation: 'Comprehensive system audit and immediate intervention required',
+          expectedImprovement: 'Improve overall health score by 20-30 points',
+          implementationComplexity: 'high',
+          estimatedTimeframe: '2-6 weeks'
+        });
+      }
+    }
+    
+    return recommendations.sort((a, b) => {
+      const priorityOrder: Record<string, number> = { critical: 4, high: 3, medium: 2, low: 1 };
+      return priorityOrder[b.priority] - priorityOrder[a.priority];
+    });
   }
 }
 

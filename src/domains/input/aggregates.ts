@@ -25,7 +25,8 @@ import {
   ComplexScenarioAnalysisService,
   ChoiceDetectionService
 } from './services';
-import { InputClassificationService } from '../../services/input/InputClassificationService';
+import { UnifiedInputClassificationService } from '../../services/input/UnifiedInputClassificationService';
+import { GameContextService } from '../../services/game/GameContextService';
 
 /**
  * 输入管理器
@@ -39,21 +40,22 @@ export class InputManager {
   private preprocessingService: InputPreprocessingService;
   private entityExtractionService: EntityExtractionService;
   private intentClassificationService: IntentClassificationService;
-  private inputClassificationService: InputClassificationService;
+  private unifiedInputClassificationService: UnifiedInputClassificationService;
   private complexAnalysisService: ComplexScenarioAnalysisService;
   private choiceDetectionService: ChoiceDetectionService;
   
   constructor(
     private llmService: LLMService,
-    private logger: Logger
+    private logger: Logger,
+    private gameContextService?: GameContextService
   ) {
     this.classifier = new InputClassifier('main_classifier', 'Enhanced Classifier', '1.0.0');
     this.complexProcessor = new ComplexScenarioProcessor('main_processor', 10);
     
     this.preprocessingService = new InputPreprocessingService(logger);
     this.entityExtractionService = new EntityExtractionService(llmService, logger);
-    this.intentClassificationService = new IntentClassificationService(llmService, logger);
-    this.inputClassificationService = new InputClassificationService(llmService, logger);
+    this.intentClassificationService = new IntentClassificationService(llmService, logger, gameContextService);
+    this.unifiedInputClassificationService = new UnifiedInputClassificationService(llmService, gameContextService!, logger);
     this.complexAnalysisService = new ComplexScenarioAnalysisService(llmService, logger);
     this.choiceDetectionService = new ChoiceDetectionService(logger);
   }
@@ -108,8 +110,8 @@ export class InputManager {
     // 4. 获取上下文历史
     const contextHistory = session.getContextHistory(5);
 
-    // 5. 使用输入分类服务进行主要分类
-    const inputClassificationResult = await this.inputClassificationService.classifyInput(
+    // 5. 使用统一输入分类服务进行主要分类
+    const inputClassificationResult = await this.unifiedInputClassificationService.classifyInputLegacy(
       preprocessed.sanitizedInput,
       {
         sessionId,
@@ -133,7 +135,9 @@ export class InputManager {
       const fallbackIntentResult = await this.intentClassificationService.classifyIntent(
         preprocessed.sanitizedInput,
         entities,
-        contextHistory
+        contextHistory,
+        sessionId,
+        playerId
       );
       
       // 如果意图识别置信度更高，使用其结果
