@@ -336,9 +336,8 @@ export class IntentClassificationService {
         temperature: 0.3,
         maxTokens: 200
       });
-
       // 使用格式化文本提取器解析响应
-      const result = this.extractor.extractIntentClassification(response);
+      const result = this.extractor.extractInputClassification(response);
       
       return {
         intent: this.mapToIntentType(result.intent),

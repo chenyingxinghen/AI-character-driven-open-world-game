@@ -92,7 +92,7 @@ export class FormattedTextExtractorService {
     try {
       const section = this.extractSection(formattedText, 'INPUT_CLASSIFICATION', 'END_CLASSIFICATION');
       const fields = this.parseFields(section);
-
+      this.logger.debug('formattedText:', formattedText)
       const result: InputClassificationResult = {
         type: this.validateAndGetField(fields, 'TYPE', Object.values(InputType)) as InputType,
         intent: this.mapToIntentType(this.validateAndGetField(fields, 'INTENT', Object.values(IntentType))),

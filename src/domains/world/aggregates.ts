@@ -20,6 +20,7 @@ import {
   SceneDescriptionService,
   WorldEventService
 } from './services';
+import { DynamicLocationService } from '../../services/world/DynamicLocationService';
 
 /**
  * 世界管理器
@@ -129,18 +130,140 @@ export class WorldManager {
     sceneDescription?: string;
   }> {
     const currentLocation = this.world.getLocation(currentLocationId);
-    const targetLocation = this.world.getLocation(targetLocationId);
+    let targetLocation = this.world.getLocation(targetLocationId);
+    let isNewLocation = false; // 标记是否是新创建的位置
 
-    if (!currentLocation || !targetLocation) {
+    if (!currentLocation) {
       return {
         success: false,
-        message: 'Invalid location specified',
+        message: 'Invalid current location specified',
         travelTime: 0
       };
     }
 
-    // 检查是否可以到达
-    if (!currentLocation.canReach(targetLocationId)) {
+    // 如果目标位置不存在，尝试动态创建
+    if (!targetLocation) {
+      this.logger.warn(`Target location "${targetLocationId}" not found, attempting to create dynamically`, {
+        component: 'WorldManager',
+        currentLocationId,
+        targetLocationId
+      });
+      
+      try {
+        // 尝试通过动态位置服务创建新位置
+        const dynamicLocationService = new DynamicLocationService(this.llmService, this.logger);
+        
+        // 获取所有现有位置名称
+        const existingLocations = this.world.getAllLocations().map(loc => loc.name);
+        
+        // 生成动态位置
+        const locationDefinition = await dynamicLocationService.generateLocation(
+          targetLocationId, // 使用ID作为名称
+          {
+            currentLocation: currentLocation.name,
+            gameStyle: 'fantasy_open_world',
+            existingLocations
+          }
+        );
+        
+        this.logger.info('Generated location definition', {
+          component: 'WorldManager',
+          locationDefinition
+        });
+        
+        // 创建新位置
+        targetLocation = new GameLocation(
+          locationDefinition.id,
+          locationDefinition.name,
+          locationDefinition.description,
+          { x: Math.random() * 100, y: Math.random() * 100 }, // 随机位置
+          locationDefinition.region,
+          'urban'
+        );
+        
+        // 添加到世界
+        this.world.addLocation(targetLocation);
+        
+        this.logger.info('Added new location to world', {
+          component: 'WorldManager',
+          locationId: targetLocation.id,
+          locationName: targetLocation.name
+        });
+        
+        // 创建双向连接 - 从当前位置到新位置
+        currentLocation.addConnection({
+          fromLocationId: currentLocationId,
+          toLocationId: targetLocation.id,
+          connectionType: 'path',
+          direction: 'unknown',
+          travelTime: 5
+        });
+        
+        // 创建双向连接 - 从新位置到当前位置
+        targetLocation.addConnection({
+          fromLocationId: targetLocation.id,
+          toLocationId: currentLocationId,
+          connectionType: 'path',
+          direction: 'unknown',
+          travelTime: 5
+        });
+        
+        // 创建额外的连接到其他现有位置，提高世界的连通性
+        const allLocations = this.world.getAllLocations();
+        const otherLocations = allLocations.filter(loc => 
+          loc.id !== currentLocationId && loc.id !== targetLocation!.id
+        );
+        
+        // 随机选择1-2个其他位置建立连接
+        const shuffledLocations = [...otherLocations].sort(() => 0.5 - Math.random());
+        const locationsToConnect = shuffledLocations.slice(0, Math.min(2, shuffledLocations.length));
+        
+        for (const location of locationsToConnect) {
+          // 从新位置到其他位置的连接
+          targetLocation!.addConnection({
+            fromLocationId: targetLocation!.id,
+            toLocationId: location.id,
+            connectionType: 'path',
+            direction: 'unknown',
+            travelTime: 7
+          });
+          
+          // 从其他位置到新位置的连接
+          location.addConnection({
+            fromLocationId: location.id,
+            toLocationId: targetLocation!.id,
+            connectionType: 'path',
+            direction: 'unknown',
+            travelTime: 7
+          });
+        }
+        
+        // 创建场景
+        await this.createSceneForLocation(targetLocation);
+        
+        this.logger.info(`Dynamically created new location: ${targetLocation.name}`, {
+          component: 'WorldManager',
+          locationId: targetLocation.id,
+          connectionsCreated: 1 + locationsToConnect.length
+        });
+        
+        isNewLocation = true; // 标记为新创建的位置
+      } catch (error) {
+        this.logger.error('Failed to dynamically create location', error as Error, {
+          component: 'WorldManager',
+          targetLocationId
+        });
+        
+        return {
+          success: false,
+          message: `Cannot reach or create location: ${targetLocationId}`,
+          travelTime: 0
+        };
+      }
+    }
+
+    // 检查是否可以到达（仅对已存在的位置进行检查）
+    if (!isNewLocation && !currentLocation.canReach(targetLocationId)) {
       return {
         success: false,
         message: `Cannot reach ${targetLocation.name} from ${currentLocation.name}`,
@@ -148,6 +271,7 @@ export class WorldManager {
       };
     }
 
+    // 获取连接和旅行时间
     const connection = currentLocation.getConnection(targetLocationId);
     const travelTime = connection?.travelTime || 5;
 

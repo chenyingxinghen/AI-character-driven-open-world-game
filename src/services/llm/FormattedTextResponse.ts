@@ -36,20 +36,22 @@ export const FIELD_SEPARATORS = {
  */
 export const INPUT_CLASSIFICATION_TEMPLATE = `
 === INPUT_CLASSIFICATION ===
-TYPE: {type}                          // 可选值: ${Object.values(InputType).join(' | ')}
-INTENT: {intent}                      // 可选值: ${Object.values(IntentType).map(t => `'${t}'`).join(' | ')}
-CONFIDENCE: {confidence}              // 数值范围: 0-100
-TARGET_CHARACTER: {targetCharacter}   // 指向的目标角色或 'none'
-TARGET_LOCATION: {targetLocation}     // 指向的地点或 'none'
-IS_DIRECT_SPEECH: {isDirectSpeech}    // 布尔值: true | false
-IS_ACTION_DESCRIPTION: {isActionDescription} // 布尔值: true | false
-IS_SYSTEM_QUERY: {isSystemQuery}      // 布尔值: true | false
-IS_COMPOUND_ACTION: {isCompoundAction} // 布尔值: true | false
-EXTRACTED_ACTION: {extractedAction}   // 字符串或 'none'
-EXTRACTED_SPEECH: {extractedSpeech}   // 字符串或 'none'
-URGENCY: {urgency}                    // 可选值: ${Object.values(UrgencyLevel).map(u => `'${u}'`).join(' | ')}
-EMOTIONAL_TONE: {emotionalTone}       // 可选值: ${Object.values(EmotionalTone).map(e => `'${e}'`).join(' | ')}
-CONTEXTUAL_HINTS: {contextualHints}   // 逗号分隔的字符串列表
+=== INPUT_CLASSIFICATION ===
+TYPE: {type}
+INTENT: {intent}
+CONFIDENCE: {confidence}
+TARGET_CHARACTER: {targetCharacter}
+TARGET_LOCATION: {targetLocation}
+IS_DIRECT_SPEECH: {isDirectSpeech}
+IS_ACTION_DESCRIPTION: {isActionDescription}
+IS_SYSTEM_QUERY: {isSystemQuery}
+IS_COMPOUND_ACTION: {isCompoundAction}
+EXTRACTED_ACTION: {extractedAction}
+EXTRACTED_SPEECH: {extractedSpeech}
+URGENCY: {urgency}
+EMOTIONAL_TONE: {emotionalTone}
+CONTEXTUAL_HINTS: {contextualHints}
+=== END_CLASSIFICATION ===
 === END_CLASSIFICATION ===
 `.trim();
 
@@ -61,11 +63,11 @@ const CHARACTER_MOODS = ['neutral', 'happy', 'sad', 'angry', 'fearful', 'excited
  */
 export const CHARACTER_DIALOGUE_TEMPLATE = `
 === CHARACTER_DIALOGUE ===
-DIALOGUE: {dialogue}                  // 角色的对话内容字符串
-ACTION: {action}                      // 可选的动作描述字符串或 'none'
-EMOTIONAL_STATE_MOOD: {emotionalStateMood} // 情绪状态，常见值: ${CHARACTER_MOODS.map(m => `'${m}'`).join(' | ')}
-EMOTIONAL_STATE_INTENSITY: {emotionalStateIntensity} // 情绪强度，数值范围: 0-100
-CONFIDENCE: {confidence}              // 置信度，数值范围: 0.0-1.0
+DIALOGUE: {dialogue}
+ACTION: {action}
+EMOTIONAL_STATE_MOOD: {emotionalStateMood}
+EMOTIONAL_STATE_INTENSITY: {emotionalStateIntensity}
+CONFIDENCE: {confidence}
 === END_DIALOGUE ===
 `.trim();
 
@@ -77,10 +79,10 @@ const DIRECTOR_ACTIONS = ['CONTINUE', 'ADVANCE_PLOT', 'INTRODUCE_CONFLICT', 'esc
  */
 export const DIRECTOR_DECISION_TEMPLATE = `
 === DIRECTOR_DECISION ===
-ACTION: {action}                      // 导演动作类型，常见值: ${DIRECTOR_ACTIONS.map(a => `'${a}'`).join(' | ')}
-REASONING: {reasoning}                // 决策reasoning说明字符串
-CONFIDENCE: {confidence}              // 置信度，数值范围: 0.0-1.0 或 0-100
-PARAMETERS: {parameters}              // JSON格式的参数对象，如: {"tensionLevel": 70, "priority": 5}
+ACTION: {action}
+REASONING: {reasoning}
+CONFIDENCE: {confidence}
+PARAMETERS: {parameters}
 === END_DECISION ===
 `.trim();
 
@@ -92,9 +94,9 @@ const ACTION_SEQUENCES = ['sequential', 'simultaneous'] as const;
  */
 export const COMPOUND_ACTION_TEMPLATE = `
 === COMPOUND_ACTION_ANALYSIS ===
-IS_COMPOUND: {isCompound}             // 布尔值: true | false
-ACTION_SEQUENCE: {actionSequence}     // 执行顺序类型: ${ACTION_SEQUENCES.map(s => `'${s}'`).join(' | ')}
-SUB_ACTIONS: {subActions}             // 子动作列表，用 | 分隔，每个子动作为描述字符串
+IS_COMPOUND: {isCompound}
+ACTION_SEQUENCE: {actionSequence}
+SUB_ACTIONS: {subActions}
 === END_COMPOUND_ACTION ===
 `.trim();
 
@@ -128,18 +130,19 @@ export class FormattedTextGenerator {
 - 最近对话: ${context.recentConversation.slice(-3).join(' | ')}
 
 请严格按照以下格式返回分类结果：
-
 ${INPUT_CLASSIFICATION_TEMPLATE}
+注意：请严格按照上述格式输出，不要添加额外的解释或说明。
 
 字段说明：
 - TYPE: 输入类型，可选: ${Object.values(InputType).join(' | ')}
 - INTENT: 意图类型，可选: ${Object.values(IntentType).join(' | ')}
+- CONFIDENCE: 置信度，数值范围 0-100
 - URGENCY: 紧急程度，可选: ${Object.values(UrgencyLevel).join(' | ')}
 - EMOTIONAL_TONE: 情绪基调，可选: ${Object.values(EmotionalTone).join(' | ')}
 - TARGET_CHARACTER: 目标角色，如无则填 'none'
 - TARGET_LOCATION: 目标位置，如无则填 'none'
 
-注意：请严格按照上述格式输出，不要添加额外的解释或说明。
+
     `.trim();
   }
 

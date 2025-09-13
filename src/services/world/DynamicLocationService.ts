@@ -162,9 +162,10 @@ export class DynamicLocationService {
   ): string[] {
     const connections = [currentLocation]; // 总是连接到当前位置
 
-    // 随机连接到1-2个现有位置
+    // 随机连接到1-3个现有位置，增加连接的丰富性
     const shuffled = [...existingLocations].sort(() => 0.5 - Math.random());
-    connections.push(...shuffled.slice(0, Math.min(2, shuffled.length)));
+    const additionalConnections = Math.min(3, shuffled.length);
+    connections.push(...shuffled.slice(0, additionalConnections));
 
     return [...new Set(connections)]; // 去重
   }
@@ -178,7 +179,7 @@ export class DynamicLocationService {
       name: locationName,
       description: `一个神秘的地方，名为${locationName}。这里充满了未知的可能性。`,
       region: 'unknown_area',
-      connections: ['town_square'], // 默认连接到镇中心
+      connections: [], // 不再默认连接到镇中心，让WorldManager处理连接
       dynamicallyGenerated: true
     };
   }

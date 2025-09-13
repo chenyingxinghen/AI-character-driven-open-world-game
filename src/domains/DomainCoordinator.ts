@@ -484,17 +484,18 @@ export class DomainCoordinator {
             toLocation: targetLocation
           });
         } else {
-          description = movementResult.message;
+          description = movementResult.message || 'Movement failed for unknown reasons.';
           this.logger.warn('Movement failed', {
             component: 'DomainCoordinator',
             reason: movementResult.message,
-            targetLocation
+            targetLocation,
+            fromLocation: gameContext.currentLocation
           });
         }
       } else {
+        description = 'I could not determine the target location for your movement.';
         this.logger.warn('No target location found in movement intent', {
           component: 'DomainCoordinator',
-          // entities: classification.entities // 已移除entities字段
           targetLocation: classification.targetLocation,
           targetCharacter: classification.targetCharacter
         });
