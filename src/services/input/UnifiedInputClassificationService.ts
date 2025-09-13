@@ -10,10 +10,11 @@ import { FormattedTextExtractorService, InputClassificationResult } from '../llm
 import { GameContextService } from '../game/GameContextService';
 import { Logger } from '../Logger';
 import { PatternRecognitionUtil, ErrorHandlerUtil, CacheUtil } from '../../utils/CommonUtils';
+import { IntentType, UrgencyLevel, EmotionalTone } from '../../domains/input/valueObjects';
 
 export interface InputClassification {
   type: 'speech' | 'action' | 'question' | 'system_query' | 'compound_action';
-  intent: 'dialogue' | 'movement' | 'observation' | 'inquiry' | 'greeting' | 'confirmation' | 'system_help' | 'story_background' | 'story_recap' | 'compound';
+  intent: IntentType;
   confidence: number; // 0-100
   targetCharacter?: string;
   isDirectSpeech: boolean;
@@ -23,8 +24,8 @@ export interface InputClassification {
   extractedAction?: string;
   extractedSpeech?: string;
   contextualHints: string[];
-  urgency: 'low' | 'medium' | 'high';
-  emotionalTone: 'neutral' | 'positive' | 'negative' | 'excited' | 'concerned';
+  urgency: UrgencyLevel;
+  emotionalTone: EmotionalTone;
   // 复合动作支持
   subActions?: SubAction[];
   primaryAction?: SubAction;
@@ -262,15 +263,15 @@ export class UnifiedInputClassificationService {
   private getDefaultClassification(input: string): InputClassification {
     return {
       type: 'speech',
-      intent: 'dialogue',
+      intent: IntentType.DIALOGUE,
       confidence: 50,
       isDirectSpeech: true,
       isActionDescription: false,
       isSystemQuery: false,
       isCompoundAction: false,
       contextualHints: ['default', 'fallback'],
-      urgency: 'medium',
-      emotionalTone: 'neutral'
+      urgency: UrgencyLevel.MEDIUM,
+      emotionalTone: EmotionalTone.NEUTRAL
     };
   }
 
@@ -292,15 +293,15 @@ export class UnifiedInputClassificationService {
     if (isQuestion) {
       return {
         type: 'question',
-        intent: 'inquiry',
+        intent: IntentType.INFORMATION_QUERY,
         confidence: 85,
         isDirectSpeech: true,
         isActionDescription: false,
         isSystemQuery: false,
         isCompoundAction: false,
         contextualHints: ['question'],
-        urgency: 'medium',
-        emotionalTone: 'neutral'
+        urgency: UrgencyLevel.MEDIUM,
+        emotionalTone: EmotionalTone.NEUTRAL
       };
     }
     
@@ -313,30 +314,30 @@ export class UnifiedInputClassificationService {
     if (isAction) {
       return {
         type: 'action',
-        intent: 'movement',
+        intent: IntentType.MOVEMENT,
         confidence: 80,
         isDirectSpeech: false,
         isActionDescription: true,
         isSystemQuery: false,
         isCompoundAction: false,
         contextualHints: ['action'],
-        urgency: 'medium',
-        emotionalTone: 'neutral'
+        urgency: UrgencyLevel.MEDIUM,
+        emotionalTone: EmotionalTone.NEUTRAL
       };
     }
     
     // 默认为对话
     return {
       type: 'speech',
-      intent: 'dialogue',
+      intent: IntentType.DIALOGUE,
       confidence: 75,
       isDirectSpeech: true,
       isActionDescription: false,
       isSystemQuery: false,
       isCompoundAction: false,
       contextualHints: ['dialogue'],
-      urgency: 'medium',
-      emotionalTone: 'neutral'
+      urgency: UrgencyLevel.MEDIUM,
+      emotionalTone: EmotionalTone.NEUTRAL
     };
   }
 

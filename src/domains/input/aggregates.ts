@@ -423,49 +423,21 @@ export class InputManager {
   /**
    * 将意图类型枚举转换为有效的字符串
    */
-  private mapIntentTypeToValidString(intentType: IntentType): 'dialogue' | 'movement' | 'observation' | 'inquiry' | 'greeting' | 'confirmation' | 'system_help' | 'story_background' | 'story_recap' | 'compound' {
-    const mapping: Record<string, 'dialogue' | 'movement' | 'observation' | 'inquiry' | 'greeting' | 'confirmation' | 'system_help' | 'story_background' | 'story_recap' | 'compound'> = {
-      [IntentType.DIALOGUE]: 'dialogue',
-      [IntentType.MOVEMENT]: 'movement',
-      [IntentType.EXPLORATION]: 'observation',
-      [IntentType.CHARACTER_INTERACTION]: 'dialogue',
-      [IntentType.LOCATION_QUERY]: 'inquiry',
-      [IntentType.INVENTORY_ACTION]: 'observation',
-      [IntentType.COMBAT]: 'compound',
-      [IntentType.INFORMATION_QUERY]: 'inquiry',
-      [IntentType.COMPLEX_SCENARIO]: 'compound',
-      [IntentType.UNKNOWN]: 'dialogue'
-    };
-    return mapping[intentType] || 'dialogue';
+  private mapIntentTypeToValidString(intentType: IntentType): IntentType {
+    return intentType;
   }
 
   /**
    * 将情绪基调枚举转换为有效的字符串
    */
-  private mapEmotionalToneToValidString(emotionalTone: EmotionalTone): 'neutral' | 'positive' | 'negative' | 'excited' | 'concerned' {
-    const mapping: Record<string, 'neutral' | 'positive' | 'negative' | 'excited' | 'concerned'> = {
-      [EmotionalTone.POSITIVE]: 'positive',
-      [EmotionalTone.NEGATIVE]: 'negative',
-      [EmotionalTone.NEUTRAL]: 'neutral',
-      [EmotionalTone.EXCITED]: 'excited',
-      [EmotionalTone.ANGRY]: 'negative',
-      [EmotionalTone.SAD]: 'negative',
-      [EmotionalTone.FEARFUL]: 'concerned',
-      [EmotionalTone.CONFUSED]: 'concerned'
-    };
-    return mapping[emotionalTone] || 'neutral';
+  private mapEmotionalToneToValidString(emotionalTone: EmotionalTone): EmotionalTone {
+    return emotionalTone;
   }
 
   /**
    * 将紧急程度枚举转换为有效的字符串
    */
-  private mapUrgencyLevelToValidString(urgencyLevel: UrgencyLevel): 'low' | 'medium' | 'high' {
-    const mapping: Record<string, 'low' | 'medium' | 'high'> = {
-      [UrgencyLevel.LOW]: 'low',
-      [UrgencyLevel.MEDIUM]: 'medium',
-      [UrgencyLevel.HIGH]: 'high',
-      [UrgencyLevel.URGENT]: 'high'
-    };
-    return mapping[urgencyLevel] || 'medium';
+  private mapUrgencyLevelToValidString(urgencyLevel: UrgencyLevel): UrgencyLevel {
+    return urgencyLevel;
   }
 }

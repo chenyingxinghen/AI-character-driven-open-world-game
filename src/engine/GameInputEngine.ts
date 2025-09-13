@@ -1,7 +1,7 @@
 import { InputManager } from '../domains/input/aggregates';
 import { Logger } from '../services/Logger';
 import { LLMService } from '../services/llm/LLMService';
-import { InputClassification } from '../domains/input/valueObjects';
+import { InputClassification, IntentType, EmotionalTone, UrgencyLevel } from '../domains/input/valueObjects';
 
 export class GameInputEngine {
   private inputManager: InputManager;
@@ -49,12 +49,12 @@ export class GameInputEngine {
     } catch (error) {
       this.logger.error('Input classification with context failed:', error as Error);
       return {
-        intent: 'unknown',
+        intent: IntentType.UNKNOWN,
         confidence: 0,
         entities: [],
-        emotionalTone: 'neutral',
+        emotionalTone: EmotionalTone.NEUTRAL,
         complexity: 1,
-        urgency: 'medium',
+        urgency: UrgencyLevel.MEDIUM,
         contextualInfo: {
           mentionedCharacters: [],
           mentionedLocations: [],

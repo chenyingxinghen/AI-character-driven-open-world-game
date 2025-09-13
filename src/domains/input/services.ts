@@ -386,7 +386,14 @@ export class IntentClassificationService {
     const mapping: Record<string, IntentType> = {
       'dialogue': IntentType.DIALOGUE,
       'movement': IntentType.MOVEMENT,
-      'exploration': IntentType.EXPLORATION
+      'exploration': IntentType.EXPLORATION,
+      'character_interaction': IntentType.CHARACTER_INTERACTION,
+      'location_query': IntentType.LOCATION_QUERY,
+      'inventory_action': IntentType.INVENTORY_ACTION,
+      'combat': IntentType.COMBAT,
+      'information_query': IntentType.INFORMATION_QUERY,
+      'complex_scenario': IntentType.COMPLEX_SCENARIO,
+      'unknown': IntentType.UNKNOWN
     };
     return mapping[intent] || IntentType.UNKNOWN;
   }
@@ -394,7 +401,13 @@ export class IntentClassificationService {
   private mapToEmotionalTone(tone: string): EmotionalTone {
     const mapping: Record<string, EmotionalTone> = {
       'positive': EmotionalTone.POSITIVE,
-      'negative': EmotionalTone.NEGATIVE
+      'negative': EmotionalTone.NEGATIVE,
+      'neutral': EmotionalTone.NEUTRAL,
+      'excited': EmotionalTone.EXCITED,
+      'angry': EmotionalTone.ANGRY,
+      'sad': EmotionalTone.SAD,
+      'fearful': EmotionalTone.FEARFUL,
+      'confused': EmotionalTone.CONFUSED
     };
     return mapping[tone] || EmotionalTone.NEUTRAL;
   }
@@ -402,7 +415,9 @@ export class IntentClassificationService {
   private mapToUrgencyLevel(urgency: string): UrgencyLevel {
     const mapping: Record<string, UrgencyLevel> = {
       'low': UrgencyLevel.LOW,
-      'high': UrgencyLevel.HIGH
+      'medium': UrgencyLevel.MEDIUM,
+      'high': UrgencyLevel.HIGH,
+      'urgent': UrgencyLevel.URGENT
     };
     return mapping[urgency] || UrgencyLevel.MEDIUM;
   }

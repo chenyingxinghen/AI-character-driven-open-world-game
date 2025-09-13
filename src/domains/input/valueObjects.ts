@@ -7,10 +7,10 @@
  * 输入分类结果值对象
  */
 export interface InputClassification {
-  readonly intent: string;
+  readonly intent: IntentType;
   readonly confidence: number;
-  readonly emotionalTone: string;
-  readonly urgency: string;
+  readonly emotionalTone: EmotionalTone;
+  readonly urgency: UrgencyLevel;
   readonly complexity: number;
   readonly entities: readonly ExtractedEntity[];
   readonly contextualInfo: ContextualInfo;

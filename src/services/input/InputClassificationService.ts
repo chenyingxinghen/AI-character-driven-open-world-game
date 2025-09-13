@@ -2,10 +2,11 @@ import { LLMService } from '../llm/LLMService';
 import { FormattedTextGenerator } from '../llm/FormattedTextResponse';
 import { FormattedTextExtractorService } from '../llm/FormattedTextExtractorService';
 import { Logger } from '../Logger';
+import { IntentType, UrgencyLevel, EmotionalTone } from '../../domains/input/valueObjects';
 
 export interface InputClassification {
   type: 'speech' | 'action' | 'question' | 'system_query' | 'compound_action';
-  intent: 'dialogue' | 'movement' | 'observation' | 'inquiry' | 'greeting' | 'confirmation' | 'system_help' | 'story_background' | 'story_recap' | 'compound';
+  intent: IntentType;
   confidence: number; // 0-100
   targetCharacter?: string;
   isDirectSpeech: boolean;
@@ -15,8 +16,8 @@ export interface InputClassification {
   extractedAction?: string;
   extractedSpeech?: string;
   contextualHints: string[];
-  urgency: 'low' | 'medium' | 'high';
-  emotionalTone: 'neutral' | 'positive' | 'negative' | 'excited' | 'concerned';
+  urgency: UrgencyLevel;
+  emotionalTone: EmotionalTone;
   // 复合动作支持
   subActions?: SubAction[];
   primaryAction?: SubAction;
@@ -155,15 +156,15 @@ export class InputClassificationService {
     if (isQuestion) {
       return {
         type: 'question',
-        intent: 'inquiry',
+        intent: IntentType.INFORMATION_QUERY,
         confidence: 85,
         isDirectSpeech: true,
         isActionDescription: false,
         isSystemQuery: false,
         isCompoundAction: false,
         contextualHints: [],
-        urgency: 'medium',
-        emotionalTone: 'neutral'
+        urgency: UrgencyLevel.MEDIUM,
+        emotionalTone: EmotionalTone.NEUTRAL
       };
     }
     
@@ -181,30 +182,30 @@ export class InputClassificationService {
     if (isAction) {
       return {
         type: 'action',
-        intent: 'movement',
+        intent: IntentType.MOVEMENT,
         confidence: 80,
         isDirectSpeech: false,
         isActionDescription: true,
         isSystemQuery: false,
         isCompoundAction: false,
         contextualHints: [],
-        urgency: 'medium',
-        emotionalTone: 'neutral'
+        urgency: UrgencyLevel.MEDIUM,
+        emotionalTone: EmotionalTone.NEUTRAL
       };
     }
     
     // Default to speech
     return {
       type: 'speech',
-      intent: 'dialogue',
+      intent: IntentType.DIALOGUE,
       confidence: 75,
       isDirectSpeech: true,
       isActionDescription: false,
       isSystemQuery: false,
       isCompoundAction: false,
       contextualHints: [],
-      urgency: 'medium',
-      emotionalTone: 'neutral'
+      urgency: UrgencyLevel.MEDIUM,
+      emotionalTone: EmotionalTone.NEUTRAL
     };
   }
 

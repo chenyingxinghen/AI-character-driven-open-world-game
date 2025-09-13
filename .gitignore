@@ -99,3 +99,4 @@ dist/types/index.js
 dist/utils/CommonUtils.js
 dist/utils/ErrorHandling.js
 dist/utils/index.js
+dist/__tests__/FormattedTextExtractorService.test.js

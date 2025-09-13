@@ -10,13 +10,14 @@ import {
   FormattedTextResponse 
 } from './FormattedTextResponse';
 import { Logger } from '../Logger';
+import { IntentType, EmotionalTone, UrgencyLevel } from '../../domains/input/valueObjects';
 
 /**
  * 输入分类结果接口
  */
 export interface InputClassificationResult {
   type: 'speech' | 'action' | 'question' | 'system_query' | 'compound_action';
-  intent: 'dialogue' | 'movement' | 'observation' | 'inquiry' | 'greeting' | 'confirmation' | 'system_help' | 'story_background' | 'story_recap' | 'compound';
+  intent: IntentType;
   confidence: number;
   targetCharacter?: string;
   targetLocation?: string;
@@ -26,8 +27,8 @@ export interface InputClassificationResult {
   isCompoundAction: boolean;
   extractedAction?: string;
   extractedSpeech?: string;
-  urgency: 'low' | 'medium' | 'high';
-  emotionalTone: 'neutral' | 'positive' | 'negative' | 'excited' | 'concerned';
+  urgency: UrgencyLevel;
+  emotionalTone: EmotionalTone;
   entities?: Array<{ type: string; value: string }>;
   contextualHints: string[];
 }
@@ -68,10 +69,10 @@ export interface CompoundActionResult {
  * 意图分类结果接口
  */
 export interface IntentClassificationResult {
-  intent: string;
+  intent: IntentType;
   confidence: number;
-  emotionalTone: string;
-  urgency: string;
+  emotionalTone: EmotionalTone;
+  urgency: UrgencyLevel;
   entities: Array<{ type: string; value: string }>;
 }
 
@@ -95,7 +96,7 @@ export class FormattedTextExtractorService {
 
       const result: InputClassificationResult = {
         type: this.validateAndGetField(fields, 'TYPE', ['speech', 'action', 'question', 'system_query', 'compound_action']) as any,
-        intent: this.validateAndGetField(fields, 'INTENT', ['dialogue', 'movement', 'observation', 'inquiry', 'greeting', 'confirmation', 'system_help', 'story_background', 'story_recap', 'compound']) as any,
+        intent: this.mapToIntentType(this.validateAndGetField(fields, 'INTENT', Object.values(IntentType))),
         confidence: this.parseNumber(fields.CONFIDENCE, 0, 100),
         targetCharacter: this.getOptionalField(fields, 'TARGET_CHARACTER'),
         targetLocation: this.getOptionalField(fields, 'TARGET_LOCATION'),
@@ -105,8 +106,8 @@ export class FormattedTextExtractorService {
         isCompoundAction: this.parseBoolean(fields.IS_COMPOUND_ACTION),
         extractedAction: this.getOptionalField(fields, 'EXTRACTED_ACTION'),
         extractedSpeech: this.getOptionalField(fields, 'EXTRACTED_SPEECH'),
-        urgency: this.validateAndGetField(fields, 'URGENCY', ['low', 'medium', 'high']) as any,
-        emotionalTone: this.validateAndGetField(fields, 'EMOTIONAL_TONE', ['neutral', 'positive', 'negative', 'excited', 'concerned']) as any,
+        urgency: this.mapToUrgencyLevel(this.validateAndGetField(fields, 'URGENCY', Object.values(UrgencyLevel))),
+        emotionalTone: this.mapToEmotionalTone(this.validateAndGetField(fields, 'EMOTIONAL_TONE', Object.values(EmotionalTone))),
         entities: this.parseEntities(fields.ENTITIES),
         contextualHints: this.parseList(fields.CONTEXTUAL_HINTS)
       };
@@ -199,10 +200,10 @@ export class FormattedTextExtractorService {
       const fields = this.parseFields(section);
 
       const result: IntentClassificationResult = {
-        intent: this.getRequiredField(fields, 'INTENT'),
+        intent: this.mapToIntentType(this.validateAndGetField(fields, 'INTENT', Object.values(IntentType))),
         confidence: this.parseNumber(fields.CONFIDENCE, 0.0, 1.0),
-        emotionalTone: this.getRequiredField(fields, 'EMOTIONAL_TONE'),
-        urgency: this.getRequiredField(fields, 'URGENCY'),
+        emotionalTone: this.mapToEmotionalTone(this.validateAndGetField(fields, 'EMOTIONAL_TONE', Object.values(EmotionalTone))),
+        urgency: this.mapToUrgencyLevel(this.validateAndGetField(fields, 'URGENCY', Object.values(UrgencyLevel))),
         entities: this.parseEntities(fields.ENTITIES)
       };
 
@@ -376,14 +377,14 @@ export class FormattedTextExtractorService {
   private getDefaultInputClassification(): InputClassificationResult {
     return {
       type: 'speech',
-      intent: 'dialogue',
+      intent: IntentType.DIALOGUE,
       confidence: 50,
       isDirectSpeech: true,
       isActionDescription: false,
       isSystemQuery: false,
       isCompoundAction: false,
-      urgency: 'medium',
-      emotionalTone: 'neutral',
+      urgency: UrgencyLevel.MEDIUM,
+      emotionalTone: EmotionalTone.NEUTRAL,
       contextualHints: []
     };
   }
@@ -430,11 +431,51 @@ export class FormattedTextExtractorService {
    */
   private getDefaultIntentClassification(): IntentClassificationResult {
     return {
-      intent: 'UNKNOWN',
+      intent: IntentType.UNKNOWN,
       confidence: 0.5,
-      emotionalTone: 'NEUTRAL',
-      urgency: 'MEDIUM',
+      emotionalTone: EmotionalTone.NEUTRAL,
+      urgency: UrgencyLevel.MEDIUM,
       entities: []
     };
+  }
+
+  private mapToIntentType(intent: string): IntentType {
+    const mapping: Record<string, IntentType> = {
+      'dialogue': IntentType.DIALOGUE,
+      'movement': IntentType.MOVEMENT,
+      'exploration': IntentType.EXPLORATION,
+      'character_interaction': IntentType.CHARACTER_INTERACTION,
+      'location_query': IntentType.LOCATION_QUERY,
+      'inventory_action': IntentType.INVENTORY_ACTION,
+      'combat': IntentType.COMBAT,
+      'information_query': IntentType.INFORMATION_QUERY,
+      'complex_scenario': IntentType.COMPLEX_SCENARIO,
+      'unknown': IntentType.UNKNOWN
+    };
+    return mapping[intent] || IntentType.UNKNOWN;
+  }
+
+  private mapToEmotionalTone(tone: string): EmotionalTone {
+    const mapping: Record<string, EmotionalTone> = {
+      'positive': EmotionalTone.POSITIVE,
+      'negative': EmotionalTone.NEGATIVE,
+      'neutral': EmotionalTone.NEUTRAL,
+      'excited': EmotionalTone.EXCITED,
+      'angry': EmotionalTone.ANGRY,
+      'sad': EmotionalTone.SAD,
+      'fearful': EmotionalTone.FEARFUL,
+      'confused': EmotionalTone.CONFUSED
+    };
+    return mapping[tone] || EmotionalTone.NEUTRAL;
+  }
+
+  private mapToUrgencyLevel(urgency: string): UrgencyLevel {
+    const mapping: Record<string, UrgencyLevel> = {
+      'low': UrgencyLevel.LOW,
+      'medium': UrgencyLevel.MEDIUM,
+      'high': UrgencyLevel.HIGH,
+      'urgent': UrgencyLevel.URGENT
+    };
+    return mapping[urgency] || UrgencyLevel.MEDIUM;
   }
 }
