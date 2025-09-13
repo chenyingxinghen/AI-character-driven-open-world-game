@@ -4,6 +4,28 @@
  */
 
 /**
+ * 输入类型枚举
+ */
+export enum InputType {
+  SPEECH = 'speech',
+  ACTION = 'action',
+  QUESTION = 'question',
+  SYSTEM_QUERY = 'system_query',
+  COMPOUND_ACTION = 'compound_action'
+}
+
+/**
+ * 实体类型枚举
+ */
+export enum EntityType {
+  CHARACTER = 'character',
+  LOCATION = 'location',
+  OBJECT = 'object',
+  ACTION = 'action',
+  TIME = 'time'
+}
+
+/**
  * 输入分类结果值对象
  */
 export interface InputClassification {
@@ -20,7 +42,7 @@ export interface InputClassification {
  * 提取的实体值对象
  */
 export interface ExtractedEntity {
-  readonly type: 'character' | 'location' | 'object' | 'action' | 'time';
+  readonly type: EntityType;
   readonly value: string;
   readonly confidence: number;
   readonly position: {

@@ -20,7 +20,7 @@ import { InputManager } from './input/aggregates';
 import { OperationsManager } from './operations/aggregates';
 
 // 导入值对象
-import { InputClassification, ComplexScenarioAnalysis } from './input/valueObjects';
+import { InputClassification, ComplexScenarioAnalysis, EntityType } from './input/valueObjects';
 import { Character } from './character/entities';
 import { GameLocation } from './world/entities';
 import { PerformanceMetrics } from './operations/valueObjects';
@@ -651,7 +651,7 @@ export class DomainCoordinator {
    * 从分类中提取目标位置
    */
   private extractTargetLocation(classification: InputClassification): string | undefined {
-    const locationEntities = classification.entities.filter(e => e.type === 'location');
+    const locationEntities = classification.entities.filter(e => e.type === EntityType.LOCATION);
     return locationEntities.length > 0 ? locationEntities[0].value : undefined;
   }
 

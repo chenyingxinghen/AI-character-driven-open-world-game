@@ -14,6 +14,7 @@ import {
   ContextHistory,
   ContextualInfo,
   ExtractedEntity,
+  EntityType,
   IntentType,
   EmotionalTone,
   UrgencyLevel
@@ -395,19 +396,19 @@ export class InputManager {
     context?: any
   ): ContextualInfo {
     const mentionedCharacters = entities
-      .filter(e => e.type === 'character')
+      .filter(e => e.type === EntityType.CHARACTER)
       .map(e => e.value);
 
     const mentionedLocations = entities
-      .filter(e => e.type === 'location')
+      .filter(e => e.type === EntityType.LOCATION)
       .map(e => e.value);
 
     const actionSequence = entities
-      .filter(e => e.type === 'action')
+      .filter(e => e.type === EntityType.ACTION)
       .map(e => e.value);
 
     const timeReferences = entities
-      .filter(e => e.type === 'time')
+      .filter(e => e.type === EntityType.TIME)
       .map(e => e.value);
 
     return {

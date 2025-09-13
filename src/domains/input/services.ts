@@ -14,6 +14,7 @@ import {
   IntentType,
   EmotionalTone,
   UrgencyLevel,
+  EntityType,
   ComplexScenarioAnalysis,
   PreprocessedInput,
   ChoiceDetectionResult,
@@ -103,7 +104,7 @@ export class EntityExtractionService {
         let match;
         while ((match = regex.exec(input)) !== null) {
           entities.push({
-            type: 'character',
+            type: EntityType.CHARACTER,
             value: character,
             confidence: 0.9,
             position: { start: match.index, end: match.index + character.length }
@@ -124,7 +125,7 @@ export class EntityExtractionService {
         let match;
         while ((match = regex.exec(input)) !== null) {
           entities.push({
-            type: 'location',
+            type: EntityType.LOCATION,
             value: location,
             confidence: 0.9,
             position: { start: match.index, end: match.index + location.length }
@@ -145,7 +146,7 @@ export class EntityExtractionService {
       let match;
       while ((match = regex.exec(input)) !== null) {
         entities.push({
-          type: 'action',
+          type: EntityType.ACTION,
           value: action,
           confidence: 0.8,
           position: { start: match.index, end: match.index + action.length }
@@ -167,7 +168,7 @@ export class EntityExtractionService {
       let match;
       while ((match = pattern.exec(input)) !== null) {
         entities.push({
-          type: 'time',
+          type: EntityType.TIME,
           value: match[0],
           confidence: 0.8,
           position: { start: match.index, end: match.index + match[0].length }
@@ -187,7 +188,7 @@ export class EntityExtractionService {
       let match;
       while ((match = regex.exec(input)) !== null) {
         entities.push({
-          type: 'object',
+          type: EntityType.OBJECT,
           value: object,
           confidence: 0.7,
           position: { start: match.index, end: match.index + object.length }
@@ -247,15 +248,15 @@ export class IntentClassificationService {
     const lowerInput = input.toLowerCase();
     
     const hasMovementAction = entities.some(e => 
-      e.type === 'action' && ['走', '去', 'go', 'walk'].includes(e.value.toLowerCase())
+      e.type === EntityType.ACTION && ['走', '去', 'go', 'walk'].includes(e.value.toLowerCase())
     );
     
     const hasDialogueAction = entities.some(e => 
-      e.type === 'action' && ['说', 'say', 'talk'].includes(e.value.toLowerCase())
+      e.type === EntityType.ACTION && ['说', 'say', 'talk'].includes(e.value.toLowerCase())
     );
 
-    const hasCharacter = entities.some(e => e.type === 'character');
-    const hasLocation = entities.some(e => e.type === 'location');
+    const hasCharacter = entities.some(e => e.type === EntityType.CHARACTER);
+    const hasLocation = entities.some(e => e.type === EntityType.LOCATION);
 
     let intent = IntentType.UNKNOWN;
     let confidence = 0.5;
