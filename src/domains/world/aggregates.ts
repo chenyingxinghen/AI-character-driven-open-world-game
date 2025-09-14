@@ -36,6 +36,7 @@ export class WorldManager {
   constructor(
     private llmService: LLMService,
     private logger: Logger,
+    private databaseService?: any,
     initialTime?: GameTime
   ) {
     this.world = new GameWorld(initialTime);
@@ -350,6 +351,16 @@ export class WorldManager {
 
     this.world.addLocation(newLocation);
 
+    // 持久化位置到数据库
+    if (this.databaseService) {
+      await this.persistLocationToDatabase(newLocation).catch(error => {
+        this.logger.warn('Failed to persist location to database', error, {
+          locationId: newLocation.id,
+          component: 'WorldManager'
+        });
+      });
+    }
+
     // 创建场景
     await this.createSceneForLocation(newLocation);
 
@@ -516,5 +527,44 @@ export class WorldManager {
     const dx = pos1.x - pos2.x;
     const dy = pos1.y - pos2.y;
     return Math.sqrt(dx * dx + dy * dy);
+  }
+
+  /**
+   * 持久化位置到数据库
+   */
+  private async persistLocationToDatabase(location: GameLocation): Promise<void> {
+    if (!this.databaseService) {
+      return;
+    }
+
+    try {
+      const locationRecord = {
+        id: location.id,
+        name: location.name,
+        description: location.description,
+        location_type: location.locationType || 'general',
+        region_id: location.regionId,
+        position_x: location.position.x,
+        position_y: location.position.y,
+        location_data: JSON.stringify({
+          state: location.getState(),
+          connections: location.getAllConnections().map(conn => ({
+            fromLocationId: conn.fromLocationId,
+            toLocationId: conn.toLocationId,
+            connectionType: conn.connectionType,
+            direction: conn.direction,
+            travelTime: conn.travelTime
+          }))
+        })
+      };
+
+      await this.databaseService.createLocation(locationRecord);
+    } catch (error) {
+      this.logger.error('Failed to persist location to database', error as Error, {
+        locationId: location.id,
+        component: 'WorldManager'
+      });
+      throw error;
+    }
   }
 }

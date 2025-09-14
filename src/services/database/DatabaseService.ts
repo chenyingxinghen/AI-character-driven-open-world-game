@@ -145,6 +145,12 @@ export interface DatabaseService {
   batchInsert<T extends DatabaseRecord>(tableName: string, records: T[]): Promise<void>;
   batchUpdate<T extends DatabaseRecord>(tableName: string, updates: Array<{ id: string; data: Partial<T> }>): Promise<void>;
   
+  // World Lore operations
+  createWorldLore(lore: any): Promise<any>;
+  getWorldLoreBySession(sessionId: string, loreType?: string): Promise<any[]>;
+  hasWorldLore(sessionId: string): Promise<boolean>;
+  updateWorldLore(loreId: string, updates: any): Promise<void>;
+  
   // Analytics and statistics
   getSessionStatistics(sessionId: string): Promise<any>;
   getCharacterInteractionCount(characterId: string, sessionId: string): Promise<number>;
@@ -350,6 +356,26 @@ export class MockDatabaseService implements DatabaseService {
   
   async batchUpdate<T extends DatabaseRecord>(tableName: string, updates: Array<{ id: string; data: Partial<T> }>): Promise<void> {
     console.log(`Mock: Batch updating ${updates.length} records in ${tableName}`);
+  }
+  
+  // World Lore operations
+  async createWorldLore(lore: any): Promise<any> {
+    console.log(`Mock: Creating world lore for session ${lore.session_id}`);
+    return { ...lore, created_at: new Date(), updated_at: new Date() };
+  }
+  
+  async getWorldLoreBySession(sessionId: string, loreType?: string): Promise<any[]> {
+    console.log(`Mock: Getting world lore for session ${sessionId}, type: ${loreType || 'all'}`);
+    return [];
+  }
+  
+  async hasWorldLore(sessionId: string): Promise<boolean> {
+    console.log(`Mock: Checking if world lore exists for session ${sessionId}`);
+    return false;
+  }
+  
+  async updateWorldLore(loreId: string, updates: any): Promise<void> {
+    console.log(`Mock: Updating world lore ${loreId}`);
   }
   
   // Analytics and statistics

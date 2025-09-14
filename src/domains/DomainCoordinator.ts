@@ -12,6 +12,7 @@
 import { Logger } from '../services/Logger';
 import { LLMService } from '../services/llm/LLMService';
 import { GameContextService } from '../services/game/GameContextService';
+import { WorldLoreService } from '../services/world/WorldLoreService';
 
 // 导入各域的管理器
 import { CharacterManager } from './character/aggregates';
@@ -71,18 +72,21 @@ export class DomainCoordinator {
   private inputManager: InputManager;
   private operationsManager: OperationsManager;
   private gameContextService?: GameContextService;
+  private worldLoreService?: WorldLoreService;
 
   constructor(
     private llmService: LLMService,
     private logger: Logger,
     gameContextService?: GameContextService,
-    private databaseService?: any
+    private databaseService?: any,
+    worldLoreService?: WorldLoreService
   ) {
     this.characterManager = new CharacterManager(llmService, logger, databaseService);
-    this.worldManager = new WorldManager(llmService, logger);
+    this.worldManager = new WorldManager(llmService, logger, databaseService);
     this.inputManager = new InputManager(llmService, logger, gameContextService);
     this.operationsManager = new OperationsManager(logger);
     this.gameContextService = gameContextService;
+    this.worldLoreService = worldLoreService;
 
     this.logger.info('Domain Coordinator initialized with all domain managers');
   }
@@ -382,6 +386,13 @@ export class DomainCoordinator {
         }
         break;
 
+      case 'information_query':
+        domainsInvolved.push('narrator');
+        const narratorResult = await this.handleInformationQuery(classification, gameContext);
+        responses.narrative = narratorResult.explanation;
+        stateChanges.narratorUpdates = narratorResult.updates;
+        break;
+
       default:
         responses.narrative = await this.generateDefaultResponse(classification, gameContext);
     }
@@ -435,6 +446,251 @@ export class DomainCoordinator {
     }
 
     return { responses, updates };
+  }
+
+  /**
+   * 处理信息查询意图
+   */
+  private async handleInformationQuery(
+    classification: InputClassification,
+    gameContext: GameContext
+  ): Promise<{ explanation: string; updates: any[] }> {
+    const updates: any[] = [];
+    let explanation = '';
+
+    // 根据问题类型提供不同的信息
+    const questionType = this.categorizeQuestion(classification.extractedSpeech || '');
+    
+    switch (questionType) {
+      case 'game_mechanics':
+        explanation = await this.generateGameMechanicsExplanation(classification, gameContext);
+        break;
+      case 'world_lore':
+        explanation = await this.generateWorldLoreExplanation(classification, gameContext);
+        break;
+      case 'character_info':
+        explanation = await this.generateCharacterInfoExplanation(classification, gameContext);
+        break;
+      case 'location_info':
+        explanation = await this.generateLocationInfoExplanation(classification, gameContext);
+        break;
+      case 'help':
+        explanation = await this.generateHelpExplanation(classification, gameContext);
+        break;
+      default:
+        explanation = await this.generateGeneralExplanation(classification, gameContext);
+    }
+
+    updates.push({
+      type: 'information_provided',
+      questionType,
+      timestamp: new Date(),
+      context: gameContext.currentLocation
+    });
+
+    return { explanation, updates };
+  }
+
+  /**
+   * 分类问题类型
+   */
+  private categorizeQuestion(question: string): string {
+    const lowerQuestion = question.toLowerCase();
+    
+    // 游戏机制相关
+    if (/怎么|如何|怎样|how|what.*do|what.*can/.test(lowerQuestion)) {
+      return 'game_mechanics';
+    }
+    
+    // 世界背景相关
+    if (/历史|故事|背景|传说|history|story|legend|lore/.test(lowerQuestion)) {
+      return 'world_lore';
+    }
+    
+    // 角色信息相关
+    if (/谁是|角色|人物|who|character|person/.test(lowerQuestion)) {
+      return 'character_info';
+    }
+    
+    // 地点信息相关
+    if (/哪里|地点|位置|地方|where|location|place/.test(lowerQuestion)) {
+      return 'location_info';
+    }
+    
+    // 帮助相关
+    if (/帮助|指令|命令|help|command|instruction/.test(lowerQuestion)) {
+      return 'help';
+    }
+    
+    return 'general';
+  }
+
+  /**
+   * 生成游戏机制解释
+   */
+  private async generateGameMechanicsExplanation(
+    classification: InputClassification,
+    gameContext: GameContext
+  ): Promise<string> {
+    const prompt = `
+作为游戏叙述者，解释以下游戏机制问题：
+
+玩家问题：${classification.extractedSpeech || 'Unknown question'}
+当前位置：${gameContext.currentLocation}
+
+请提供清晰、实用的游戏机制解释：
+- 如何与角色互动
+- 如何移动到不同地点
+- 如何使用游戏命令
+- 其他相关游戏玩法
+`;
+
+    try {
+      const response = await this.llmService.generateText(prompt, {
+        maxTokens: 200
+      });
+      return response || '这是一个互动式游戏，你可以通过输入文本来控制角色的行动和对话。例如，输入“前往图书馆”来移动，或者输入“与守卫对话”来互动。';
+    } catch (error) {
+      this.logger.error('Error generating game mechanics explanation:', error as Error);
+      return '这是一个互动式游戏，你可以通过输入文本来与世界互动。';
+    }
+  }
+
+  /**
+   * 生成世界背景解释
+   */
+  private async generateWorldLoreExplanation(
+    classification: InputClassification,
+    gameContext: GameContext
+  ): Promise<string> {
+    try {
+      // 先尝试从数据库获取存储的世界背景故事
+      if (this.worldLoreService) {
+        const loreByQuery = await this.worldLoreService.getLoreByQuery(
+          gameContext.sessionId,
+          classification.extractedSpeech || ''
+        );
+        
+        if (loreByQuery && loreByQuery.trim() !== '') {
+          return loreByQuery;
+        }
+      }
+      
+      // 如果没有WorldLoreService或者没有找到相关内容，使用原有的LLM生成方式
+      const prompt = `
+作为游戏叙述者，介绍以下世界背景：
+
+玩家问题：${classification.extractedSpeech || 'Unknown question'}
+当前位置：${gameContext.currentLocation}
+
+请创造一个引人入胜的世界背景故事，包括：
+- 这个世界的历史
+- 重要的事件和传说
+- 当前位置的重要性
+`;
+
+      const response = await this.llmService.generateText(prompt, {
+        maxTokens: 250
+      });
+      return response || '这是一个充满奇幻和冒险的世界，每个地方都有其独特的故事和秘密等待着你去探索。';
+    } catch (error) {
+      this.logger.error('Error generating world lore explanation:', error as Error);
+      return '这是一个充满奇幻的世界，有着丰富的历史和传说。';
+    }
+  }
+
+  /**
+   * 生成角色信息解释
+   */
+  private async generateCharacterInfoExplanation(
+    classification: InputClassification,
+    gameContext: GameContext
+  ): Promise<string> {
+    try {
+      const charactersInLocation = await this.getCharactersInLocation(gameContext.currentLocation);
+      
+      if (charactersInLocation.length === 0) {
+        return `在${gameContext.currentLocation}没有发现其他角色。你可以尝试去其他地方探索，或者继续在这里等待。`;
+      }
+      
+      const characterDescriptions = charactersInLocation.map(char => 
+        `${char.name}：${char.profile.background}`
+      ).join('\n');
+      
+      return `在${gameContext.currentLocation}可以遇到以下角色：
+
+${characterDescriptions}
+
+你可以与他们交谈获取更多信息。`;
+    } catch (error) {
+      this.logger.error('Error generating character info explanation:', error as Error);
+      return '这里可能有一些有趣的角色，你可以尝试与他们交谈。';
+    }
+  }
+
+  /**
+   * 生成地点信息解释
+   */
+  private async generateLocationInfoExplanation(
+    classification: InputClassification,
+    gameContext: GameContext
+  ): Promise<string> {
+    try {
+      const locationContext = await this.worldManager.getLocationContext(gameContext.currentLocation);
+      const nearbyLocations = locationContext.nearbyLocations.map(loc => loc.name).join('、');
+      
+      return `你现在在${locationContext.location.name}。${locationContext.location.description}\n\n` +
+             `附近的地点包括：${nearbyLocations || '暂无可及地点'}\n\n` +
+             '你可以说“前往[地点名]”来移动到其他地方。';
+    } catch (error) {
+      this.logger.error('Error generating location info explanation:', error as Error);
+      return `你现在在${gameContext.currentLocation}。这里是一个有趣的地方，值得探索。`;
+    }
+  }
+
+  /**
+   * 生成帮助解释
+   */
+  private async generateHelpExplanation(
+    classification: InputClassification,
+    gameContext: GameContext
+  ): Promise<string> {
+    return `欢迎来到AI角色驱动的开放世界游戏！
+
+基本命令：
+• “前往[地点]” - 移动到其他地点
+• “与[角色名]对话” - 与角色交谈
+• “查看周围” - 查看环境和角色
+• “问关于...” - 获取相关信息
+
+你可以用自然语言输入任何想做的事，游戏会理解并响应你的意图。`;
+  }
+
+  /**
+   * 生成通用解释
+   */
+  private async generateGeneralExplanation(
+    classification: InputClassification,
+    gameContext: GameContext
+  ): Promise<string> {
+    const prompt = `
+作为游戏叙述者，回答玩家的问题：
+
+玩家问题：${classification.extractedSpeech || 'Unknown question'}
+当前位置：${gameContext.currentLocation}
+
+请提供有用的信息或建议。
+`;
+
+    try {
+      const response = await this.llmService.generateText(prompt, {
+        maxTokens: 150
+      });
+      return response || '抱歉，我不确定如何回答这个问题。你可以尝试重新描述你的问题，或者说“帮助”来获取更多指导。';
+    } catch (error) {
+      this.logger.error('Error generating general explanation:', error as Error);
+      return '我会尽力帮助你。你可以问我关于游戏世界、角色或游戏玩法的问题。';
+    }
   }
 
   /**
@@ -830,14 +1086,74 @@ export class DomainCoordinator {
       return classification.targetLocation;
     }
     
-    // 如果没有明确的目标位置，尝试从intent中推断
+    // 如果没有明确的目标位置，尝试从已提取的取子中获取
     if (classification.intent === 'movement') {
-      // 可以添加基于自然语言处理的位置提取逻辑
-      // 这里暂时返回undefined，让调用者处理
+      // 检查已提取的动作或言论中是否包含位置信息
+      if (classification.extractedAction) {
+        const locationFromAction = this.extractLocationFromText(classification.extractedAction);
+        if (locationFromAction) {
+          this.logger.debug('Extracted location from action', {
+            component: 'DomainCoordinator',
+            extractedLocation: locationFromAction,
+            extractedAction: classification.extractedAction
+          });
+          return locationFromAction;
+        }
+      }
+      
+      if (classification.extractedSpeech) {
+        const locationFromSpeech = this.extractLocationFromText(classification.extractedSpeech);
+        if (locationFromSpeech) {
+          this.logger.debug('Extracted location from speech', {
+            component: 'DomainCoordinator',
+            extractedLocation: locationFromSpeech,
+            extractedSpeech: classification.extractedSpeech
+          });
+          return locationFromSpeech;
+        }
+      }
+      
       this.logger.debug('Movement intent detected but no target location specified', {
         component: 'DomainCoordinator',
         classification
       });
+    }
+    
+    return undefined;
+  }
+  
+  /**
+   * 从文本中提取位置信息
+   */
+  private extractLocationFromText(text: string): string | undefined {
+    if (!text) return undefined;
+    
+    // 中文位置匹配模式
+    const chineseLocationPatterns = [
+      /(?:前往|去|到|走向|走到|移动到)\s*(图书馆|市场|广场|酒店|公园|学校|医院|银行|餐厅|咖啡厅|书店|博物馆|剧院|电影院|教堂)/,
+      /(图书馆|市场|广场|酒店|公园|学校|医院|银行|餐厅|咖啡厅|书店|博物馆|剧院|电影院|教堂)/
+    ];
+    
+    // 英文位置匹配模式
+    const englishLocationPatterns = [
+      /(?:go to|move to|travel to|visit)\s+(library|market|square|tavern|park|school|hospital|bank|restaurant|cafe|bookstore|museum|theater|cinema|church)/i,
+      /(library|market|square|tavern|park|school|hospital|bank|restaurant|cafe|bookstore|museum|theater|cinema|church)/i
+    ];
+    
+    // 尝试中文匹配
+    for (const pattern of chineseLocationPatterns) {
+      const match = pattern.exec(text);
+      if (match && match[1]) {
+        return match[1].trim();
+      }
+    }
+    
+    // 尝试英文匹配
+    for (const pattern of englishLocationPatterns) {
+      const match = pattern.exec(text);
+      if (match && match[1]) {
+        return match[1].trim();
+      }
     }
     
     return undefined;

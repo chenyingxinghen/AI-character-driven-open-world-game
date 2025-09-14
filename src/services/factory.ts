@@ -7,6 +7,7 @@ import { RealDatabaseService } from './database/RealDatabaseService';
 import { MockDatabaseService, DatabaseService } from './database/DatabaseService';
 import { Logger, LogLevel } from './Logger';
 import { GameContextService } from './game/GameContextService';
+import { WorldLoreService } from './world/WorldLoreService';
 
 // Import domain managers
 import { CharacterManager } from '../domains/character/aggregates';
@@ -23,6 +24,7 @@ export const SERVICE_IDENTIFIERS = {
   DATABASE_SERVICE: 'DATABASE_SERVICE',
   LOGGER: 'LOGGER',
   GAME_CONTEXT_SERVICE: 'GAME_CONTEXT_SERVICE',
+  WORLD_LORE_SERVICE: 'WORLD_LORE_SERVICE',
   
   // Domain service identifiers
   CHARACTER_MANAGER: 'CHARACTER_MANAGER',
@@ -39,6 +41,7 @@ export interface ServiceFactory {
   createDatabaseService(): DatabaseService;
   createLogger(): Logger;
   createGameContextService(): GameContextService;
+  createWorldLoreService(): WorldLoreService;
   
   // Domain manager creation methods
   createCharacterManager(): CharacterManager;
@@ -54,6 +57,7 @@ export class DefaultServiceFactory implements ServiceFactory {
   private databaseService?: DatabaseService;
   private gameContextService?: GameContextService;
   private unifiedInputClassificationService?: UnifiedInputClassificationService;
+  private worldLoreService?: WorldLoreService;
   
   // Domain managers (lazy initialization)
   private characterManager?: CharacterManager;
@@ -271,6 +275,17 @@ export class DefaultServiceFactory implements ServiceFactory {
     return this.gameContextService;
   }
 
+  createWorldLoreService(): WorldLoreService {
+    if (!this.worldLoreService) {
+      this.worldLoreService = new WorldLoreService(
+        this.createLLMService(),
+        this.createDatabaseService(),
+        this.createLogger()
+      );
+    }
+    return this.worldLoreService;
+  }
+
   // Domain manager creation methods
   createCharacterManager(): CharacterManager {
     if (!this.characterManager) {
@@ -316,7 +331,9 @@ export class DefaultServiceFactory implements ServiceFactory {
       this.domainCoordinator = new DomainCoordinator(
         this.createLLMService(),
         this.createLogger(),
-        this.createGameContextService()
+        this.createGameContextService(),
+        this.createDatabaseService(),
+        this.createWorldLoreService()
       );
     }
     return this.domainCoordinator;
@@ -333,6 +350,7 @@ export class DefaultServiceFactory implements ServiceFactory {
     container.register(SERVICE_IDENTIFIERS.UNIFIED_INPUT_CLASSIFICATION_SERVICE, () => this.createUnifiedInputClassificationService());
     container.register(SERVICE_IDENTIFIERS.DATABASE_SERVICE, () => this.createDatabaseService());
     container.register(SERVICE_IDENTIFIERS.GAME_CONTEXT_SERVICE, () => this.createGameContextService());
+    container.register(SERVICE_IDENTIFIERS.WORLD_LORE_SERVICE, () => this.createWorldLoreService());
     
     // Register domain managers
     container.register(SERVICE_IDENTIFIERS.CHARACTER_MANAGER, () => this.createCharacterManager());

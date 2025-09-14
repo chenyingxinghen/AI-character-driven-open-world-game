@@ -70,6 +70,34 @@ CREATE TABLE IF NOT EXISTS character_relationships (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- 创建地点表
+CREATE TABLE IF NOT EXISTS locations (
+    id VARCHAR(100) PRIMARY KEY,
+    name VARCHAR(200) NOT NULL,
+    description TEXT,
+    location_type VARCHAR(50),
+    region_id VARCHAR(100),
+    position_x NUMERIC(10,2),
+    position_y NUMERIC(10,2),
+    location_data JSONB,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 创建世界背景故事表
+CREATE TABLE IF NOT EXISTS world_lore (
+    id VARCHAR(36) PRIMARY KEY,
+    session_id VARCHAR(36) REFERENCES game_sessions(id) ON DELETE CASCADE,
+    lore_type VARCHAR(50) NOT NULL, -- 'main_story', 'history', 'legend', 'culture', 'geography'
+    title VARCHAR(200) NOT NULL,
+    content TEXT NOT NULL,
+    inspiration TEXT, -- 用户提供的灵感或空值表示随机生成
+    generation_seed VARCHAR(100), -- 生成种子，用于重现生成过程
+    metadata JSONB, -- 额外的元数据
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS story_events (
     id VARCHAR(36) PRIMARY KEY,
     session_id VARCHAR(36) REFERENCES game_sessions(id),
@@ -96,3 +124,7 @@ CREATE INDEX IF NOT EXISTS idx_character_relationships_character_id ON character
 CREATE INDEX IF NOT EXISTS idx_character_relationships_session_id ON character_relationships(session_id);
 CREATE INDEX IF NOT EXISTS idx_story_events_session_id ON story_events(session_id);
 CREATE INDEX IF NOT EXISTS idx_story_events_created_at ON story_events(created_at);
+CREATE INDEX IF NOT EXISTS idx_locations_type ON locations(location_type);
+CREATE INDEX IF NOT EXISTS idx_locations_region ON locations(region_id);
+CREATE INDEX IF NOT EXISTS idx_world_lore_session_id ON world_lore(session_id);
+CREATE INDEX IF NOT EXISTS idx_world_lore_type ON world_lore(lore_type);

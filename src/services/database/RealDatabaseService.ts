@@ -1388,6 +1388,34 @@ export class RealDatabaseService implements DatabaseService {
             UNIQUE(character_id, target_character_id, session_id)
         );
 
+        -- 创建地点表
+        CREATE TABLE IF NOT EXISTS locations (
+            id VARCHAR(100) PRIMARY KEY,
+            name VARCHAR(200) NOT NULL,
+            description TEXT,
+            location_type VARCHAR(50),
+            region_id VARCHAR(100),
+            position_x NUMERIC(10,2),
+            position_y NUMERIC(10,2),
+            location_data JSONB,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
+        -- 创建世界背景故事表
+        CREATE TABLE IF NOT EXISTS world_lore (
+            id VARCHAR(36) PRIMARY KEY,
+            session_id VARCHAR(36) REFERENCES game_sessions(id) ON DELETE CASCADE,
+            lore_type VARCHAR(50) NOT NULL,
+            title VARCHAR(200) NOT NULL,
+            content TEXT NOT NULL,
+            inspiration TEXT,
+            generation_seed VARCHAR(100),
+            metadata JSONB,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
         -- 创建故事事件表（依赖game_sessions）
         CREATE TABLE IF NOT EXISTS story_events (
             id VARCHAR(36) PRIMARY KEY,
@@ -1420,6 +1448,10 @@ export class RealDatabaseService implements DatabaseService {
         CREATE INDEX IF NOT EXISTS idx_character_relationships_session_id ON character_relationships(session_id);
         CREATE INDEX IF NOT EXISTS idx_story_events_session_id ON story_events(session_id);
         CREATE INDEX IF NOT EXISTS idx_story_events_created_at ON story_events(created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_locations_type ON locations(location_type);
+        CREATE INDEX IF NOT EXISTS idx_locations_region ON locations(region_id);
+        CREATE INDEX IF NOT EXISTS idx_world_lore_session_id ON world_lore(session_id);
+        CREATE INDEX IF NOT EXISTS idx_world_lore_type ON world_lore(lore_type);
         CREATE INDEX IF NOT EXISTS idx_game_sessions_player_id ON game_sessions(player_id);
         CREATE INDEX IF NOT EXISTS idx_game_sessions_active ON game_sessions(is_active);
       `;
@@ -1530,6 +1562,327 @@ export class RealDatabaseService implements DatabaseService {
     } catch (error) {
       console.warn('插入初始化数据时出现错误:', error);
       // 不抛出错误，让系统继续运行
+    }
+  }
+  
+  // Location management methods
+  async createLocation(location: any): Promise<any> {
+    if (!this.isInitialized || !this.postgresPool) {
+      throw new Error('Database not initialized');
+    }
+
+    const sql = `
+      INSERT INTO locations (
+        id, name, description, location_type, region_id, 
+        position_x, position_y, location_data, created_at, updated_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())
+      ON CONFLICT (id) DO UPDATE SET
+        name = EXCLUDED.name,
+        description = EXCLUDED.description,
+        location_type = EXCLUDED.location_type,
+        region_id = EXCLUDED.region_id,
+        position_x = EXCLUDED.position_x,
+        position_y = EXCLUDED.position_y,
+        location_data = EXCLUDED.location_data,
+        updated_at = NOW()
+      RETURNING *
+    `;
+    
+    const params = [
+      location.id,
+      location.name,
+      location.description,
+      location.location_type,
+      location.region_id,
+      location.position_x,
+      location.position_y,
+      location.location_data
+    ];
+    
+    const client = await this.postgresPool.connect();
+    try {
+      const result = await client.query(sql, params);
+      const createdLocation = result.rows[0];
+      
+      // Clear related cache
+      if (this.redisEnabled) {
+        await this.cacheDel(`location:${location.id}`);
+        await this.cacheDel('locations:all');
+      }
+      
+      return createdLocation;
+    } finally {
+      client.release();
+    }
+  }
+
+  async getLocation(locationId: string): Promise<any | null> {
+    if (!this.isInitialized || !this.postgresPool) {
+      throw new Error('Database not initialized');
+    }
+
+    const cacheKey = `location:${locationId}`;
+    
+    // Try cache first
+    if (this.redisEnabled) {
+      const cached = await this.cacheGet(cacheKey);
+      if (cached) {
+        return JSON.parse(cached);
+      }
+    }
+
+    const sql = `
+      SELECT * FROM locations
+      WHERE id = $1
+    `;
+    
+    const client = await this.postgresPool.connect();
+    try {
+      const result = await client.query(sql, [locationId]);
+      const location = result.rows.length > 0 ? result.rows[0] : null;
+      
+      // Cache result for 30 minutes
+      if (location && this.redisEnabled) {
+        await this.cacheSet(cacheKey, JSON.stringify(location), 1800);
+      }
+      
+      return location;
+    } finally {
+      client.release();
+    }
+  }
+
+  async getAllLocations(): Promise<any[]> {
+    if (!this.isInitialized || !this.postgresPool) {
+      throw new Error('Database not initialized');
+    }
+
+    const cacheKey = 'locations:all';
+    
+    // Try cache first
+    if (this.redisEnabled) {
+      const cached = await this.cacheGet(cacheKey);
+      if (cached) {
+        return JSON.parse(cached);
+      }
+    }
+
+    const sql = `
+      SELECT * FROM locations
+      ORDER BY name
+    `;
+    
+    const client = await this.postgresPool.connect();
+    try {
+      const result = await client.query(sql);
+      const locations = result.rows;
+      
+      // Cache result for 15 minutes
+      if (this.redisEnabled) {
+        await this.cacheSet(cacheKey, JSON.stringify(locations), 900);
+      }
+      
+      return locations;
+    } finally {
+      client.release();
+    }
+  }
+
+  async updateLocation(locationId: string, updates: any): Promise<void> {
+    if (!this.isInitialized || !this.postgresPool) {
+      throw new Error('Database not initialized');
+    }
+
+    const setParts = [];
+    const params = [];
+    let paramIndex = 1;
+
+    for (const [key, value] of Object.entries(updates)) {
+      setParts.push(`${key} = $${paramIndex}`);
+      params.push(value);
+      paramIndex++;
+    }
+
+    if (setParts.length === 0) {
+      return;
+    }
+
+    setParts.push(`updated_at = NOW()`);
+    params.push(locationId);
+
+    const sql = `
+      UPDATE locations 
+      SET ${setParts.join(', ')}
+      WHERE id = $${paramIndex}
+    `;
+    
+    const client = await this.postgresPool.connect();
+    try {
+      await client.query(sql, params);
+      
+      // Clear related cache
+      if (this.redisEnabled) {
+        await this.cacheDel(`location:${locationId}`);
+        await this.cacheDel('locations:all');
+      }
+    } finally {
+      client.release();
+    }
+  }
+  
+  // World Lore management methods
+  async createWorldLore(lore: any): Promise<any> {
+    if (!this.isInitialized || !this.postgresPool) {
+      throw new Error('Database not initialized');
+    }
+
+    const sql = `
+      INSERT INTO world_lore (
+        id, session_id, lore_type, title, content, inspiration, 
+        generation_seed, metadata, created_at, updated_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())
+      RETURNING *
+    `;
+    
+    const params = [
+      lore.id,
+      lore.session_id,
+      lore.lore_type,
+      lore.title,
+      lore.content,
+      lore.inspiration,
+      lore.generation_seed,
+      lore.metadata
+    ];
+    
+    const client = await this.postgresPool.connect();
+    try {
+      const result = await client.query(sql, params);
+      const createdLore = result.rows[0];
+      
+      // Clear related cache
+      if (this.redisEnabled) {
+        await this.cacheDel(`world_lore:${lore.session_id}`);
+        await this.cacheDel(`world_lore:${lore.session_id}:${lore.lore_type}`);
+      }
+      
+      return createdLore;
+    } finally {
+      client.release();
+    }
+  }
+
+  async getWorldLoreBySession(sessionId: string, loreType?: string): Promise<any[]> {
+    if (!this.isInitialized || !this.postgresPool) {
+      throw new Error('Database not initialized');
+    }
+
+    const cacheKey = loreType 
+      ? `world_lore:${sessionId}:${loreType}`
+      : `world_lore:${sessionId}`;
+    
+    // Try cache first
+    if (this.redisEnabled) {
+      const cached = await this.cacheGet(cacheKey);
+      if (cached) {
+        return JSON.parse(cached);
+      }
+    }
+
+    let sql = `
+      SELECT * FROM world_lore
+      WHERE session_id = $1
+    `;
+    
+    const params = [sessionId];
+    
+    if (loreType) {
+      sql += ' AND lore_type = $2';
+      params.push(loreType);
+    }
+    
+    sql += ' ORDER BY created_at';
+    
+    const client = await this.postgresPool.connect();
+    try {
+      const result = await client.query(sql, params);
+      const lore = result.rows;
+      
+      // Cache result for 30 minutes
+      if (this.redisEnabled) {
+        await this.cacheSet(cacheKey, JSON.stringify(lore), 1800);
+      }
+      
+      return lore;
+    } finally {
+      client.release();
+    }
+  }
+
+  async hasWorldLore(sessionId: string): Promise<boolean> {
+    if (!this.isInitialized || !this.postgresPool) {
+      throw new Error('Database not initialized');
+    }
+
+    const sql = `
+      SELECT COUNT(*) as count FROM world_lore
+      WHERE session_id = $1
+    `;
+    
+    const client = await this.postgresPool.connect();
+    try {
+      const result = await client.query(sql, [sessionId]);
+      return parseInt(result.rows[0].count) > 0;
+    } finally {
+      client.release();
+    }
+  }
+
+  async updateWorldLore(loreId: string, updates: any): Promise<void> {
+    if (!this.isInitialized || !this.postgresPool) {
+      throw new Error('Database not initialized');
+    }
+
+    const setParts = [];
+    const params = [];
+    let paramIndex = 1;
+
+    for (const [key, value] of Object.entries(updates)) {
+      setParts.push(`${key} = $${paramIndex}`);
+      params.push(value);
+      paramIndex++;
+    }
+
+    if (setParts.length === 0) {
+      return;
+    }
+
+    setParts.push(`updated_at = NOW()`);
+    params.push(loreId);
+
+    const sql = `
+      UPDATE world_lore 
+      SET ${setParts.join(', ')}
+      WHERE id = $${paramIndex}
+    `;
+    
+    const client = await this.postgresPool.connect();
+    try {
+      await client.query(sql, params);
+      
+      // Clear related cache - we need to get session_id first
+      const sessionResult = await client.query('SELECT session_id FROM world_lore WHERE id = $1', [loreId]);
+      if (sessionResult.rows.length > 0 && this.redisEnabled) {
+        const sessionId = sessionResult.rows[0].session_id;
+        await this.cacheDel(`world_lore:${sessionId}`);
+        // Clear all lore type caches for this session
+        const loreTypes = ['main_story', 'history', 'legend', 'culture', 'geography'];
+        for (const type of loreTypes) {
+          await this.cacheDel(`world_lore:${sessionId}:${type}`);
+        }
+      }
+    } finally {
+      client.release();
     }
   }
 }

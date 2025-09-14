@@ -4,6 +4,7 @@ import { DefaultServiceFactory, SERVICE_IDENTIFIERS } from './services/factory';
 import { Logger } from './services/Logger';
 import { container } from './services/DependencyInjectionContainer';
 import { DatabaseService } from './services/database/DatabaseService';
+import { WorldLoreService } from './services/world/WorldLoreService';
 
 // Session interface
 export interface GameSession {
@@ -29,6 +30,7 @@ export class Orchestrator {
   private domainCoordinator: DomainCoordinator;
   private logger: Logger;
   private databaseService: DatabaseService;
+  private worldLoreService: WorldLoreService;
   private sessions: Map<string, GameSession> = new Map();
   private serviceFactory: DefaultServiceFactory;
 
@@ -39,6 +41,7 @@ export class Orchestrator {
     
     this.logger = container.resolve<Logger>(SERVICE_IDENTIFIERS.LOGGER);
     this.databaseService = container.resolve<DatabaseService>(SERVICE_IDENTIFIERS.DATABASE_SERVICE);
+    this.worldLoreService = container.resolve<WorldLoreService>(SERVICE_IDENTIFIERS.WORLD_LORE_SERVICE);
     this.sessionEngine = new GameSessionEngine();
     this.domainCoordinator = container.resolve<DomainCoordinator>(SERVICE_IDENTIFIERS.DOMAIN_COORDINATOR);
     
@@ -61,7 +64,7 @@ export class Orchestrator {
   /**
    * 创建新的游戏会话
    */
-  async createSession(playerId: string = 'player1'): Promise<GameSession> {
+  async createSession(playerId: string = 'player1', inspiration?: string): Promise<GameSession> {
     try {
       const session = this.sessionEngine.createSession();
       const gameSession: GameSession = {
@@ -82,6 +85,17 @@ export class Orchestrator {
         last_activity: gameSession.lastActivity,
         is_active: true
       });
+      
+      // 生成世界背景故事
+      try {
+        this.logger.info(`Generating world lore for session ${session.id}...`);
+        const loreOptions = inspiration ? { inspiration } : {};
+        await this.worldLoreService.generateWorldLoreForSession(session.id, loreOptions);
+        this.logger.info(`World lore generated successfully for session ${session.id}`);
+      } catch (loreError) {
+        // 即使世界背景故事生成失败，也不影响会话创建
+        this.logger.warn(`Failed to generate world lore for session ${session.id}:`, loreError as Error);
+      }
       
       this.logger.info(`Created new session ${session.id} for player ${playerId}`);
       return gameSession;

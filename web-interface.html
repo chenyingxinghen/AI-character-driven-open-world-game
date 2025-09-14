@@ -166,6 +166,97 @@
             margin-top: 20px;
             font-size: 14px;
         }
+        
+        .settings-panel {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.9);
+            border-radius: 15px;
+            padding: 30px;
+            min-width: 400px;
+            z-index: 1000;
+            display: none;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+        }
+        
+        .settings-panel h3 {
+            margin-top: 0;
+            text-align: center;
+            color: #fff;
+        }
+        
+        .settings-group {
+            margin-bottom: 20px;
+        }
+        
+        .settings-group label {
+            display: block;
+            margin-bottom: 5px;
+            color: #ccc;
+        }
+        
+        .settings-group input,
+        .settings-group select {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: 5px;
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            font-size: 14px;
+        }
+        
+        .save-slot {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .save-slot.empty {
+            opacity: 0.6;
+        }
+        
+        .save-info {
+            flex: 1;
+        }
+        
+        .save-info .save-name {
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        
+        .save-info .save-details {
+            font-size: 12px;
+            color: #ccc;
+        }
+        
+        .save-actions {
+            display: flex;
+            gap: 10px;
+        }
+        
+        .save-actions button {
+            padding: 5px 10px;
+            font-size: 12px;
+        }
+        
+        .overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 999;
+            display: none;
+        }
     </style>
 </head>
 <body>
@@ -186,9 +277,34 @@
             <input type="text" id="playerInput" placeholder="输入你的行动或对话..." disabled>
             <button id="sendButton" onclick="sendInput()" disabled>发送</button>
             <button id="connectButton" onclick="connect()">连接</button>
+            <button id="settingsButton" onclick="openSettings()">设置</button>
         </div>
         
         <div class="action-buttons" id="actionButtons"></div>
+        
+        <!-- 设置面板 -->
+        <div class="overlay" id="overlay" onclick="closeSettings()"></div>
+        <div class="settings-panel" id="settingsPanel">
+            <h3>游戏设置</h3>
+            
+            <div class="settings-group">
+                <label for="playerName">玩家名称：</label>
+                <input type="text" id="playerName" placeholder="输入你的名称">
+            </div>
+            
+            <div class="settings-group">
+                <label>游戏存档：</label>
+                <div id="saveSlots">
+                    <!-- 存档槽位将在这里动态生成 -->
+                </div>
+                <button onclick="saveGame()" style="width: 100%; margin-top: 10px;">保存游戏</button>
+            </div>
+            
+            <div style="text-align: center; margin-top: 20px;">
+                <button onclick="closeSettings()" style="margin-right: 10px;">关闭</button>
+                <button onclick="resetGame()" style="background: #f44336;">重置游戏</button>
+            </div>
+        </div>
         
         <div class="help">
             <strong>使用说明:</strong><br>
@@ -206,6 +322,19 @@
                 this.isConnected = false;
                 this.sessionId = null;
                 this.isProcessing = false;
+                this.playerName = localStorage.getItem('playerName') || '玩家';
+                this.initializeUI();
+            }
+            
+            initializeUI() {
+                // 初始化玩家名称
+                const playerNameInput = document.getElementById('playerName');
+                if (playerNameInput) {
+                    playerNameInput.value = this.playerName;
+                }
+                
+                // 初始化存档槽位
+                this.refreshSaveSlots();
             }
             
             connect() {
@@ -403,6 +532,129 @@
                     input.placeholder = '正在初始化游戏会话...';
                 }
             }
+            
+            // 设置玩家名称
+            setPlayerName(name) {
+                this.playerName = name;
+                localStorage.setItem('playerName', name);
+            }
+            
+            // 保存游戏
+            saveGame(slotIndex = null) {
+                if (!this.sessionId) {
+                    this.addMessage('系统', '⚠️ 请先连接到游戏服务器', 'narrator');
+                    return;
+                }
+                
+                const saveData = {
+                    sessionId: this.sessionId,
+                    playerName: this.playerName,
+                    timestamp: new Date().toISOString(),
+                    location: '未知位置' // 这里应该从游戏状态获取
+                };
+                
+                // 选择存档槽位
+                if (slotIndex === null) {
+                    // 自动选择空闲槽位或首个槽位
+                    for (let i = 1; i <= 5; i++) {
+                        if (!localStorage.getItem(`gameSave_${i}`)) {
+                            slotIndex = i;
+                            break;
+                        }
+                    }
+                    if (slotIndex === null) {
+                        slotIndex = 1; // 默认覆盖第一个槽位
+                    }
+                }
+                
+                const saveName = `${this.playerName}的冒险 - ${new Date().toLocaleDateString()}`;
+                saveData.saveName = saveName;
+                
+                localStorage.setItem(`gameSave_${slotIndex}`, JSON.stringify(saveData));
+                this.addMessage('系统', `✅ 游戏已保存到槽位 ${slotIndex}: ${saveName}`, 'narrator');
+                this.refreshSaveSlots();
+            }
+            
+            // 读取游戏
+            loadGame(slotIndex) {
+                const saveData = localStorage.getItem(`gameSave_${slotIndex}`);
+                if (!saveData) {
+                    this.addMessage('系统', '⚠️ 没有找到存档数据', 'narrator');
+                    return;
+                }
+                
+                try {
+                    const data = JSON.parse(saveData);
+                    // 这里应该发送读档请求给服务器
+                    // 现在只是模拟加载
+                    this.addMessage('系统', `✨ 正在加载存档: ${data.saveName}`, 'narrator');
+                    this.addMessage('系统', `⚠️ 注意：读档功能仅为演示，实际需要服务器支持`, 'narrator');
+                    closeSettings();
+                } catch (error) {
+                    this.addMessage('系统', '❌ 存档数据损坏', 'narrator');
+                }
+            }
+            
+            // 删除存档
+            deleteGame(slotIndex) {
+                if (confirm('确定要删除这个存档吗？')) {
+                    localStorage.removeItem(`gameSave_${slotIndex}`);
+                    this.addMessage('系统', `✅ 已删除槽位 ${slotIndex} 的存档`, 'narrator');
+                    this.refreshSaveSlots();
+                }
+            }
+            
+            // 刷新存档槽位显示
+            refreshSaveSlots() {
+                const container = document.getElementById('saveSlots');
+                if (!container) return;
+                
+                container.innerHTML = '';
+                
+                for (let i = 1; i <= 5; i++) {
+                    const saveData = localStorage.getItem(`gameSave_${i}`);
+                    const slot = document.createElement('div');
+                    slot.className = 'save-slot' + (saveData ? '' : ' empty');
+                    
+                    if (saveData) {
+                        try {
+                            const data = JSON.parse(saveData);
+                            slot.innerHTML = `
+                                <div class="save-info">
+                                    <div class="save-name">槽位 ${i}: ${data.saveName || '未命名存档'}</div>
+                                    <div class="save-details">玩家: ${data.playerName} | 时间: ${new Date(data.timestamp).toLocaleString()}</div>
+                                </div>
+                                <div class="save-actions">
+                                    <button onclick="gameClient.loadGame(${i})">读取</button>
+                                    <button onclick="gameClient.deleteGame(${i})" style="background: #f44336;">删除</button>
+                                </div>
+                            `;
+                        } catch (error) {
+                            slot.innerHTML = `
+                                <div class="save-info">
+                                    <div class="save-name">槽位 ${i}: 损坏的存档</div>
+                                    <div class="save-details">无法读取存档数据</div>
+                                </div>
+                                <div class="save-actions">
+                                    <button onclick="gameClient.deleteGame(${i})" style="background: #f44336;">删除</button>
+                                </div>
+                            `;
+                        }
+                    } else {
+                        slot.innerHTML = `
+                            <div class="save-info">
+                                <div class="save-name">槽位 ${i}: 空闲</div>
+                                <div class="save-details">可用于保存新游戏</div>
+                            </div>
+                            <div class="save-actions">
+                                <button onclick="gameClient.saveGame(${i})">保存到此</button>
+                            </div>
+                        `;
+                    }
+                    
+                    container.appendChild(slot);
+                }
+            }
         }
         
         // 全局游戏客户端实例
@@ -422,6 +674,47 @@
             }
         }
         
+        function openSettings() {
+            document.getElementById('overlay').style.display = 'block';
+            document.getElementById('settingsPanel').style.display = 'block';
+            
+            // 更新玩家名称输入框
+            const playerNameInput = document.getElementById('playerName');
+            if (playerNameInput) {
+                playerNameInput.value = gameClient.playerName;
+            }
+            
+            gameClient.refreshSaveSlots();
+        }
+        
+        function closeSettings() {
+            document.getElementById('overlay').style.display = 'none';
+            document.getElementById('settingsPanel').style.display = 'none';
+            
+            // 保存玩家名称
+            const playerNameInput = document.getElementById('playerName');
+            if (playerNameInput && playerNameInput.value.trim()) {
+                gameClient.setPlayerName(playerNameInput.value.trim());
+            }
+        }
+        
+        function saveGame() {
+            gameClient.saveGame();
+        }
+        
+        function resetGame() {
+            if (confirm('确定要重置游戏吗？这将清除所有数据！')) {
+                // 清除所有存档
+                for (let i = 1; i <= 5; i++) {
+                    localStorage.removeItem(`gameSave_${i}`);
+                }
+                localStorage.removeItem('playerName');
+                
+                // 重新加载页面
+                location.reload();
+            }
+        }
+        
         // 回车键发送
         document.getElementById('playerInput').addEventListener('keypress', function(e) {
             if (e.key === 'Enter' && !e.shiftKey) {
@@ -438,6 +731,7 @@
             // 显示启动提示
             gameClient.addMessage('系统', '🎯 游戏界面已加载完成！点击"连接"按钮开始游戏。', 'narrator');
             gameClient.addMessage('系统', '📋 确保游戏服务器正在运行 (npm run dev:server)', 'narrator');
+            gameClient.addMessage('系统', '⚙️ 点击"设置"按钮可以设置用户名和管理存档。', 'narrator');
         });
     </script>
 </body>
