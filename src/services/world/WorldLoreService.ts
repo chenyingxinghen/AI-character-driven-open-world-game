@@ -50,8 +50,20 @@ export class WorldLoreService {
     });
 
     try {
-      // 检查是否已存在世界背景
-      const hasExistingLore = await this.databaseService.hasWorldLore(sessionId);
+      // 检查是否已存在世界背景（仅在数据库可用时）
+      let hasExistingLore = false;
+      try {
+        hasExistingLore = await this.databaseService.hasWorldLore(sessionId);
+      } catch (dbError) {
+        // 如果数据库未初始化或不可用，跳过检查，直接生成新的世界背景
+        this.logger.warn('Database not available for world lore check, will generate new world lore', {
+          sessionId,
+          component: 'WorldLoreService',
+          error: (dbError as Error).message
+        });
+        hasExistingLore = false;
+      }
+      
       if (hasExistingLore) {
         this.logger.info('World lore already exists for session, retrieving from database', {
           sessionId,
@@ -71,17 +83,27 @@ export class WorldLoreService {
         const lore = await this.generateSpecificLore(sessionId, loreType, options, generationSeed);
         generatedLore.push(lore);
         
-        // 存储到数据库
-        await this.databaseService.createWorldLore({
-          id: lore.id,
-          session_id: lore.sessionId,
-          lore_type: lore.loreType,
-          title: lore.title,
-          content: lore.content,
-          inspiration: lore.inspiration,
-          generation_seed: lore.generationSeed,
-          metadata: JSON.stringify(lore.metadata || {})
-        });
+        // 存储到数据库（仅在数据库可用时）
+        try {
+          await this.databaseService.createWorldLore({
+            id: lore.id,
+            session_id: lore.sessionId,
+            lore_type: lore.loreType,
+            title: lore.title,
+            content: lore.content,
+            inspiration: lore.inspiration,
+            generation_seed: lore.generationSeed,
+            metadata: JSON.stringify(lore.metadata || {})
+          });
+        } catch (dbError) {
+          // 如果数据库不可用，记录警告但不影响生成流程
+          this.logger.warn(`Failed to save ${loreType} lore to database, continuing without persistence`, {
+            sessionId,
+            loreType,
+            component: 'WorldLoreService',
+            error: (dbError as Error).message
+          });
+        }
       }
 
       this.logger.info(`Generated ${generatedLore.length} world lore entries for session`, {
@@ -113,7 +135,8 @@ export class WorldLoreService {
         loreType,
         component: 'WorldLoreService'
       });
-      throw error;
+      // 如果数据库不可用，返回空数组
+      return [];
     }
   }
 
@@ -127,10 +150,19 @@ export class WorldLoreService {
         return mainStoryLore[0].content;
       }
       
-      // 如果没有主故事，生成一个
-      const lore = await this.generateWorldLoreForSession(sessionId);
-      const mainStory = lore.find(l => l.loreType === 'main_story');
-      return mainStory?.content || '这是一个充满奇幻和冒险的世界...';
+      // 如果没有主故事，生成一个（但不依赖数据库）
+      try {
+        const lore = await this.generateWorldLoreForSession(sessionId);
+        const mainStory = lore.find(l => l.loreType === 'main_story');
+        return mainStory?.content || '这是一个充满奇幻和冒险的世界...';
+      } catch (generationError) {
+        this.logger.warn('Failed to generate main story, using fallback', {
+          sessionId,
+          component: 'WorldLoreService',
+          error: (generationError as Error).message
+        });
+        return '这是一个充满奇幻和冒险的世界，等待着勇敢的冒险者来探索其中的奥秘...';
+      }
     } catch (error) {
       this.logger.error('Failed to get main story', error as Error, {
         sessionId,

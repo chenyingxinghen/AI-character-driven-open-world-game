@@ -3,735 +3,777 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI角色驱动开放世界游戏</title>
+    <title>AI角色驱动开放世界游戏 - 新版本</title>
     <style>
         body {
             font-family: 'Microsoft YaHei', Arial, sans-serif;
             margin: 0;
-            padding: 20px;
+            padding: 0;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
+            color: #333;
             min-height: 100vh;
         }
         
         .container {
-            max-width: 800px;
+            max-width: 1200px;
             margin: 0 auto;
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 20px;
-            padding: 30px;
-            backdrop-filter: blur(10px);
+            padding: 20px;
         }
         
-        h1 {
+        .header {
             text-align: center;
             margin-bottom: 30px;
-            font-size: 2.5em;
-            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
-        }
-        
-        .game-area {
-            background: rgba(0, 0, 0, 0.3);
-            border-radius: 15px;
-            padding: 20px;
-            margin-bottom: 20px;
-            min-height: 400px;
-        }
-        
-        .input-area {
-            display: flex;
-            gap: 10px;
-            margin-bottom: 20px;
-        }
-        
-        #playerInput {
-            flex: 1;
-            padding: 12px;
-            border: none;
-            border-radius: 8px;
-            font-size: 16px;
             background: rgba(255, 255, 255, 0.9);
-            color: #333;
+            padding: 20px;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
         }
         
-        button {
-            padding: 12px 24px;
-            border: none;
-            border-radius: 8px;
-            background: #4CAF50;
-            color: white;
-            font-size: 16px;
-            cursor: pointer;
-            transition: background 0.3s;
-        }
-        
-        button:hover {
-            background: #45a049;
-        }
-        
-        button:disabled {
-            background: #666;
-            cursor: not-allowed;
+        .header h1 {
+            margin: 0;
+            color: #4a5568;
+            font-size: 2.5em;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.1);
         }
         
         .status {
+            margin: 10px 0;
             padding: 10px;
             border-radius: 8px;
-            margin-bottom: 10px;
             font-weight: bold;
         }
         
-        .status.connected {
-            background: rgba(76, 175, 80, 0.3);
-            border: 1px solid #4CAF50;
-        }
-        
         .status.disconnected {
-            background: rgba(244, 67, 54, 0.3);
-            border: 1px solid #f44336;
+            background-color: #fee;
+            color: #c53030;
+            border: 1px solid #fc8181;
         }
         
-        .response {
-            margin: 10px 0;
-            padding: 15px;
-            border-radius: 10px;
-            animation: slideIn 0.3s ease-out;
+        .status.connected {
+            background-color: #f0fff4;
+            color: #38a169;
+            border: 1px solid #68d391;
         }
         
-        .response.player {
-            background: rgba(33, 150, 243, 0.3);
-            border-left: 4px solid #2196F3;
-            margin-left: 20px;
-        }
-        
-        .response.character {
-            background: rgba(255, 193, 7, 0.3);
-            border-left: 4px solid #FFC107;
-        }
-        
-        .response.narrator {
-            background: rgba(156, 39, 176, 0.3);
-            border-left: 4px solid #9C27B0;
-        }
-        
-        @keyframes slideIn {
-            from {
-                opacity: 0;
-                transform: translateY(20px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
-        
-        .action-buttons {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 10px;
-            margin-top: 20px;
-        }
-        
-        .action-button {
-            padding: 8px 16px;
-            background: rgba(255, 255, 255, 0.2);
-            border: 1px solid rgba(255, 255, 255, 0.3);
-            color: white;
-            border-radius: 6px;
-            font-size: 14px;
-        }
-        
-        .action-button:hover {
-            background: rgba(255, 255, 255, 0.3);
-        }
-        
-        .loading {
-            display: inline-block;
-            width: 20px;
-            height: 20px;
-            border: 3px solid rgba(255,255,255,.3);
-            border-radius: 50%;
-            border-top-color: #fff;
-            animation: spin 1s ease-in-out infinite;
-        }
-        
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
-        
-        .help {
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 10px;
-            padding: 15px;
-            margin-top: 20px;
-            font-size: 14px;
-        }
-        
-        .settings-panel {
-            position: fixed;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            background: rgba(0, 0, 0, 0.9);
-            border-radius: 15px;
+        /* 登录面板 */
+        .login-panel {
+            background: rgba(255, 255, 255, 0.95);
             padding: 30px;
-            min-width: 400px;
-            z-index: 1000;
-            display: none;
-            border: 2px solid rgba(255, 255, 255, 0.3);
-        }
-        
-        .settings-panel h3 {
-            margin-top: 0;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
             text-align: center;
-            color: #fff;
         }
         
-        .settings-group {
+        .login-panel h2 {
+            color: #4a5568;
             margin-bottom: 20px;
         }
         
-        .settings-group label {
-            display: block;
-            margin-bottom: 5px;
-            color: #ccc;
+        .login-form {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            max-width: 300px;
+            margin: 0 auto;
         }
         
-        .settings-group input,
-        .settings-group select {
-            width: 100%;
-            padding: 8px;
-            border: 1px solid rgba(255, 255, 255, 0.3);
-            border-radius: 5px;
-            background: rgba(255, 255, 255, 0.1);
-            color: white;
-            font-size: 14px;
-        }
-        
-        .save-slot {
-            background: rgba(255, 255, 255, 0.1);
-            border: 1px solid rgba(255, 255, 255, 0.3);
+        .login-form input {
+            padding: 12px;
+            border: 2px solid #e2e8f0;
             border-radius: 8px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+        }
+        
+        .login-form input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        .login-form button {
+            padding: 12px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+        
+        .login-form button:hover {
+            transform: translateY(-2px);
+        }
+        
+        /* 会话管理面板 */
+        .session-panel {
+            background: rgba(255, 255, 255, 0.95);
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+            margin-bottom: 20px;
+        }
+        
+        .session-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .session-item {
+            background: #f7fafc;
+            border: 2px solid #e2e8f0;
+            border-radius: 10px;
             padding: 15px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .session-item:hover {
+            border-color: #667eea;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.3);
+        }
+        
+        .session-item h4 {
+            margin: 0 0 10px 0;
+            color: #2d3748;
+        }
+        
+        .session-item .session-info {
+            font-size: 14px;
+            color: #718096;
             margin-bottom: 10px;
+        }
+        
+        .session-item .session-actions {
+            display: flex;
+            gap: 10px;
+        }
+        
+        .session-item button {
+            padding: 5px 10px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+        
+        .btn-load {
+            background: #4299e1;
+            color: white;
+        }
+        
+        .btn-rename {
+            background: #ed8936;
+            color: white;
+        }
+        
+        .btn-delete {
+            background: #e53e3e;
+            color: white;
+        }
+        
+        .create-session {
+            text-align: center;
+            padding: 20px;
+            border: 2px dashed #cbd5e0;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .create-session:hover {
+            border-color: #667eea;
+            background: rgba(102, 126, 234, 0.1);
+        }
+        
+        /* 游戏面板 */
+        .game-panel {
+            display: none;
+            background: rgba(255, 255, 255, 0.98);
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+        }
+        
+        .game-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 15px 20px;
             display: flex;
             justify-content: space-between;
             align-items: center;
         }
         
-        .save-slot.empty {
-            opacity: 0.6;
-        }
-        
-        .save-info {
-            flex: 1;
-        }
-        
-        .save-info .save-name {
+        .game-title {
+            font-size: 18px;
             font-weight: bold;
-            margin-bottom: 5px;
         }
         
-        .save-info .save-details {
-            font-size: 12px;
-            color: #ccc;
-        }
-        
-        .save-actions {
+        .game-controls {
             display: flex;
             gap: 10px;
         }
         
-        .save-actions button {
-            padding: 5px 10px;
-            font-size: 12px;
+        .game-controls button {
+            padding: 8px 15px;
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background 0.3s;
         }
         
-        .overlay {
-            position: fixed;
-            top: 0;
-            left: 0;
+        .game-controls button:hover {
+            background: rgba(255, 255, 255, 0.3);
+        }
+        
+        .game-content {
+            display: flex;
+            height: 600px;
+        }
+        
+        .game-display {
+            flex: 2;
+            display: flex;
+            flex-direction: column;
+            border-right: 1px solid #e2e8f0;
+        }
+        
+        .scene-display {
+            flex: 1;
+            background: #2d3748;
+            color: white;
+            padding: 20px;
+            overflow-y: auto;
+        }
+        
+        .conversation-area {
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+            background: #f8f9fa;
+        }
+        
+        .game-sidebar {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .action-buttons {
+            padding: 20px;
+            background: #f7fafc;
+            border-bottom: 1px solid #e2e8f0;
+        }
+        
+        .action-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+        
+        .action-btn {
+            padding: 10px;
+            background: #4299e1;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        
+        .action-btn:hover {
+            background: #3182ce;
+        }
+        
+        .input-area {
+            padding: 20px;
+            background: white;
+        }
+        
+        .input-box {
             width: 100%;
-            height: 100%;
-            background: rgba(0, 0, 0, 0.5);
-            z-index: 999;
-            display: none;
+            height: 100px;
+            padding: 10px;
+            border: 2px solid #e2e8f0;
+            border-radius: 8px;
+            resize: none;
+            font-family: inherit;
+        }
+        
+        .send-btn {
+            width: 100%;
+            padding: 12px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-weight: bold;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+        
+        .message {
+            margin: 10px 0;
+            padding: 10px;
+            border-radius: 8px;
+            max-width: 80%;
+        }
+        
+        .message.character {
+            background: #e6fffa;
+            border-left: 4px solid #38b2ac;
+        }
+        
+        .message.player {
+            background: #ebf4ff;
+            border-left: 4px solid #4299e1;
+            margin-left: auto;
+        }
+        
+        .message.narration {
+            background: #fefcbf;
+            border-left: 4px solid #d69e2e;
+            font-style: italic;
+        }
+        
+        .message.system {
+            background: #fed7d7;
+            border-left: 4px solid #e53e3e;
+            text-align: center;
+        }
+        
+        .hidden {
+            display: none !important;
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>🎮 AI角色驱动开放世界游戏</h1>
-        
-        <div id="connectionStatus" class="status disconnected">
-            ⚡ 连接状态: 未连接
-        </div>
-        
-        <div class="game-area" id="gameArea">
-            <div class="response narrator">
-                <strong>系统</strong>: 欢迎来到AI驱动的开放世界！正在连接到游戏服务器...
+        <div class="header">
+            <h1>🎮 AI角色驱动开放世界游戏</h1>
+            <div id="connectionStatus" class="status disconnected">
+                🔴 未连接到服务器
             </div>
         </div>
-        
-        <div class="input-area">
-            <input type="text" id="playerInput" placeholder="输入你的行动或对话..." disabled>
-            <button id="sendButton" onclick="sendInput()" disabled>发送</button>
-            <button id="connectButton" onclick="connect()">连接</button>
-            <button id="settingsButton" onclick="openSettings()">设置</button>
-        </div>
-        
-        <div class="action-buttons" id="actionButtons"></div>
-        
-        <!-- 设置面板 -->
-        <div class="overlay" id="overlay" onclick="closeSettings()"></div>
-        <div class="settings-panel" id="settingsPanel">
-            <h3>游戏设置</h3>
-            
-            <div class="settings-group">
-                <label for="playerName">玩家名称：</label>
-                <input type="text" id="playerName" placeholder="输入你的名称">
+
+        <!-- 登录面板 -->
+        <div id="loginPanel" class="login-panel">
+            <h2>🚀 开始你的冒险</h2>
+            <p>请输入你的用户名来开始游戏。如果是新用户，系统会自动为你创建账号。</p>
+            <div class="login-form">
+                <input type="text" id="usernameInput" placeholder="请输入用户名" maxlength="50">
+                <button onclick="login()">登录游戏</button>
             </div>
-            
-            <div class="settings-group">
-                <label>游戏存档：</label>
-                <div id="saveSlots">
-                    <!-- 存档槽位将在这里动态生成 -->
-                </div>
-                <button onclick="saveGame()" style="width: 100%; margin-top: 10px;">保存游戏</button>
+        </div>
+
+        <!-- 会话管理面板 -->
+        <div id="sessionPanel" class="session-panel hidden">
+            <h2>📚 我的游戏存档</h2>
+            <div id="sessionList" class="session-list">
+                <!-- 会话列表将在这里动态生成 -->
+            </div>
+            <div class="create-session" onclick="showCreateSessionDialog()">
+                <h3>➕ 创建新的冒险</h3>
+                <p>开始一个全新的故事</p>
             </div>
             
             <div style="text-align: center; margin-top: 20px;">
-                <button onclick="closeSettings()" style="margin-right: 10px;">关闭</button>
-                <button onclick="resetGame()" style="background: #f44336;">重置游戏</button>
+                <button onclick="logout()" style="background: #e53e3e; color: white; padding: 10px 20px; border: none; border-radius: 8px; cursor: pointer;">
+                    退出登录
+                </button>
             </div>
         </div>
-        
-        <div class="help">
-            <strong>使用说明:</strong><br>
-            1. 点击"连接"按钮连接到游戏服务器<br>
-            2. 在输入框中输入你的行动或对话<br>
-            3. 或者点击快捷操作按钮<br>
-            4. 与AI角色互动，探索开放世界！
+
+        <!-- 游戏面板 -->
+        <div id="gamePanel" class="game-panel">
+            <div class="game-header">
+                <div class="game-title" id="gameTitle">游戏中...</div>
+                <div class="game-controls">
+                    <button onclick="saveGame()">💾 保存</button>
+                    <button onclick="exitGame()">🚪 退出</button>
+                </div>
+            </div>
+            
+            <div class="game-content">
+                <div class="game-display">
+                    <div class="scene-display">
+                        <h3>🌍 场景描述</h3>
+                        <div id="sceneDescription">
+                            正在加载场景...
+                        </div>
+                    </div>
+                    
+                    <div class="conversation-area" id="conversationArea">
+                        <div class="message system">
+                            欢迎来到AI驱动的开放世界！在这里，你可以与AI角色对话，探索动态生成的世界。
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="game-sidebar">
+                    <div class="action-buttons">
+                        <h4>🎯 快捷操作</h4>
+                        <div class="action-grid" id="actionGrid">
+                            <button class="action-btn" onclick="quickAction('look')">👀 观察周围</button>
+                            <button class="action-btn" onclick="quickAction('talk')">💬 与人交谈</button>
+                            <button class="action-btn" onclick="quickAction('move')">🚶 四处走动</button>
+                            <button class="action-btn" onclick="quickAction('inventory')">🎒 查看背包</button>
+                        </div>
+                    </div>
+                    
+                    <div class="input-area">
+                        <h4>✍️ 自由输入</h4>
+                        <textarea id="playerInput" class="input-box" placeholder="描述你想要做的事情...例如：'我想去探索附近的森林'"></textarea>
+                        <button class="send-btn" onclick="sendInput()">发送</button>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 
     <script>
-        class SimpleGameClient {
-            constructor() {
-                this.ws = null;
-                this.isConnected = false;
-                this.sessionId = null;
-                this.isProcessing = false;
-                this.playerName = localStorage.getItem('playerName') || '玩家';
-                this.initializeUI();
-            }
+        let ws = null;
+        let currentUser = null;
+        let currentSession = null;
+        let sessions = [];
+
+        // 连接到游戏服务器
+        function connectToServer() {
+            const wsUrl = 'ws://localhost:8080';
+            ws = new WebSocket(wsUrl);
             
-            initializeUI() {
-                // 初始化玩家名称
-                const playerNameInput = document.getElementById('playerName');
-                if (playerNameInput) {
-                    playerNameInput.value = this.playerName;
-                }
-                
-                // 初始化存档槽位
-                this.refreshSaveSlots();
-            }
+            ws.onopen = function() {
+                updateConnectionStatus(true);
+                console.log('Connected to game server');
+            };
             
-            connect() {
-                const url = 'ws://localhost:8080';
-                console.log('Connecting to:', url);
-                
-                try {
-                    this.ws = new WebSocket(url);
-                    
-                    this.ws.onopen = () => {
-                        console.log('Connected to game server');
-                        this.isConnected = true;
-                        this.updateConnectionStatus(true);
-                        this.addMessage('系统', '✓ 成功连接到游戏服务器！正在创建游戏会话...', 'narrator');
-                        
-                        // 请求创建会话
-                        this.sendMessage('create_session', {
-                            playerId: 'web_player_' + Date.now()
-                        });
-                    };
-                    
-                    this.ws.onmessage = (event) => {
-                        try {
-                            const message = JSON.parse(event.data);
-                            this.handleMessage(message);
-                        } catch (error) {
-                            console.error('Error parsing message:', error);
-                        }
-                    };
-                    
-                    this.ws.onclose = () => {
-                        console.log('Disconnected from game server');
-                        this.isConnected = false;
-                        this.updateConnectionStatus(false);
-                        this.addMessage('系统', '❌ 与游戏服务器断开连接', 'narrator');
-                    };
-                    
-                    this.ws.onerror = (error) => {
-                        console.error('WebSocket error:', error);
-                        this.addMessage('系统', '❌ 连接错误，请检查服务器是否运行', 'narrator');
-                    };
-                    
-                } catch (error) {
-                    console.error('Connection failed:', error);
-                    this.addMessage('系统', '❌ 连接失败: ' + error.message, 'narrator');
-                }
-            }
+            ws.onmessage = function(event) {
+                handleServerMessage(JSON.parse(event.data));
+            };
             
-            disconnect() {
-                if (this.ws) {
-                    this.ws.close();
-                }
-            }
+            ws.onclose = function() {
+                updateConnectionStatus(false);
+                console.log('Disconnected from game server');
+                // 尝试重连
+                setTimeout(connectToServer, 3000);
+            };
             
-            sendMessage(type, payload) {
-                if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-                    console.warn('WebSocket not connected');
-                    return;
-                }
-                
-                const message = {
-                    type,
-                    payload,
+            ws.onerror = function(error) {
+                console.error('WebSocket error:', error);
+                updateConnectionStatus(false);
+            };
+        }
+
+        // 更新连接状态
+        function updateConnectionStatus(connected) {
+            const statusElement = document.getElementById('connectionStatus');
+            if (connected) {
+                statusElement.className = 'status connected';
+                statusElement.textContent = '🟢 已连接到服务器';
+            } else {
+                statusElement.className = 'status disconnected';
+                statusElement.textContent = '🔴 未连接到服务器';
+            }
+        }
+
+        // 发送消息到服务器
+        function sendMessage(type, payload) {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                    type: type,
+                    payload: payload,
                     timestamp: new Date()
-                };
-                
-                this.ws.send(JSON.stringify(message));
-            }
-            
-            handleMessage(message) {
-                console.log('Received message:', message.type, message.payload);
-                
-                switch (message.type) {
-                    case 'session_created':
-                        this.sessionId = message.payload.sessionId;
-                        this.addMessage('系统', `🎮 游戏会话已创建 (${this.sessionId.substring(0, 8)}...)`, 'narrator');
-                        this.addMessage('系统', '🏰 你现在站在镇中心广场。输入你的行动开始冒险吧！', 'narrator');
-                        break;
-                        
-                    case 'character_response':
-                        const response = message.payload;
-                        this.addMessage(response.characterName, response.content, 'character');
-                        this.isProcessing = false;
-                        this.updateUI();
-                        break;
-                        
-                    case 'action_options_update':
-                        this.updateActionButtons(message.payload.options);
-                        break;
-                        
-                    case 'game_state_update':
-                        const state = message.payload;
-                        this.addMessage('系统', `📍 当前位置: ${state.currentLocation} | 时间: ${state.currentTime}`, 'narrator');
-                        break;
-                        
-                    case 'error':
-                        this.addMessage('系统', '❌ ' + message.payload.message, 'narrator');
-                        this.isProcessing = false;
-                        this.updateUI();
-                        break;
-                }
-            }
-            
-            sendPlayerInput(input) {
-                if (!this.sessionId) {
-                    this.addMessage('系统', '❌ 请先连接到游戏服务器', 'narrator');
-                    return;
-                }
-                
-                this.addMessage('你', input, 'player');
-                this.isProcessing = true;
-                this.updateUI();
-                
-                this.sendMessage('player_input', {
-                    sessionId: this.sessionId,
-                    playerId: 'web_player',
-                    input: input
-                });
-            }
-            
-            sendAction(actionId) {
-                if (!this.sessionId) {
-                    this.addMessage('系统', '❌ 请先连接到游戏服务器', 'narrator');
-                    return;
-                }
-                
-                this.isProcessing = true;
-                this.updateUI();
-                
-                this.sendMessage('player_action', {
-                    sessionId: this.sessionId,
-                    playerId: 'web_player',
-                    action: { actionId }
-                });
-            }
-            
-            addMessage(sender, content, type) {
-                const gameArea = document.getElementById('gameArea');
-                const messageDiv = document.createElement('div');
-                messageDiv.className = `response ${type}`;
-                messageDiv.innerHTML = `<strong>${sender}</strong>: ${content}`;
-                gameArea.appendChild(messageDiv);
-                gameArea.scrollTop = gameArea.scrollHeight;
-            }
-            
-            updateConnectionStatus(connected) {
-                const statusElement = document.getElementById('connectionStatus');
-                if (connected) {
-                    statusElement.className = 'status connected';
-                    statusElement.innerHTML = '⚡ 连接状态: 已连接到游戏服务器';
-                } else {
-                    statusElement.className = 'status disconnected';
-                    statusElement.innerHTML = '⚡ 连接状态: 未连接';
-                }
-                this.updateUI();
-            }
-            
-            updateActionButtons(options) {
-                const container = document.getElementById('actionButtons');
-                container.innerHTML = '';
-                
-                options.forEach(option => {
-                    const button = document.createElement('button');
-                    button.className = 'action-button';
-                    button.textContent = option.label;
-                    button.onclick = () => this.sendAction(option.id);
-                    container.appendChild(button);
-                });
-            }
-            
-            updateUI() {
-                const input = document.getElementById('playerInput');
-                const sendButton = document.getElementById('sendButton');
-                const connectButton = document.getElementById('connectButton');
-                
-                const canInput = this.isConnected && this.sessionId && !this.isProcessing;
-                
-                input.disabled = !canInput;
-                sendButton.disabled = !canInput;
-                connectButton.disabled = this.isConnected;
-                
-                if (this.isProcessing) {
-                    sendButton.innerHTML = '<div class="loading"></div>';
-                } else {
-                    sendButton.innerHTML = '发送';
-                }
-                
-                if (canInput) {
-                    input.placeholder = '输入你的行动或对话...';
-                } else if (this.isProcessing) {
-                    input.placeholder = '正在处理中...';
-                } else if (!this.isConnected) {
-                    input.placeholder = '请先连接到游戏服务器';
-                } else {
-                    input.placeholder = '正在初始化游戏会话...';
-                }
-            }
-            
-            // 设置玩家名称
-            setPlayerName(name) {
-                this.playerName = name;
-                localStorage.setItem('playerName', name);
-            }
-            
-            // 保存游戏
-            saveGame(slotIndex = null) {
-                if (!this.sessionId) {
-                    this.addMessage('系统', '⚠️ 请先连接到游戏服务器', 'narrator');
-                    return;
-                }
-                
-                const saveData = {
-                    sessionId: this.sessionId,
-                    playerName: this.playerName,
-                    timestamp: new Date().toISOString(),
-                    location: '未知位置' // 这里应该从游戏状态获取
-                };
-                
-                // 选择存档槽位
-                if (slotIndex === null) {
-                    // 自动选择空闲槽位或首个槽位
-                    for (let i = 1; i <= 5; i++) {
-                        if (!localStorage.getItem(`gameSave_${i}`)) {
-                            slotIndex = i;
-                            break;
-                        }
-                    }
-                    if (slotIndex === null) {
-                        slotIndex = 1; // 默认覆盖第一个槽位
-                    }
-                }
-                
-                const saveName = `${this.playerName}的冒险 - ${new Date().toLocaleDateString()}`;
-                saveData.saveName = saveName;
-                
-                localStorage.setItem(`gameSave_${slotIndex}`, JSON.stringify(saveData));
-                this.addMessage('系统', `✅ 游戏已保存到槽位 ${slotIndex}: ${saveName}`, 'narrator');
-                this.refreshSaveSlots();
-            }
-            
-            // 读取游戏
-            loadGame(slotIndex) {
-                const saveData = localStorage.getItem(`gameSave_${slotIndex}`);
-                if (!saveData) {
-                    this.addMessage('系统', '⚠️ 没有找到存档数据', 'narrator');
-                    return;
-                }
-                
-                try {
-                    const data = JSON.parse(saveData);
-                    // 这里应该发送读档请求给服务器
-                    // 现在只是模拟加载
-                    this.addMessage('系统', `✨ 正在加载存档: ${data.saveName}`, 'narrator');
-                    this.addMessage('系统', `⚠️ 注意：读档功能仅为演示，实际需要服务器支持`, 'narrator');
-                    closeSettings();
-                } catch (error) {
-                    this.addMessage('系统', '❌ 存档数据损坏', 'narrator');
-                }
-            }
-            
-            // 删除存档
-            deleteGame(slotIndex) {
-                if (confirm('确定要删除这个存档吗？')) {
-                    localStorage.removeItem(`gameSave_${slotIndex}`);
-                    this.addMessage('系统', `✅ 已删除槽位 ${slotIndex} 的存档`, 'narrator');
-                    this.refreshSaveSlots();
-                }
-            }
-            
-            // 刷新存档槽位显示
-            refreshSaveSlots() {
-                const container = document.getElementById('saveSlots');
-                if (!container) return;
-                
-                container.innerHTML = '';
-                
-                for (let i = 1; i <= 5; i++) {
-                    const saveData = localStorage.getItem(`gameSave_${i}`);
-                    const slot = document.createElement('div');
-                    slot.className = 'save-slot' + (saveData ? '' : ' empty');
-                    
-                    if (saveData) {
-                        try {
-                            const data = JSON.parse(saveData);
-                            slot.innerHTML = `
-                                <div class="save-info">
-                                    <div class="save-name">槽位 ${i}: ${data.saveName || '未命名存档'}</div>
-                                    <div class="save-details">玩家: ${data.playerName} | 时间: ${new Date(data.timestamp).toLocaleString()}</div>
-                                </div>
-                                <div class="save-actions">
-                                    <button onclick="gameClient.loadGame(${i})">读取</button>
-                                    <button onclick="gameClient.deleteGame(${i})" style="background: #f44336;">删除</button>
-                                </div>
-                            `;
-                        } catch (error) {
-                            slot.innerHTML = `
-                                <div class="save-info">
-                                    <div class="save-name">槽位 ${i}: 损坏的存档</div>
-                                    <div class="save-details">无法读取存档数据</div>
-                                </div>
-                                <div class="save-actions">
-                                    <button onclick="gameClient.deleteGame(${i})" style="background: #f44336;">删除</button>
-                                </div>
-                            `;
-                        }
-                    } else {
-                        slot.innerHTML = `
-                            <div class="save-info">
-                                <div class="save-name">槽位 ${i}: 空闲</div>
-                                <div class="save-details">可用于保存新游戏</div>
-                            </div>
-                            <div class="save-actions">
-                                <button onclick="gameClient.saveGame(${i})">保存到此</button>
-                            </div>
-                        `;
-                    }
-                    
-                    container.appendChild(slot);
-                }
+                }));
+            } else {
+                console.error('WebSocket is not connected');
             }
         }
-        
-        // 全局游戏客户端实例
-        const gameClient = new SimpleGameClient();
-        
-        // 全局函数
-        function connect() {
-            gameClient.connect();
+
+        // 处理服务器消息
+        function handleServerMessage(message) {
+            console.log('Received message:', message);
+            
+            switch (message.type) {
+                case 'login_success':
+                    handleLoginSuccess(message.payload);
+                    break;
+                case 'user_sessions':
+                    handleUserSessions(message.payload);
+                    break;
+                case 'session_created':
+                    handleSessionCreated(message.payload);
+                    break;
+                case 'session_loaded':
+                    handleSessionLoaded(message.payload);
+                    break;
+                case 'character_response':
+                    addMessage(message.payload);
+                    break;
+                case 'scene_update':
+                    updateScene(message.payload);
+                    break;
+                case 'error':
+                    showError(message.payload.message);
+                    break;
+                default:
+                    console.log('Unhandled message type:', message.type);
+            }
         }
-        
+
+        // 登录
+        function login() {
+            const username = document.getElementById('usernameInput').value.trim();
+            if (!username) {
+                alert('请输入用户名');
+                return;
+            }
+            
+            sendMessage('login', { username: username });
+        }
+
+        // 处理登录成功
+        function handleLoginSuccess(payload) {
+            currentUser = payload;
+            document.getElementById('loginPanel').classList.add('hidden');
+            document.getElementById('sessionPanel').classList.remove('hidden');
+            
+            // 获取用户的会话列表
+            sendMessage('get_user_sessions', {});
+        }
+
+        // 处理用户会话列表
+        function handleUserSessions(payload) {
+            sessions = payload.sessions;
+            renderSessionList();
+        }
+
+        // 渲染会话列表
+        function renderSessionList() {
+            const sessionList = document.getElementById('sessionList');
+            sessionList.innerHTML = '';
+            
+            sessions.forEach(session => {
+                const sessionItem = document.createElement('div');
+                sessionItem.className = 'session-item';
+                sessionItem.innerHTML = `
+                    <h4>${session.session_name}</h4>
+                    <div class="session-info">
+                        创建时间: ${new Date(session.created_at).toLocaleString('zh-CN')}<br>
+                        最后活动: ${new Date(session.last_activity).toLocaleString('zh-CN')}
+                    </div>
+                    <div class="session-actions">
+                        <button class="btn-load" onclick="loadSession('${session.id}')">加载</button>
+                        <button class="btn-rename" onclick="renameSession('${session.id}')">重命名</button>
+                        <button class="btn-delete" onclick="deleteSession('${session.id}')">删除</button>
+                    </div>
+                `;
+                sessionList.appendChild(sessionItem);
+            });
+        }
+
+        // 创建新会话
+        function showCreateSessionDialog() {
+            const sessionName = prompt('请输入新存档的名称:', `冒险 ${new Date().toLocaleString('zh-CN')}`);
+            if (sessionName) {
+                sendMessage('create_session', { sessionName: sessionName });
+            }
+        }
+
+        // 处理会话创建成功
+        function handleSessionCreated(payload) {
+            currentSession = payload;
+            document.getElementById('gameTitle').textContent = payload.sessionName;
+            document.getElementById('sessionPanel').classList.add('hidden');
+            document.getElementById('gamePanel').classList.remove('hidden');
+            
+            // 清空对话区域
+            document.getElementById('conversationArea').innerHTML = `
+                <div class="message system">
+                    欢迎来到新的冒险：${payload.sessionName}
+                </div>
+            `;
+        }
+
+        // 加载会话
+        function loadSession(sessionId) {
+            sendMessage('load_session', { sessionId: sessionId });
+        }
+
+        // 处理会话加载成功
+        function handleSessionLoaded(payload) {
+            currentSession = payload;
+            document.getElementById('gameTitle').textContent = payload.sessionName;
+            document.getElementById('sessionPanel').classList.add('hidden');
+            document.getElementById('gamePanel').classList.remove('hidden');
+            
+            // 清空对话区域，准备接收游戏状态
+            document.getElementById('conversationArea').innerHTML = `
+                <div class="message system">
+                    已加载存档：${payload.sessionName}
+                </div>
+            `;
+        }
+
+        // 重命名会话
+        function renameSession(sessionId) {
+            const newName = prompt('请输入新的存档名称:');
+            if (newName) {
+                sendMessage('rename_session', { sessionId: sessionId, newName: newName });
+                // 重新获取会话列表
+                setTimeout(() => sendMessage('get_user_sessions', {}), 500);
+            }
+        }
+
+        // 删除会话
+        function deleteSession(sessionId) {
+            if (confirm('确定要删除这个存档吗？此操作无法撤销。')) {
+                sendMessage('delete_session', { sessionId: sessionId });
+                // 重新获取会话列表
+                setTimeout(() => sendMessage('get_user_sessions', {}), 500);
+            }
+        }
+
+        // 发送玩家输入
         function sendInput() {
-            const input = document.getElementById('playerInput');
-            const text = input.value.trim();
-            if (text) {
-                gameClient.sendPlayerInput(text);
-                input.value = '';
-            }
-        }
-        
-        function openSettings() {
-            document.getElementById('overlay').style.display = 'block';
-            document.getElementById('settingsPanel').style.display = 'block';
+            const input = document.getElementById('playerInput').value.trim();
+            if (!input) return;
             
-            // 更新玩家名称输入框
-            const playerNameInput = document.getElementById('playerName');
-            if (playerNameInput) {
-                playerNameInput.value = gameClient.playerName;
+            // 添加玩家消息到对话区域
+            addMessage({
+                characterId: 'player',
+                characterName: '你',
+                content: input,
+                type: 'player_input'
+            });
+            
+            // 发送到服务器
+            sendMessage('player_input', {
+                sessionId: currentSession.sessionId,
+                playerId: currentUser.userId,
+                input: input
+            });
+            
+            // 清空输入框
+            document.getElementById('playerInput').value = '';
+        }
+
+        // 快捷操作
+        function quickAction(action) {
+            let input = '';
+            switch (action) {
+                case 'look':
+                    input = '我想仔细观察一下周围的环境';
+                    break;
+                case 'talk':
+                    input = '我想和附近的人交谈';
+                    break;
+                case 'move':
+                    input = '我想四处走动，探索这个地方';
+                    break;
+                case 'inventory':
+                    input = '我想查看一下我的背包里有什么';
+                    break;
             }
             
-            gameClient.refreshSaveSlots();
-        }
-        
-        function closeSettings() {
-            document.getElementById('overlay').style.display = 'none';
-            document.getElementById('settingsPanel').style.display = 'none';
-            
-            // 保存玩家名称
-            const playerNameInput = document.getElementById('playerName');
-            if (playerNameInput && playerNameInput.value.trim()) {
-                gameClient.setPlayerName(playerNameInput.value.trim());
-            }
-        }
-        
-        function saveGame() {
-            gameClient.saveGame();
-        }
-        
-        function resetGame() {
-            if (confirm('确定要重置游戏吗？这将清除所有数据！')) {
-                // 清除所有存档
-                for (let i = 1; i <= 5; i++) {
-                    localStorage.removeItem(`gameSave_${i}`);
-                }
-                localStorage.removeItem('playerName');
-                
-                // 重新加载页面
-                location.reload();
-            }
-        }
-        
-        // 回车键发送
-        document.getElementById('playerInput').addEventListener('keypress', function(e) {
-            if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
+            if (input) {
+                document.getElementById('playerInput').value = input;
                 sendInput();
             }
-        });
-        
-        // 页面加载完成后的初始化
-        document.addEventListener('DOMContentLoaded', function() {
-            console.log('Game interface loaded');
-            gameClient.updateUI();
+        }
+
+        // 添加消息到对话区域
+        function addMessage(message) {
+            const conversationArea = document.getElementById('conversationArea');
+            const messageDiv = document.createElement('div');
             
-            // 显示启动提示
-            gameClient.addMessage('系统', '🎯 游戏界面已加载完成！点击"连接"按钮开始游戏。', 'narrator');
-            gameClient.addMessage('系统', '📋 确保游戏服务器正在运行 (npm run dev:server)', 'narrator');
-            gameClient.addMessage('系统', '⚙️ 点击"设置"按钮可以设置用户名和管理存档。', 'narrator');
+            let messageClass = 'message ';
+            if (message.characterId === 'player') {
+                messageClass += 'player';
+            } else if (message.type === 'narration') {
+                messageClass += 'narration';
+            } else if (message.characterId === 'narrator') {
+                messageClass += 'narration';
+            } else {
+                messageClass += 'character';
+            }
+            
+            messageDiv.className = messageClass;
+            messageDiv.innerHTML = `
+                <strong>${message.characterName}:</strong> ${message.content}
+            `;
+            
+            conversationArea.appendChild(messageDiv);
+            conversationArea.scrollTop = conversationArea.scrollHeight;
+        }
+
+        // 更新场景描述
+        function updateScene(sceneData) {
+            document.getElementById('sceneDescription').innerHTML = `
+                <h4>${sceneData.title || '当前位置'}</h4>
+                <p>${sceneData.description}</p>
+            `;
+        }
+
+        // 保存游戏
+        function saveGame() {
+            // 游戏会自动保存，显示提示
+            addMessage({
+                characterId: 'system',
+                characterName: '系统',
+                content: '游戏已自动保存。',
+                type: 'system'
+            });
+        }
+
+        // 退出游戏
+        function exitGame() {
+            if (confirm('确定要退出当前游戏回到存档列表吗？')) {
+                document.getElementById('gamePanel').classList.add('hidden');
+                document.getElementById('sessionPanel').classList.remove('hidden');
+                currentSession = null;
+                
+                // 重新获取会话列表
+                sendMessage('get_user_sessions', {});
+            }
+        }
+
+        // 退出登录
+        function logout() {
+            if (confirm('确定要退出登录吗？')) {
+                currentUser = null;
+                currentSession = null;
+                sessions = [];
+                
+                document.getElementById('sessionPanel').classList.add('hidden');
+                document.getElementById('gamePanel').classList.add('hidden');
+                document.getElementById('loginPanel').classList.remove('hidden');
+                document.getElementById('usernameInput').value = '';
+            }
+        }
+
+        // 显示错误消息
+        function showError(message) {
+            alert('错误: ' + message);
+        }
+
+        // 页面加载完成后连接服务器
+        window.addEventListener('load', function() {
+            connectToServer();
+        });
+
+        // Enter键发送消息
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' && e.ctrlKey) {
+                sendInput();
+            } else if (e.key === 'Enter' && document.activeElement.id === 'usernameInput') {
+                login();
+            }
         });
     </script>
 </body>

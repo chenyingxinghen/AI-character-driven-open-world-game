@@ -1312,13 +1312,24 @@ export class RealDatabaseService implements DatabaseService {
 
       // 按照依赖关系顺序创建表
       const schemaSql = `
-        -- 创建游戏会话表（无外键依赖）
+        -- 创建用户表（无外键依赖）
+        CREATE TABLE IF NOT EXISTS users (
+            id VARCHAR(36) PRIMARY KEY,
+            username VARCHAR(100) UNIQUE NOT NULL,
+            preferences JSONB,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
+        -- 创建游戏会话表（依赖users表）
         CREATE TABLE IF NOT EXISTS game_sessions (
             id VARCHAR(36) PRIMARY KEY,
+            user_id VARCHAR(36) REFERENCES users(id) ON DELETE CASCADE,
+            session_name VARCHAR(200) DEFAULT '新的游戏存档',
+            player_id VARCHAR(36),
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            player_id VARCHAR(36),
             game_state JSONB,
             is_active BOOLEAN DEFAULT true,
             current_location VARCHAR(100) DEFAULT 'town_square'
@@ -1436,6 +1447,10 @@ export class RealDatabaseService implements DatabaseService {
 
       // 创建索引以提高查询性能
       const indexesSql = `
+        CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
+        CREATE INDEX IF NOT EXISTS idx_game_sessions_user_id ON game_sessions(user_id);
+        CREATE INDEX IF NOT EXISTS idx_game_sessions_player_id ON game_sessions(player_id);
+        CREATE INDEX IF NOT EXISTS idx_game_sessions_active ON game_sessions(is_active);
         CREATE INDEX IF NOT EXISTS idx_characters_session_id ON characters(session_id);
         CREATE INDEX IF NOT EXISTS idx_characters_active ON characters(is_active);
         CREATE INDEX IF NOT EXISTS idx_character_memories_character_id ON character_memories(character_id);
@@ -1452,8 +1467,6 @@ export class RealDatabaseService implements DatabaseService {
         CREATE INDEX IF NOT EXISTS idx_locations_region ON locations(region_id);
         CREATE INDEX IF NOT EXISTS idx_world_lore_session_id ON world_lore(session_id);
         CREATE INDEX IF NOT EXISTS idx_world_lore_type ON world_lore(lore_type);
-        CREATE INDEX IF NOT EXISTS idx_game_sessions_player_id ON game_sessions(player_id);
-        CREATE INDEX IF NOT EXISTS idx_game_sessions_active ON game_sessions(is_active);
       `;
 
       await client.query(indexesSql);
@@ -1565,6 +1578,149 @@ export class RealDatabaseService implements DatabaseService {
     }
   }
   
+  // User management methods
+  async createUser(username: string, preferences?: any): Promise<{ id: string; username: string }> {
+    if (!this.isInitialized || !this.postgresPool) {
+      throw new Error('Database not initialized');
+    }
+
+    const userId = uuidv4();
+    const sql = `
+      INSERT INTO users (id, username, preferences, created_at, updated_at)
+      VALUES ($1, $2, $3, NOW(), NOW())
+      ON CONFLICT (username) DO UPDATE SET
+        preferences = EXCLUDED.preferences,
+        updated_at = NOW()
+      RETURNING id, username
+    `;
+    
+    const client = await this.postgresPool.connect();
+    try {
+      const result = await client.query(sql, [userId, username, preferences || {}]);
+      return result.rows[0];
+    } finally {
+      client.release();
+    }
+  }
+
+  async getUserByUsername(username: string): Promise<{ id: string; username: string; preferences?: any } | null> {
+    if (!this.isInitialized || !this.postgresPool) {
+      throw new Error('Database not initialized');
+    }
+
+    const sql = `
+      SELECT id, username, preferences FROM users 
+      WHERE username = $1
+      LIMIT 1
+    `;
+    
+    const client = await this.postgresPool.connect();
+    try {
+      const result = await client.query(sql, [username]);
+      return result.rows.length > 0 ? result.rows[0] : null;
+    } finally {
+      client.release();
+    }
+  }
+
+  async getUserSessions(userId: string): Promise<any[]> {
+    if (!this.isInitialized || !this.postgresPool) {
+      throw new Error('Database not initialized');
+    }
+
+    const sql = `
+      SELECT id, session_name, created_at, updated_at, last_activity, is_active, current_location
+      FROM game_sessions 
+      WHERE user_id = $1
+      ORDER BY last_activity DESC
+    `;
+    
+    const client = await this.postgresPool.connect();
+    try {
+      const result = await client.query(sql, [userId]);
+      return result.rows;
+    } finally {
+      client.release();
+    }
+  }
+
+  // Session management methods (updated)
+  async createSessionForUser(userId: string, sessionName?: string, initialGameState?: any): Promise<{ id: string; session_name: string }> {
+    if (!this.isInitialized || !this.postgresPool) {
+      throw new Error('Database not initialized');
+    }
+
+    const sessionId = uuidv4();
+    const playerId = uuidv4();
+    const defaultSessionName = sessionName || `游戏存档 ${new Date().toLocaleString('zh-CN')}`;
+    
+    const sql = `
+      INSERT INTO game_sessions (
+        id, user_id, session_name, player_id, game_state, 
+        created_at, updated_at, last_activity, is_active
+      ) VALUES ($1, $2, $3, $4, $5, NOW(), NOW(), NOW(), true)
+      RETURNING id, session_name
+    `;
+    
+    const client = await this.postgresPool.connect();
+    try {
+      const result = await client.query(sql, [
+        sessionId, 
+        userId, 
+        defaultSessionName, 
+        playerId, 
+        initialGameState || {
+          timeOfDay: 'afternoon',
+          weather: 'sunny',
+          atmosphere: 'peaceful',
+          playerLevel: 1,
+          completedQuests: []
+        }
+      ]);
+      return result.rows[0];
+    } finally {
+      client.release();
+    }
+  }
+
+  async updateSessionActivity(sessionId: string): Promise<void> {
+    if (!this.isInitialized || !this.postgresPool) {
+      throw new Error('Database not initialized');
+    }
+
+    const sql = `
+      UPDATE game_sessions 
+      SET last_activity = NOW(), updated_at = NOW()
+      WHERE id = $1
+    `;
+    
+    const client = await this.postgresPool.connect();
+    try {
+      await client.query(sql, [sessionId]);
+    } finally {
+      client.release();
+    }
+  }
+
+  async renameSession(sessionId: string, newName: string): Promise<void> {
+    if (!this.isInitialized || !this.postgresPool) {
+      throw new Error('Database not initialized');
+    }
+
+    const sql = `
+      UPDATE game_sessions 
+      SET session_name = $2, updated_at = NOW()
+      WHERE id = $1
+    `;
+    
+    const client = await this.postgresPool.connect();
+    try {
+      await client.query(sql, [sessionId, newName]);
+    } finally {
+      client.release();
+    }
+  }
+
   // Location management methods
   async createLocation(location: any): Promise<any> {
     if (!this.isInitialized || !this.postgresPool) {

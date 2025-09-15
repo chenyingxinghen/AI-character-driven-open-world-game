@@ -5,6 +5,7 @@ import { Logger } from './services/Logger';
 import { container } from './services/DependencyInjectionContainer';
 import { DatabaseService } from './services/database/DatabaseService';
 import { WorldLoreService } from './services/world/WorldLoreService';
+import { v4 as uuidv4 } from 'uuid';
 
 // Session interface
 export interface GameSession {
@@ -64,11 +65,26 @@ export class Orchestrator {
   /**
    * 创建新的游戏会话
    */
-  async createSession(playerId: string = 'player1', inspiration?: string): Promise<GameSession> {
+  async createSession(sessionIdOrPlayerId: string = 'player1', inspiration?: string): Promise<GameSession> {
     try {
-      const session = this.sessionEngine.createSession();
+      // Check if the first parameter is a valid UUID (session ID) or a player ID
+      const isSessionId = sessionIdOrPlayerId.includes('-') && sessionIdOrPlayerId.length > 20;
+      
+      let sessionId: string;
+      let playerId: string;
+      
+      if (isSessionId) {
+        // If it's a session ID, use it directly and generate a player ID
+        sessionId = sessionIdOrPlayerId;
+        playerId = uuidv4();
+      } else {
+        // If it's a player ID, generate a new session ID
+        playerId = sessionIdOrPlayerId;
+        sessionId = this.sessionEngine.createSession().id;
+      }
+      
       const gameSession: GameSession = {
-        id: session.id,
+        id: sessionId,
         playerId,
         createdAt: new Date(),
         lastActivity: new Date(),
@@ -76,31 +92,33 @@ export class Orchestrator {
         metadata: { currentLocation: 'town_square' }
       };
       
-      this.sessions.set(session.id, gameSession);
+      this.sessions.set(sessionId, gameSession);
       
-      // 保存会话到数据库
-      await this.databaseService.updateSession(session.id, {
-        player_id: playerId,
-        created_at: gameSession.createdAt,
-        last_activity: gameSession.lastActivity,
-        is_active: true
-      });
+      // 保存会话到数据库（如果不是从数据库创建的）
+      if (!isSessionId) {
+        await this.databaseService.updateSession(sessionId, {
+          player_id: playerId,
+          created_at: gameSession.createdAt,
+          last_activity: gameSession.lastActivity,
+          is_active: true
+        });
+      }
       
       // 生成世界背景故事
       try {
-        this.logger.info(`Generating world lore for session ${session.id}...`);
+        this.logger.info(`Generating world lore for session ${sessionId}...`);
         const loreOptions = inspiration ? { inspiration } : {};
-        await this.worldLoreService.generateWorldLoreForSession(session.id, loreOptions);
-        this.logger.info(`World lore generated successfully for session ${session.id}`);
+        await this.worldLoreService.generateWorldLoreForSession(sessionId, loreOptions);
+        this.logger.info(`World lore generated successfully for session ${sessionId}`);
       } catch (loreError) {
         // 即使世界背景故事生成失败，也不影响会话创建
-        this.logger.warn(`Failed to generate world lore for session ${session.id}:`, loreError as Error);
+        this.logger.warn(`Failed to generate world lore for session ${sessionId}:`, loreError as Error);
       }
       
-      this.logger.info(`Created new session ${session.id} for player ${playerId}`);
+      this.logger.info(`Created new session ${sessionId} for player ${playerId}`);
       return gameSession;
     } catch (error) {
-      this.logger.error(`Error creating session for player ${playerId}:`, error as Error);
+      this.logger.error(`Error creating session:`, error as Error);
       throw error;
     }
   }

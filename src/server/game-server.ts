@@ -19,6 +19,7 @@ interface GameSession {
   createdAt: Date;
   lastActivity: Date;
   isActive: boolean;
+  metadata?: Record<string, any>;
 }
 
 interface WebSocketMessage {
@@ -31,6 +32,8 @@ interface ConnectedClient {
   ws: WebSocket;
   sessionId?: string;
   playerId?: string;
+  userId?: string;
+  username?: string;
   lastActivity: Date;
 }
 
@@ -131,8 +134,28 @@ async function handleMessage(ws: WebSocket, message: WebSocketMessage): Promise<
 
   try {
     switch (message.type) {
+      case 'login':
+        await handleLogin(ws, message.payload);
+        break;
+        
+      case 'get_user_sessions':
+        await handleGetUserSessions(ws, message.payload);
+        break;
+        
       case 'create_session':
         await createSession(ws, message.payload);
+        break;
+        
+      case 'load_session':
+        await handleLoadSession(ws, message.payload);
+        break;
+        
+      case 'rename_session':
+        await handleRenameSession(ws, message.payload);
+        break;
+        
+      case 'delete_session':
+        await handleDeleteSession(ws, message.payload);
         break;
         
       case 'player_input':
@@ -159,34 +182,235 @@ async function handleMessage(ws: WebSocket, message: WebSocketMessage): Promise<
   }
 }
 
-async function createSession(ws: WebSocket, payload: any): Promise<void> {
-  const playerId = payload.playerId || uuidv4();
+async function handleLogin(ws: WebSocket, payload: any): Promise<void> {
+  const { username } = payload;
+  
+  if (!username) {
+    sendMessage(ws, 'error', { message: 'Username is required' });
+    return;
+  }
   
   try {
-    // Create session through orchestrator
-    const gameSession = await orchestrator.createSession(playerId);
+    // Get or create user
+    let user = await databaseService.getUserByUsername(username);
+    if (!user) {
+      user = await databaseService.createUser(username, {
+        language: 'zh',
+        difficulty: 'normal',
+        narrativeStyle: 'immersive'
+      });
+      logger.info(`Created new user: ${username}`);
+    } else {
+      logger.info(`User logged in: ${username}`);
+    }
+    
+    // Update client info
+    const client = clients.get(ws);
+    if (client) {
+      client.userId = user.id;
+      client.username = user.username;
+    }
+    
+    // Send login success
+    sendMessage(ws, 'login_success', {
+      userId: user.id,
+      username: user.username,
+      preferences: user.preferences
+    });
+    
+  } catch (error) {
+    logger.error('Error during login:', error as Error);
+    sendMessage(ws, 'error', { message: 'Login failed' });
+  }
+}
+
+async function handleGetUserSessions(ws: WebSocket, payload: any): Promise<void> {
+  const client = clients.get(ws);
+  if (!client?.userId) {
+    sendMessage(ws, 'error', { message: 'Not logged in' });
+    return;
+  }
+  
+  try {
+    const sessions = await databaseService.getUserSessions(client.userId);
+    sendMessage(ws, 'user_sessions', { sessions });
+    logger.info(`Retrieved ${sessions.length} sessions for user ${client.username}`);
+  } catch (error) {
+    logger.error('Error getting user sessions:', error as Error);
+    sendMessage(ws, 'error', { message: 'Failed to get sessions' });
+  }
+}
+
+async function handleLoadSession(ws: WebSocket, payload: any): Promise<void> {
+  const { sessionId } = payload;
+  const client = clients.get(ws);
+  
+  if (!client?.userId) {
+    sendMessage(ws, 'error', { message: 'Not logged in' });
+    return;
+  }
+  
+  if (!sessionId) {
+    sendMessage(ws, 'error', { message: 'Session ID is required' });
+    return;
+  }
+  
+  try {
+    const session = await databaseService.getSession(sessionId);
+    if (!session) {
+      sendMessage(ws, 'error', { message: 'Session not found' });
+      return;
+    }
+    
+    // Verify session belongs to user
+    if (session.user_id !== client.userId) {
+      sendMessage(ws, 'error', { message: 'Access denied' });
+      return;
+    }
+    
+    // Update session activity
+    await databaseService.updateSessionActivity(sessionId);
+    
+    // Store session in memory
+    const gameSession: GameSession = {
+      id: session.id,
+      playerId: session.player_id,
+      createdAt: session.created_at,
+      lastActivity: new Date(),
+      isActive: true,
+      metadata: session.game_state || {}
+    };
+    
+    sessions.set(sessionId, gameSession);
+    
+    // Update client info
+    client.sessionId = sessionId;
+    client.playerId = session.player_id;
+    
+    logger.info(`Loaded session ${sessionId} for user ${client.username}`);
+    
+    // Send session loaded message
+    sendMessage(ws, 'session_loaded', { 
+      sessionId: sessionId,
+      sessionName: session.session_name
+    });
+    
+    // Send initial game state
+    await sendInitialState(ws, sessionId);
+    
+  } catch (error) {
+    logger.error('Error loading session:', error as Error);
+    sendMessage(ws, 'error', { message: 'Failed to load session' });
+  }
+}
+
+async function handleRenameSession(ws: WebSocket, payload: any): Promise<void> {
+  const { sessionId, newName } = payload;
+  const client = clients.get(ws);
+  
+  if (!client?.userId) {
+    sendMessage(ws, 'error', { message: 'Not logged in' });
+    return;
+  }
+  
+  if (!sessionId || !newName) {
+    sendMessage(ws, 'error', { message: 'Session ID and new name are required' });
+    return;
+  }
+  
+  try {
+    await databaseService.renameSession(sessionId, newName);
+    sendMessage(ws, 'session_renamed', { sessionId, newName });
+    logger.info(`Renamed session ${sessionId} to "${newName}" for user ${client.username}`);
+  } catch (error) {
+    logger.error('Error renaming session:', error as Error);
+    sendMessage(ws, 'error', { message: 'Failed to rename session' });
+  }
+}
+
+async function handleDeleteSession(ws: WebSocket, payload: any): Promise<void> {
+  const { sessionId } = payload;
+  const client = clients.get(ws);
+  
+  if (!client?.userId) {
+    sendMessage(ws, 'error', { message: 'Not logged in' });
+    return;
+  }
+  
+  if (!sessionId) {
+    sendMessage(ws, 'error', { message: 'Session ID is required' });
+    return;
+  }
+  
+  try {
+    await databaseService.deleteSession(sessionId);
+    sessions.delete(sessionId);
+    
+    // If this is the current session, clear client info
+    if (client.sessionId === sessionId) {
+      client.sessionId = undefined;
+      client.playerId = undefined;
+    }
+    
+    sendMessage(ws, 'session_deleted', { sessionId });
+    logger.info(`Deleted session ${sessionId} for user ${client.username}`);
+  } catch (error) {
+    logger.error('Error deleting session:', error as Error);
+    sendMessage(ws, 'error', { message: 'Failed to delete session' });
+  }
+}
+
+async function createSession(ws: WebSocket, payload: any): Promise<void> {
+  const { sessionName, inspiration } = payload;
+  const client = clients.get(ws);
+  
+  if (!client?.userId) {
+    sendMessage(ws, 'error', { message: 'Not logged in' });
+    return;
+  }
+  
+  try {
+    // Create session in database for the user
+    const sessionResult = await databaseService.createSessionForUser(
+      client.userId, 
+      sessionName, 
+      {
+        timeOfDay: 'afternoon',
+        weather: 'sunny',
+        atmosphere: 'peaceful',
+        playerLevel: 1,
+        completedQuests: []
+      }
+    );
+    
+    // Create session through orchestrator (for world lore generation)
+    const gameSession = await orchestrator.createSession(
+      sessionResult.id, // Use the database session ID
+      inspiration
+    );
     
     const session: GameSession = {
-      id: gameSession.id,
+      id: sessionResult.id,
       playerId: gameSession.playerId,
       createdAt: gameSession.createdAt,
       lastActivity: gameSession.lastActivity,
-      isActive: gameSession.isActive
+      isActive: gameSession.isActive,
+      metadata: gameSession.metadata
     };
     
     sessions.set(session.id, session);
     
     // Update client info
-    const client = clients.get(ws);
-    if (client) {
-      client.sessionId = session.id;
-      client.playerId = playerId;
-    }
+    client.sessionId = session.id;
+    client.playerId = gameSession.playerId;
     
-    logger.info(`Created session ${session.id} for player ${playerId}`);
+    logger.info(`Created session ${session.id} ("${sessionResult.session_name}") for user ${client.username}`);
     
     // Send session created message
-    sendMessage(ws, 'session_created', { sessionId: session.id });
+    sendMessage(ws, 'session_created', { 
+      sessionId: session.id,
+      sessionName: sessionResult.session_name
+    });
     
     // Send initial game state
     await sendInitialState(ws, session.id);

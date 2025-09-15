@@ -92,10 +92,18 @@ export interface DatabaseService {
   query<T = any>(sql: string, params?: any[], options?: QueryOptions): Promise<T[]>;
   executeTransaction<T>(queries: Array<{ sql: string; params?: any[] }>): Promise<T[]>;
   
+  // User management
+  createUser(username: string, preferences?: any): Promise<{ id: string; username: string }>;
+  getUserByUsername(username: string): Promise<{ id: string; username: string; preferences?: any } | null>;
+  getUserSessions(userId: string): Promise<any[]>;
+  
   // Session management
   createSession(sessionId: string, playerId?: string, gameState?: any): Promise<void>;
+  createSessionForUser(userId: string, sessionName?: string, initialGameState?: any): Promise<{ id: string; session_name: string }>;
   getSession(sessionId: string): Promise<any>;
   updateSession(sessionId: string, updates: any): Promise<void>;
+  updateSessionActivity(sessionId: string): Promise<void>;
+  renameSession(sessionId: string, newName: string): Promise<void>;
   deleteSession(sessionId: string): Promise<void>;
   getPlayerSessions(playerId: string): Promise<any[]>;
   getAllActiveSessions(): Promise<any[]>;
@@ -159,6 +167,8 @@ export interface DatabaseService {
 
 export class MockDatabaseService implements DatabaseService {
   private connected = false;
+  private mockUsers = new Map<string, { id: string; username: string; preferences?: any }>();
+  private mockSessions = new Map<string, any>();
   
   async connect(): Promise<void> {
     console.log('Mock: Connecting to database');
@@ -188,14 +198,75 @@ export class MockDatabaseService implements DatabaseService {
     return [] as T[];
   }
 
+  // User management mock methods
+  async createUser(username: string, preferences?: any): Promise<{ id: string; username: string }> {
+    const id = `mock-user-${Date.now()}`;
+    const user = { id, username, preferences };
+    this.mockUsers.set(username, user);
+    console.log('Mock: Created user:', username);
+    return { id, username };
+  }
+
+  async getUserByUsername(username: string): Promise<{ id: string; username: string; preferences?: any } | null> {
+    const user = this.mockUsers.get(username);
+    console.log('Mock: Retrieved user:', username, user ? 'found' : 'not found');
+    return user || null;
+  }
+
+  async getUserSessions(userId: string): Promise<any[]> {
+    const sessions = Array.from(this.mockSessions.values()).filter(s => s.user_id === userId);
+    console.log('Mock: Retrieved sessions for user:', userId, sessions.length);
+    return sessions;
+  }
+
   // Session management
+  async createSessionForUser(userId: string, sessionName?: string, initialGameState?: any): Promise<{ id: string; session_name: string }> {
+    const id = `mock-session-${Date.now()}`;
+    const session_name = sessionName || `Mock Game Session ${new Date().toLocaleString()}`;
+    const session = {
+      id,
+      user_id: userId,
+      session_name,
+      game_state: initialGameState || {},
+      created_at: new Date(),
+      is_active: true
+    };
+    this.mockSessions.set(id, session);
+    console.log('Mock: Created session for user:', userId, session_name);
+    return { id, session_name };
+  }
+
+  async updateSessionActivity(sessionId: string): Promise<void> {
+    const session = this.mockSessions.get(sessionId);
+    if (session) {
+      session.last_activity = new Date();
+      console.log('Mock: Updated session activity:', sessionId);
+    }
+  }
+
+  async renameSession(sessionId: string, newName: string): Promise<void> {
+    const session = this.mockSessions.get(sessionId);
+    if (session) {
+      session.session_name = newName;
+      console.log('Mock: Renamed session:', sessionId, 'to', newName);
+    }
+  }
+
   async createSession(sessionId: string, playerId?: string, gameState?: any): Promise<void> {
     console.log(`Mock: Creating session ${sessionId} for player ${playerId}`);
+    const session = {
+      id: sessionId,
+      player_id: playerId,
+      game_state: gameState || {},
+      created_at: new Date(),
+      is_active: true
+    };
+    this.mockSessions.set(sessionId, session);
   }
 
   async getSession(sessionId: string): Promise<any> {
     console.log(`Mock: Getting session ${sessionId}`);
-    return null;
+    return this.mockSessions.get(sessionId) || null;
   }
   
   async deleteSession(sessionId: string): Promise<void> {
