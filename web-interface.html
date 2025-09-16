@@ -351,6 +351,312 @@
         .hidden {
             display: none !important;
         }
+        
+        /* 对话框样式 */
+        .modal {
+            display: flex;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            justify-content: center;
+            align-items: center;
+        }
+        
+        .modal-content {
+            background-color: white;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+            width: 90%;
+            max-width: 500px;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+        
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 20px;
+            border-bottom: 1px solid #e2e8f0;
+        }
+        
+        .modal-header h3 {
+            margin: 0;
+            color: #2d3748;
+        }
+        
+        .close {
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+            color: #a0aec0;
+        }
+        
+        .close:hover {
+            color: #e53e3e;
+        }
+        
+        .modal-body {
+            padding: 20px;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: bold;
+            color: #2d3748;
+        }
+        
+        .form-group input[type="text"],
+        .form-group textarea {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e2e8f0;
+            border-radius: 8px;
+            font-size: 14px;
+            box-sizing: border-box;
+        }
+        
+        .form-group input[type="text"]:focus,
+        .form-group textarea:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        .form-group textarea {
+            height: 100px;
+            resize: vertical;
+        }
+        
+        .form-group input[type="checkbox"] {
+            width: auto;
+            margin-right: 8px;
+        }
+        
+        .form-hint {
+            font-size: 12px;
+            color: #718096;
+            margin-top: 5px;
+        }
+        
+        .modal-footer {
+            padding: 20px;
+            border-top: 1px solid #e2e8f0;
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+        }
+        
+        .btn-cancel {
+            padding: 10px 20px;
+            border: 2px solid #e2e8f0;
+            background: white;
+            color: #718096;
+            border-radius: 8px;
+            cursor: pointer;
+        }
+        
+        .btn-create {
+            padding: 10px 20px;
+            border: none;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        
+        /* 新增的用户页面样式 */
+        .login-help {
+            margin-top: 20px;
+            padding: 15px;
+            background: #f0f8ff;
+            border-radius: 8px;
+            border-left: 4px solid #4299e1;
+            font-size: 14px;
+        }
+        
+        .login-help p {
+            margin: 5px 0;
+        }
+        
+        .session-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid #e2e8f0;
+        }
+        
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 14px;
+        }
+        
+        .btn-small {
+            padding: 5px 10px;
+            border: 1px solid #e2e8f0;
+            background: white;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: all 0.3s;
+        }
+        
+        .btn-small:hover {
+            background: #f7fafc;
+            border-color: #667eea;
+        }
+        
+        .session-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 10px;
+        }
+        
+        .stat-item {
+            text-align: center;
+        }
+        
+        .stat-label {
+            display: block;
+            font-size: 12px;
+            color: #718096;
+            margin-bottom: 5px;
+        }
+        
+        .stat-value {
+            display: block;
+            font-size: 18px;
+            font-weight: bold;
+            color: #2d3748;
+        }
+        
+        .session-filter {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        
+        .session-filter input,
+        .session-filter select {
+            padding: 8px 12px;
+            border: 2px solid #e2e8f0;
+            border-radius: 6px;
+            font-size: 14px;
+        }
+        
+        .session-filter input {
+            flex: 1;
+        }
+        
+        .session-filter select {
+            min-width: 120px;
+        }
+        
+        .session-actions {
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #e2e8f0;
+        }
+        
+        .btn-import {
+            background: #38a169;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        
+        .btn-bulk-delete {
+            background: #e53e3e;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        
+        .btn-logout {
+            background: #718096;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        
+        .session-item {
+            background: #f7fafc;
+            border: 2px solid #e2e8f0;
+            border-radius: 10px;
+            padding: 15px;
+            cursor: pointer;
+            transition: all 0.3s;
+            position: relative;
+        }
+        
+        .session-item.selected {
+            border-color: #667eea;
+            background: #ebf4ff;
+        }
+        
+        .session-item .session-header-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        
+        .session-item .session-description {
+            font-size: 13px;
+            color: #718096;
+            margin: 8px 0;
+            font-style: italic;
+        }
+        
+        .session-item .session-tags {
+            display: flex;
+            gap: 5px;
+            margin: 8px 0;
+        }
+        
+        .session-tag {
+            background: #e2e8f0;
+            color: #4a5568;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+        }
+        
+        .bulk-select {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            transform: scale(1.2);
+        }
     </style>
 </head>
 <body>
@@ -368,25 +674,134 @@
             <p>请输入你的用户名来开始游戏。如果是新用户，系统会自动为你创建账号。</p>
             <div class="login-form">
                 <input type="text" id="usernameInput" placeholder="请输入用户名" maxlength="50">
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="rememberUsernameCheckbox">
+                        记住用户名
+                    </label>
+                    <p class="form-hint">下次访问时自动填充用户名</p>
+                </div>
                 <button onclick="login()">登录游戏</button>
+                <div class="login-help">
+                    <p><strong>快速开始：</strong></p>
+                    <p>• 首次登录会自动创建账号</p>
+                    <p>• 支持中文用户名</p>
+                    <p>• 可管理多个游戏存档</p>
+                </div>
             </div>
         </div>
 
         <!-- 会话管理面板 -->
         <div id="sessionPanel" class="session-panel hidden">
-            <h2>📚 我的游戏存档</h2>
+            <div class="session-header">
+                <h2>📚 我的游戏存档</h2>
+                <div class="user-info">
+                    <span id="currentUsername">用户：</span>
+                    <button onclick="changeUsername()" class="btn-small">修改用户名</button>
+                    <button onclick="exportUserData()" class="btn-small">导出数据</button>
+                </div>
+            </div>
+            
+            <div class="session-stats">
+                <div class="stat-item">
+                    <span class="stat-label">总存档数：</span>
+                    <span id="totalSessions" class="stat-value">0</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">游戏时长：</span>
+                    <span id="totalPlayTime" class="stat-value">0小时</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">最后活动：</span>
+                    <span id="lastActivity" class="stat-value">--</span>
+                </div>
+            </div>
+            
+            <div class="session-filter">
+                <input type="text" id="sessionSearchInput" placeholder="搜索存档..." onkeyup="filterSessions()">
+                <select id="sessionSortSelect" onchange="sortSessions()">
+                    <option value="recent">按最近活动</option>
+                    <option value="name">按名称</option>
+                    <option value="created">按创建时间</option>
+                </select>
+            </div>
+            
             <div id="sessionList" class="session-list">
                 <!-- 会话列表将在这里动态生成 -->
             </div>
+            
             <div class="create-session" onclick="showCreateSessionDialog()">
                 <h3>➕ 创建新的冒险</h3>
                 <p>开始一个全新的故事</p>
             </div>
             
-            <div style="text-align: center; margin-top: 20px;">
-                <button onclick="logout()" style="background: #e53e3e; color: white; padding: 10px 20px; border: none; border-radius: 8px; cursor: pointer;">
-                    退出登录
-                </button>
+            <div class="session-actions">
+                <button onclick="importUserData()" class="btn-import">导入数据</button>
+                <button onclick="bulkDeleteSessions()" class="btn-bulk-delete">批量删除</button>
+                <button onclick="logout()" class="btn-logout">退出登录</button>
+            </div>
+        </div>
+
+        <!-- 创建会话对话框 -->
+        <div id="createSessionModal" class="modal hidden">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>🎮 创建新的冒险</h3>
+                    <span class="close" onclick="hideCreateSessionDialog()">&times;</span>
+                </div>
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label for="sessionNameInput">存档名称：</label>
+                        <input type="text" id="sessionNameInput" placeholder="我的冒险旅程" maxlength="100">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="sessionDescriptionInput">存档描述（可选）：</label>
+                        <textarea id="sessionDescriptionInput" placeholder="简单描述这个存档的内容..." maxlength="200" rows="3"></textarea>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>
+                            <input type="checkbox" id="useInspirationCheckbox" onchange="toggleInspirationInput()">
+                            根据我的灵感生成世界背景
+                        </label>
+                        <p class="form-hint">勾选此选项可以根据你的想法创建独特的世界设定</p>
+                    </div>
+                    
+                    <div class="form-group" id="inspirationGroup" style="display: none;">
+                        <label for="inspirationInput">你的世界灵感：</label>
+                        <textarea id="inspirationInput" placeholder="例如：一个被古老魔法笼罩的神秘森林王国，传说中有龙族守护着失落的宝藏..." maxlength="800" rows="4"></textarea>
+                        <p class="form-hint">描述你想要的世界类型、主题或特殊元素</p>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="worldStyleSelect">世界风格：</label>
+                        <select id="worldStyleSelect">
+                            <option value="fantasy">奇幻</option>
+                            <option value="medieval">中世纪</option>
+                            <option value="modern">现代</option>
+                            <option value="scifi">科幻</option>
+                            <option value="historical">历史</option>
+                            <option value="mystery">悬疑</option>
+                            <option value="adventure">冒险</option>
+                            <option value="custom">自定义</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="difficultySelect">游戏难度：</label>
+                        <select id="difficultySelect">
+                            <option value="easy">简单 - 更多指引，轻松体验</option>
+                            <option value="normal" selected>普通 - 平衡的挑战</option>
+                            <option value="hard">困难 - 更多挑战，更少提示</option>
+                            <option value="expert">专家 - 完全自由探索</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button onclick="hideCreateSessionDialog()" class="btn-cancel">取消</button>
+                    <button onclick="createNewSession()" class="btn-create">创建冒险</button>
+                </div>
             </div>
         </div>
 
@@ -442,6 +857,8 @@
         let currentUser = null;
         let currentSession = null;
         let sessions = [];
+        let selectedSessions = new Set(); // 用于批量选择
+        let bulkSelectMode = false; // 批量选择模式
 
         // 连接到游戏服务器
         function connectToServer() {
@@ -518,6 +935,15 @@
                 case 'scene_update':
                     updateScene(message.payload);
                     break;
+                case 'username_changed':
+                    handleUsernameChanged(message.payload);
+                    break;
+                case 'data_imported':
+                    handleDataImported(message.payload);
+                    break;
+                case 'data_exported':
+                    handleDataExported(message.payload);
+                    break;
                 case 'error':
                     showError(message.payload.message);
                     break;
@@ -529,9 +955,18 @@
         // 登录
         function login() {
             const username = document.getElementById('usernameInput').value.trim();
+            const rememberUsername = document.getElementById('rememberUsernameCheckbox').checked;
+            
             if (!username) {
                 alert('请输入用户名');
                 return;
+            }
+            
+            // 保存用户名到本地存储
+            if (rememberUsername) {
+                localStorage.setItem('rememberedUsername', username);
+            } else {
+                localStorage.removeItem('rememberedUsername');
             }
             
             sendMessage('login', { username: username });
@@ -543,6 +978,9 @@
             document.getElementById('loginPanel').classList.add('hidden');
             document.getElementById('sessionPanel').classList.remove('hidden');
             
+            // 更新用户信息显示
+            document.getElementById('currentUsername').textContent = `用户：${currentUser.username}`;
+            
             // 获取用户的会话列表
             sendMessage('get_user_sessions', {});
         }
@@ -550,7 +988,27 @@
         // 处理用户会话列表
         function handleUserSessions(payload) {
             sessions = payload.sessions;
+            updateSessionStats();
             renderSessionList();
+        }
+        
+        // 更新会话统计信息
+        function updateSessionStats() {
+            document.getElementById('totalSessions').textContent = sessions.length;
+            
+            // 计算总游戏时长（模拟）
+            const totalHours = sessions.length * 2.5; // 假设每个存档平均 2.5 小时
+            document.getElementById('totalPlayTime').textContent = `${totalHours.toFixed(1)}小时`;
+            
+            // 最后活动时间
+            if (sessions.length > 0) {
+                const latestActivity = sessions.reduce((latest, session) => {
+                    return new Date(session.last_activity) > new Date(latest.last_activity) ? session : latest;
+                });
+                document.getElementById('lastActivity').textContent = new Date(latestActivity.last_activity).toLocaleString('zh-CN');
+            } else {
+                document.getElementById('lastActivity').textContent = '--';
+            }
         }
 
         // 渲染会话列表
@@ -558,15 +1016,61 @@
             const sessionList = document.getElementById('sessionList');
             sessionList.innerHTML = '';
             
-            sessions.forEach(session => {
+            // 应用搜索和排序筛选
+            let filteredSessions = [...sessions];
+            const searchTerm = document.getElementById('sessionSearchInput')?.value.toLowerCase() || '';
+            const sortBy = document.getElementById('sessionSortSelect')?.value || 'recent';
+            
+            // 搜索筛选
+            if (searchTerm) {
+                filteredSessions = filteredSessions.filter(session => 
+                    session.session_name.toLowerCase().includes(searchTerm) ||
+                    (session.description && session.description.toLowerCase().includes(searchTerm))
+                );
+            }
+            
+            // 排序
+            filteredSessions.sort((a, b) => {
+                switch (sortBy) {
+                    case 'name':
+                        return a.session_name.localeCompare(b.session_name);
+                    case 'created':
+                        return new Date(b.created_at) - new Date(a.created_at);
+                    case 'recent':
+                    default:
+                        return new Date(b.last_activity) - new Date(a.last_activity);
+                }
+            });
+            
+            filteredSessions.forEach(session => {
                 const sessionItem = document.createElement('div');
                 sessionItem.className = 'session-item';
+                if (selectedSessions.has(session.id)) {
+                    sessionItem.classList.add('selected');
+                }
+                
+                // 计算游戏时长（模拟）
+                const daysSinceCreated = Math.floor((new Date() - new Date(session.created_at)) / (1000 * 60 * 60 * 24));
+                const estimatedPlayTime = Math.max(0.5, daysSinceCreated * 0.3);
+                
+                // 生成标签
+                const tags = [];
+                if (session.inspiration) tags.push('原创世界');
+                if (session.world_style) tags.push(getWorldStyleName(session.world_style));
+                if (session.difficulty) tags.push(getDifficultyName(session.difficulty));
+                
                 sessionItem.innerHTML = `
-                    <h4>${session.session_name}</h4>
+                    ${bulkSelectMode ? `<input type="checkbox" class="bulk-select" ${selectedSessions.has(session.id) ? 'checked' : ''} onchange="toggleSessionSelection('${session.id}')">` : ''}
+                    <div class="session-header-item">
+                        <h4>${session.session_name}</h4>
+                        <span class="session-play-time">${estimatedPlayTime.toFixed(1)}h</span>
+                    </div>
+                    ${session.description ? `<div class="session-description">${session.description}</div>` : ''}
                     <div class="session-info">
                         创建时间: ${new Date(session.created_at).toLocaleString('zh-CN')}<br>
                         最后活动: ${new Date(session.last_activity).toLocaleString('zh-CN')}
                     </div>
+                    ${tags.length > 0 ? `<div class="session-tags">${tags.map(tag => `<span class="session-tag">${tag}</span>`).join('')}</div>` : ''}
                     <div class="session-actions">
                         <button class="btn-load" onclick="loadSession('${session.id}')">加载</button>
                         <button class="btn-rename" onclick="renameSession('${session.id}')">重命名</button>
@@ -575,14 +1079,74 @@
                 `;
                 sessionList.appendChild(sessionItem);
             });
+            
+            if (filteredSessions.length === 0) {
+                sessionList.innerHTML = '<div style="text-align: center; padding: 40px; color: #718096;">没有找到匹配的存档</div>';
+            }
         }
 
         // 创建新会话
         function showCreateSessionDialog() {
-            const sessionName = prompt('请输入新存档的名称:', `冒险 ${new Date().toLocaleString('zh-CN')}`);
-            if (sessionName) {
-                sendMessage('create_session', { sessionName: sessionName });
+            // 设置默认值
+            document.getElementById('sessionNameInput').value = `冒险 ${new Date().toLocaleString('zh-CN')}`;
+            document.getElementById('sessionDescriptionInput').value = '';
+            document.getElementById('useInspirationCheckbox').checked = false;
+            document.getElementById('inspirationInput').value = '';
+            document.getElementById('inspirationGroup').style.display = 'none';
+            document.getElementById('worldStyleSelect').value = 'fantasy';
+            document.getElementById('difficultySelect').value = 'normal';
+            
+            // 显示对话框
+            document.getElementById('createSessionModal').classList.remove('hidden');
+        }
+        
+        function hideCreateSessionDialog() {
+            document.getElementById('createSessionModal').classList.add('hidden');
+        }
+        
+        function toggleInspirationInput() {
+            const checkbox = document.getElementById('useInspirationCheckbox');
+            const inspirationGroup = document.getElementById('inspirationGroup');
+            
+            if (checkbox.checked) {
+                inspirationGroup.style.display = 'block';
+            } else {
+                inspirationGroup.style.display = 'none';
+                document.getElementById('inspirationInput').value = '';
             }
+        }
+        
+        function createNewSession() {
+            const sessionName = document.getElementById('sessionNameInput').value.trim();
+            const sessionDescription = document.getElementById('sessionDescriptionInput').value.trim();
+            const useInspiration = document.getElementById('useInspirationCheckbox').checked;
+            const inspiration = document.getElementById('inspirationInput').value.trim();
+            const worldStyle = document.getElementById('worldStyleSelect').value;
+            const difficulty = document.getElementById('difficultySelect').value;
+            
+            if (!sessionName) {
+                alert('请输入存档名称');
+                return;
+            }
+            
+            if (useInspiration && !inspiration) {
+                alert('请输入你的世界灵感，或取消勾选灵感选项');
+                return;
+            }
+            
+            const payload = { 
+                sessionName,
+                description: sessionDescription,
+                worldStyle,
+                difficulty
+            };
+            
+            if (useInspiration && inspiration) {
+                payload.inspiration = inspiration;
+            }
+            
+            sendMessage('create_session', payload);
+            hideCreateSessionDialog();
         }
 
         // 处理会话创建成功
@@ -749,6 +1313,8 @@
                 currentUser = null;
                 currentSession = null;
                 sessions = [];
+                selectedSessions.clear();
+                bulkSelectMode = false;
                 
                 document.getElementById('sessionPanel').classList.add('hidden');
                 document.getElementById('gamePanel').classList.add('hidden');
@@ -756,15 +1322,188 @@
                 document.getElementById('usernameInput').value = '';
             }
         }
+        
+        // 新增的功能函数
+        
+        // 修改用户名
+        function changeUsername() {
+            const newUsername = prompt('请输入新的用户名：', currentUser.username);
+            if (newUsername && newUsername.trim() !== currentUser.username) {
+                sendMessage('change_username', { newUsername: newUsername.trim() });
+            }
+        }
+        
+        // 搜索和排序功能
+        function filterSessions() {
+            renderSessionList();
+        }
+        
+        function sortSessions() {
+            renderSessionList();
+        }
+        
+        // 批量删除功能
+        function bulkDeleteSessions() {
+            if (!bulkSelectMode) {
+                // 进入批量选择模式
+                bulkSelectMode = true;
+                selectedSessions.clear();
+                renderSessionList();
+                
+                const button = event.target;
+                button.textContent = '确认删除';
+                button.style.background = '#e53e3e';
+            } else {
+                // 执行批量删除
+                if (selectedSessions.size === 0) {
+                    alert('请选择要删除的存档');
+                    return;
+                }
+                
+                if (confirm(`确定要删除选中的 ${selectedSessions.size} 个存档吗？此操作无法撤销。`)) {
+                    for (const sessionId of selectedSessions) {
+                        sendMessage('delete_session', { sessionId });
+                    }
+                    selectedSessions.clear();
+                    bulkSelectMode = false;
+                    
+                    const button = event.target;
+                    button.textContent = '批量删除';
+                    button.style.background = '#e53e3e';
+                    
+                    // 重新获取会话列表
+                    setTimeout(() => sendMessage('get_user_sessions', {}), 500);
+                }
+            }
+        }
+        
+        // 切换会话选择状态
+        function toggleSessionSelection(sessionId) {
+            if (selectedSessions.has(sessionId)) {
+                selectedSessions.delete(sessionId);
+            } else {
+                selectedSessions.add(sessionId);
+            }
+            renderSessionList();
+        }
+        
+        // 导出用户数据
+        function exportUserData() {
+            const userData = {
+                user: currentUser,
+                sessions: sessions,
+                exportDate: new Date().toISOString(),
+                version: '1.0'
+            };
+            
+            const dataStr = JSON.stringify(userData, null, 2);
+            const dataBlob = new Blob([dataStr], { type: 'application/json' });
+            
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(dataBlob);
+            link.download = `game_data_${currentUser.username}_${new Date().toISOString().split('T')[0]}.json`;
+            link.click();
+        }
+        
+        // 导入用户数据
+        function importUserData() {
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = '.json';
+            input.onchange = function(event) {
+                const file = event.target.files[0];
+                if (file) {
+                    const reader = new FileReader();
+                    reader.onload = function(e) {
+                        try {
+                            const userData = JSON.parse(e.target.result);
+                            if (confirm(`确定要导入 ${userData.user.username} 的游戏数据吗？这将会覆盖当前数据。`)) {
+                                sendMessage('import_user_data', userData);
+                            }
+                        } catch (error) {
+                            alert('数据格式错误，请选择正确的导出文件。');
+                        }
+                    };
+                    reader.readAsText(file);
+                }
+            };
+            input.click();
+        }
+        
+        // 获取世界风格名称
+        function getWorldStyleName(style) {
+            const styles = {
+                'fantasy': '奇幻',
+                'medieval': '中世纪',
+                'modern': '现代',
+                'scifi': '科幻',
+                'historical': '历史',
+                'mystery': '悬疑',
+                'adventure': '冒险',
+                'custom': '自定义'
+            };
+            return styles[style] || style;
+        }
+        
+        // 获取难度名称
+        function getDifficultyName(difficulty) {
+            const difficulties = {
+                'easy': '简单',
+                'normal': '普通',
+                'hard': '困难',
+                'expert': '专家'
+            };
+            return difficulties[difficulty] || difficulty;
+        }
 
         // 显示错误消息
         function showError(message) {
             alert('错误: ' + message);
         }
+        
+        // 新增的消息处理函数
+        
+        // 处理用户名修改成功
+        function handleUsernameChanged(payload) {
+            currentUser.username = payload.username;
+            document.getElementById('currentUsername').textContent = `用户：${payload.username}`;
+            alert('用户名修改成功！');
+        }
+        
+        // 处理数据导入成功
+        function handleDataImported(payload) {
+            alert(payload.message);
+        }
+        
+        // 处理数据导出成功
+        function handleDataExported(payload) {
+            // 直接使用服务器返回的数据创建下载
+            const dataStr = JSON.stringify(payload, null, 2);
+            const dataBlob = new Blob([dataStr], { type: 'application/json' });
+            
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(dataBlob);
+            link.download = `game_data_${currentUser.username}_${new Date().toISOString().split('T')[0]}.json`;
+            link.click();
+        }
 
         // 页面加载完成后连接服务器
         window.addEventListener('load', function() {
             connectToServer();
+            
+            // 加载记住的用户名
+            const rememberedUsername = localStorage.getItem('rememberedUsername');
+            if (rememberedUsername) {
+                document.getElementById('usernameInput').value = rememberedUsername;
+                document.getElementById('rememberUsernameCheckbox').checked = true;
+            }
+            
+            // 点击对话框外部关闭对话框
+            document.getElementById('createSessionModal').addEventListener('click', function(e) {
+                if (e.target === this) {
+                    hideCreateSessionDialog();
+                }
+            });
         });
 
         // Enter键发送消息
@@ -773,6 +1512,10 @@
                 sendInput();
             } else if (e.key === 'Enter' && document.activeElement.id === 'usernameInput') {
                 login();
+            } else if (e.key === 'Enter' && document.activeElement.id === 'sessionNameInput') {
+                createNewSession();
+            } else if (e.key === 'Escape' && !document.getElementById('createSessionModal').classList.contains('hidden')) {
+                hideCreateSessionDialog();
             }
         });
     </script>

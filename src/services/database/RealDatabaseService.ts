@@ -1326,21 +1326,54 @@ export class RealDatabaseService implements DatabaseService {
             id VARCHAR(36) PRIMARY KEY,
             user_id VARCHAR(36) REFERENCES users(id) ON DELETE CASCADE,
             session_name VARCHAR(200) DEFAULT '新的游戏存档',
+            session_description TEXT,
             player_id VARCHAR(36),
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             game_state JSONB,
             is_active BOOLEAN DEFAULT true,
-            current_location VARCHAR(100) DEFAULT 'town_square'
+            current_location VARCHAR(100) DEFAULT 'town_square',
+            world_style VARCHAR(50) DEFAULT 'fantasy',
+            difficulty VARCHAR(20) DEFAULT 'normal',
+            inspiration TEXT,
+            play_time_minutes INTEGER DEFAULT 0,
+            total_actions INTEGER DEFAULT 0,
+            session_tags TEXT[]
         );
 
-        -- 创建玩家偏好设置表
-        CREATE TABLE IF NOT EXISTS player_preferences (
-            player_id VARCHAR(36) PRIMARY KEY,
-            preferences JSONB,
+        -- 创建用户登录历史表
+        CREATE TABLE IF NOT EXISTS user_login_history (
+            id VARCHAR(36) PRIMARY KEY,
+            user_id VARCHAR(36) REFERENCES users(id) ON DELETE CASCADE,
+            login_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            ip_address VARCHAR(45),
+            user_agent TEXT,
+            session_duration INTEGER -- 会话持续时间（分钟）
+        );
+        
+        -- 创建用户设置表
+        CREATE TABLE IF NOT EXISTS user_settings (
+            user_id VARCHAR(36) PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+            ui_theme VARCHAR(20) DEFAULT 'default',
+            language VARCHAR(10) DEFAULT 'zh',
+            notification_enabled BOOLEAN DEFAULT true,
+            auto_save_enabled BOOLEAN DEFAULT true,
+            remember_username BOOLEAN DEFAULT false,
+            privacy_settings JSONB,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        
+        -- 创建用户活动统计表
+        CREATE TABLE IF NOT EXISTS user_activity_stats (
+            user_id VARCHAR(36) PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+            total_play_time_minutes INTEGER DEFAULT 0,
+            total_sessions INTEGER DEFAULT 0,
+            total_actions INTEGER DEFAULT 0,
+            favorite_world_style VARCHAR(50),
+            preferred_difficulty VARCHAR(20),
+            last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
 
         -- 创建角色表（依赖game_sessions）
@@ -1440,6 +1473,25 @@ export class RealDatabaseService implements DatabaseService {
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
+        
+        -- 创建玩家偏好设置表
+        CREATE TABLE IF NOT EXISTS player_preferences (
+            player_id VARCHAR(36) PRIMARY KEY,
+            preferences JSONB,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        
+        -- 创建数据备份表（用于数据导出/导入）
+        CREATE TABLE IF NOT EXISTS user_data_backups (
+            id VARCHAR(36) PRIMARY KEY,
+            user_id VARCHAR(36) REFERENCES users(id) ON DELETE CASCADE,
+            backup_name VARCHAR(200),
+            backup_data JSONB,
+            backup_size INTEGER,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            is_auto_backup BOOLEAN DEFAULT false
+        );
       `;
 
       // 执行架构创建SQL
@@ -1448,9 +1500,18 @@ export class RealDatabaseService implements DatabaseService {
       // 创建索引以提高查询性能
       const indexesSql = `
         CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
+        CREATE INDEX IF NOT EXISTS idx_user_login_history_user_id ON user_login_history(user_id);
+        CREATE INDEX IF NOT EXISTS idx_user_login_history_login_time ON user_login_history(login_time DESC);
+        CREATE INDEX IF NOT EXISTS idx_user_settings_user_id ON user_settings(user_id);
+        CREATE INDEX IF NOT EXISTS idx_user_activity_stats_user_id ON user_activity_stats(user_id);
+        CREATE INDEX IF NOT EXISTS idx_user_data_backups_user_id ON user_data_backups(user_id);
+        CREATE INDEX IF NOT EXISTS idx_user_data_backups_created_at ON user_data_backups(created_at DESC);
         CREATE INDEX IF NOT EXISTS idx_game_sessions_user_id ON game_sessions(user_id);
         CREATE INDEX IF NOT EXISTS idx_game_sessions_player_id ON game_sessions(player_id);
         CREATE INDEX IF NOT EXISTS idx_game_sessions_active ON game_sessions(is_active);
+        CREATE INDEX IF NOT EXISTS idx_game_sessions_world_style ON game_sessions(world_style);
+        CREATE INDEX IF NOT EXISTS idx_game_sessions_difficulty ON game_sessions(difficulty);
+        CREATE INDEX IF NOT EXISTS idx_game_sessions_last_activity ON game_sessions(last_activity DESC);
         CREATE INDEX IF NOT EXISTS idx_characters_session_id ON characters(session_id);
         CREATE INDEX IF NOT EXISTS idx_characters_active ON characters(is_active);
         CREATE INDEX IF NOT EXISTS idx_character_memories_character_id ON character_memories(character_id);

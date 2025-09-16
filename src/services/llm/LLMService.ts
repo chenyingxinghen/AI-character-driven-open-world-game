@@ -99,6 +99,17 @@ export interface LLMService {
     }
   ): Promise<string>;
   
+  // 结构化响应生成
+  generateStructuredResponse(
+    prompt: string,
+    schema: any,
+    options?: {
+      maxTokens?: number;
+      temperature?: number;
+      provider?: LLMProvider;
+    }
+  ): Promise<any>;
+  
   // 批量处理
   processBatchRequests(
     requests: LLMRequest[], 
@@ -140,6 +151,10 @@ export class MockLLMService implements LLMService {
 
   async generateText(prompt: string, options?: { maxTokens?: number; temperature?: number; provider?: LLMProvider; }): Promise<string> {
     return `Mock text generation for prompt: ${prompt.substring(0, 50)}...`;
+  }
+
+  async generateStructuredResponse(prompt: string, schema: any, options?: { maxTokens?: number; temperature?: number; provider?: LLMProvider; }): Promise<any> {
+    return { mock: 'structured response' };
   }
 
   async processBatchRequests(requests: LLMRequest[], options?: BatchRequestOptions): Promise<LLMResponse[]> {

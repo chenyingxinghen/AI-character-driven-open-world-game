@@ -158,6 +158,18 @@ async function handleMessage(ws: WebSocket, message: WebSocketMessage): Promise<
         await handleDeleteSession(ws, message.payload);
         break;
         
+      case 'change_username':
+        await handleChangeUsername(ws, message.payload);
+        break;
+        
+      case 'import_user_data':
+        await handleImportUserData(ws, message.payload);
+        break;
+        
+      case 'export_user_data':
+        await handleExportUserData(ws, message.payload);
+        break;
+        
       case 'player_input':
         await handlePlayerInput(ws, message.payload);
         break;
@@ -789,6 +801,107 @@ function sendMessage(ws: WebSocket, type: string, payload: any): void {
       payload,
       timestamp: new Date()
     }));
+  }
+}
+
+// 新增的处理函数
+
+// 处理修改用户名
+async function handleChangeUsername(ws: WebSocket, payload: any): Promise<void> {
+  const { newUsername } = payload;
+  const client = clients.get(ws);
+  
+  if (!client || !client.userId) {
+    sendMessage(ws, 'error', { message: '用户未登录' });
+    return;
+  }
+  
+  try {
+    // 检查用户名是否已存在
+    const existingUser = await databaseService.getUserByUsername(newUsername);
+    if (existingUser && existingUser.id !== client.userId) {
+      sendMessage(ws, 'error', { message: '用户名已存在' });
+      return;
+    }
+    
+    // 更新用户名
+    await databaseService.query(
+      'UPDATE users SET username = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+      [newUsername, client.userId]
+    );
+    
+    client.username = newUsername;
+    sendMessage(ws, 'username_changed', { username: newUsername });
+    
+  } catch (error) {
+    logger.error('Failed to change username:', error as Error);
+    sendMessage(ws, 'error', { message: '修改用户名失败' });
+  }
+}
+
+// 处理数据导入
+async function handleImportUserData(ws: WebSocket, payload: any): Promise<void> {
+  const client = clients.get(ws);
+  
+  if (!client || !client.userId) {
+    sendMessage(ws, 'error', { message: '用户未登录' });
+    return;
+  }
+  
+  try {
+    const { user, sessions: importSessions, version } = payload;
+    
+    // 简单的版本检查
+    if (!version || version !== '1.0') {
+      sendMessage(ws, 'error', { message: '不支持的数据版本' });
+      return;
+    }
+    
+    // 导入新数据（简化实现）
+    for (const sessionData of importSessions) {
+      const newSessionId = uuidv4();
+      await databaseService.query(
+        'INSERT INTO game_sessions (id, user_id, session_name, session_description, world_style, difficulty, inspiration, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)',
+        [newSessionId, client.userId, sessionData.session_name + '_导入', sessionData.session_description, sessionData.world_style, sessionData.difficulty, sessionData.inspiration, new Date()]
+      );
+    }
+    
+    sendMessage(ws, 'data_imported', { message: '数据导入成功' });
+    
+    // 重新发送会话列表
+    await handleGetUserSessions(ws, {});
+    
+  } catch (error) {
+    logger.error('Failed to import user data:', error as Error);
+    sendMessage(ws, 'error', { message: '数据导入失败' });
+  }
+}
+
+// 处理数据导出
+async function handleExportUserData(ws: WebSocket, payload: any): Promise<void> {
+  const client = clients.get(ws);
+  
+  if (!client || !client.userId) {
+    sendMessage(ws, 'error', { message: '用户未登录' });
+    return;
+  }
+  
+  try {
+    const user = await databaseService.query('SELECT * FROM users WHERE id = $1', [client.userId]);
+    const sessions = await databaseService.query('SELECT * FROM game_sessions WHERE user_id = $1', [client.userId]);
+    
+    const exportData = {
+      user: user[0],
+      sessions,
+      exportDate: new Date().toISOString(),
+      version: '1.0'
+    };
+    
+    sendMessage(ws, 'data_exported', exportData);
+    
+  } catch (error) {
+    logger.error('Failed to export user data:', error as Error);
+    sendMessage(ws, 'error', { message: '数据导出失败' });
   }
 }
 

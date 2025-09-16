@@ -196,6 +196,39 @@ export class RealLLMService implements LLMService {
     }
   }
 
+  // 生成结构化响应
+  async generateStructuredResponse(
+    prompt: string,
+    schema: any,
+    options?: {
+      maxTokens?: number;
+      temperature?: number;
+      provider?: LLMProvider;
+    }
+  ): Promise<any> {
+    try {
+      // 对于结构化响应，我们需要在提示中包含schema信息
+      const structuredPrompt = `${prompt}\n\nPlease respond in JSON format according to this schema: ${JSON.stringify(schema)}`;
+      
+      const response = await this.generateText(structuredPrompt, {
+        maxTokens: options?.maxTokens || 500,
+        temperature: options?.temperature || 0.3, // 结构化响应使用较低温度
+        provider: options?.provider
+      });
+      
+      // 尝试解析JSON响应
+      try {
+        return JSON.parse(response);
+      } catch (parseError) {
+        console.warn('Failed to parse structured response as JSON, returning raw text');
+        return { content: response };
+      }
+    } catch (error) {
+      console.error('Failed to generate structured response:', error);
+      throw error;
+    }
+  }
+
   async processBatchRequests(
     requests: LLMRequest[], 
     options?: BatchRequestOptions

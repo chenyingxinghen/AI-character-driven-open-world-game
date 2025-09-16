@@ -111,6 +111,102 @@ CREATE TABLE IF NOT EXISTS story_events (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- 游戏模式相关表
+-- 游戏会话模式表
+CREATE TABLE IF NOT EXISTS game_mode_sessions (
+    id VARCHAR(36) PRIMARY KEY,
+    session_id VARCHAR(36) REFERENCES game_sessions(id) ON DELETE CASCADE,
+    mode_type VARCHAR(20) CHECK (mode_type IN ('free', 'script')) NOT NULL,
+    config JSONB NOT NULL,
+    state JSONB NOT NULL,
+    player_id VARCHAR(36) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 故事大纲表
+CREATE TABLE IF NOT EXISTS story_outlines (
+    id VARCHAR(36) PRIMARY KEY,
+    title VARCHAR(200) NOT NULL,
+    genre VARCHAR(50) NOT NULL,
+    summary TEXT,
+    acts JSONB NOT NULL, -- 存储章节信息
+    characters JSONB, -- 存储角色信息
+    locations JSONB, -- 存储地点信息
+    themes TEXT[],
+    estimated_duration INTEGER, -- 预估时长（分钟）
+    tags TEXT[],
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 故事进展表
+CREATE TABLE IF NOT EXISTS story_progress (
+    id VARCHAR(36) PRIMARY KEY,
+    session_id VARCHAR(36) REFERENCES game_mode_sessions(id) ON DELETE CASCADE,
+    story_outline_id VARCHAR(36) REFERENCES story_outlines(id),
+    current_act INTEGER DEFAULT 1,
+    completed_plot_points TEXT[], -- 已完成的剧情点ID列表
+    completion_percentage NUMERIC(5,2) DEFAULT 0,
+    story_variables JSONB, -- 故事变量
+    started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 偏离记录表
+CREATE TABLE IF NOT EXISTS deviation_records (
+    id VARCHAR(36) PRIMARY KEY,
+    session_id VARCHAR(36) REFERENCES game_mode_sessions(id) ON DELETE CASCADE,
+    player_action TEXT NOT NULL,
+    expected_action TEXT NOT NULL,
+    deviation_score NUMERIC(5,2) NOT NULL,
+    current_plot_point VARCHAR(36),
+    impact VARCHAR(20) CHECK (impact IN ('minor', 'moderate', 'major', 'critical')),
+    description TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 干预记录表
+CREATE TABLE IF NOT EXISTS intervention_records (
+    id VARCHAR(36) PRIMARY KEY,
+    session_id VARCHAR(36) REFERENCES game_mode_sessions(id) ON DELETE CASCADE,
+    intervention_type VARCHAR(50) NOT NULL,
+    intensity VARCHAR(20) CHECK (intensity IN ('none', 'subtle', 'moderate', 'strong', 'forced')),
+    trigger_reason TEXT,
+    outcome VARCHAR(30) CHECK (outcome IN ('successful', 'partially_successful', 'failed')),
+    effectiveness NUMERIC(5,2),
+    player_reaction TEXT,
+    notes TEXT,
+    applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 导演控制器表
+CREATE TABLE IF NOT EXISTS director_controllers (
+    id VARCHAR(36) PRIMARY KEY,
+    session_id VARCHAR(36) REFERENCES game_mode_sessions(id) ON DELETE CASCADE,
+    intervention_level INTEGER CHECK (intervention_level >= 0 AND intervention_level <= 100),
+    deviation_tolerance INTEGER CHECK (deviation_tolerance >= 0 AND deviation_tolerance <= 100),
+    total_interventions INTEGER DEFAULT 0,
+    successful_interventions INTEGER DEFAULT 0,
+    is_active BOOLEAN DEFAULT true,
+    cooldown_data JSONB, -- 存储各类型干预的冷却时间
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 动态内容缓存表（用于自由模式）
+CREATE TABLE IF NOT EXISTS dynamic_content_cache (
+    id VARCHAR(36) PRIMARY KEY,
+    session_id VARCHAR(36) REFERENCES game_mode_sessions(id) ON DELETE CASCADE,
+    content_type VARCHAR(50) NOT NULL, -- 'character', 'location', 'event', 'item'
+    cache_key VARCHAR(200) NOT NULL,
+    content_data JSONB NOT NULL,
+    usage_count INTEGER DEFAULT 0,
+    last_used TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(session_id, cache_key)
+);
+
 -- Create indexes for better query performance
 -- Ensure all tables are created before creating indexes
 CREATE INDEX IF NOT EXISTS idx_characters_session_id ON characters(session_id);
@@ -128,3 +224,17 @@ CREATE INDEX IF NOT EXISTS idx_locations_type ON locations(location_type);
 CREATE INDEX IF NOT EXISTS idx_locations_region ON locations(region_id);
 CREATE INDEX IF NOT EXISTS idx_world_lore_session_id ON world_lore(session_id);
 CREATE INDEX IF NOT EXISTS idx_world_lore_type ON world_lore(lore_type);
+
+-- 游戏模式相关索引
+CREATE INDEX IF NOT EXISTS idx_game_mode_sessions_session_id ON game_mode_sessions(session_id);
+CREATE INDEX IF NOT EXISTS idx_game_mode_sessions_mode_type ON game_mode_sessions(mode_type);
+CREATE INDEX IF NOT EXISTS idx_story_outlines_genre ON story_outlines(genre);
+CREATE INDEX IF NOT EXISTS idx_story_progress_session_id ON story_progress(session_id);
+CREATE INDEX IF NOT EXISTS idx_story_progress_story_outline_id ON story_progress(story_outline_id);
+CREATE INDEX IF NOT EXISTS idx_deviation_records_session_id ON deviation_records(session_id);
+CREATE INDEX IF NOT EXISTS idx_deviation_records_created_at ON deviation_records(created_at);
+CREATE INDEX IF NOT EXISTS idx_intervention_records_session_id ON intervention_records(session_id);
+CREATE INDEX IF NOT EXISTS idx_intervention_records_applied_at ON intervention_records(applied_at);
+CREATE INDEX IF NOT EXISTS idx_director_controllers_session_id ON director_controllers(session_id);
+CREATE INDEX IF NOT EXISTS idx_dynamic_content_cache_session_id ON dynamic_content_cache(session_id);
+CREATE INDEX IF NOT EXISTS idx_dynamic_content_cache_content_type ON dynamic_content_cache(content_type);

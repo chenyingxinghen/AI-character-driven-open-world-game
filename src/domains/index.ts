@@ -15,5 +15,8 @@ export * from './input';
 // 运维域 - 处理监控、分析、性能相关逻辑
 export * from './operations';
 
+// 游戏模式域 - 处理游戏模式、故事进展、导演系统相关逻辑
+export * from './gameMode';
+
 // 领域协调器 - 管理各域之间的交互
 export { DomainCoordinator, GameContext, DomainCoordinationResult } from './DomainCoordinator';

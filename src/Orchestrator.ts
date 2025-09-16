@@ -1,7 +1,10 @@
 import { GameSessionEngine } from './engine/GameSessionEngine';
 import { DomainCoordinator, GameContext, DomainCoordinationResult } from './domains/DomainCoordinator';
+import { GameModeManager } from './domains/gameMode/aggregates';
+import { GameModeType, ModeConfig, FreeModeConfig, ScriptModeConfig } from './domains/gameMode/valueObjects';
 import { DefaultServiceFactory, SERVICE_IDENTIFIERS } from './services/factory';
 import { Logger } from './services/Logger';
+import { LLMService } from './services/llm/LLMService';
 import { container } from './services/DependencyInjectionContainer';
 import { DatabaseService } from './services/database/DatabaseService';
 import { WorldLoreService } from './services/world/WorldLoreService';
@@ -29,6 +32,7 @@ export interface OrchestratorResult {
 export class Orchestrator {
   private sessionEngine: GameSessionEngine;
   private domainCoordinator: DomainCoordinator;
+  private gameModeManager: GameModeManager;
   private logger: Logger;
   private databaseService: DatabaseService;
   private worldLoreService: WorldLoreService;
@@ -46,7 +50,11 @@ export class Orchestrator {
     this.sessionEngine = new GameSessionEngine();
     this.domainCoordinator = container.resolve<DomainCoordinator>(SERVICE_IDENTIFIERS.DOMAIN_COORDINATOR);
     
-    this.logger.info('Orchestrator initialized with domain architecture');
+    // Initialize game mode manager
+    const llmService = container.resolve<LLMService>(SERVICE_IDENTIFIERS.LLM_SERVICE);
+    this.gameModeManager = new GameModeManager(llmService, this.logger, this.databaseService);
+    
+    this.logger.info('Orchestrator initialized with domain architecture and game mode system');
   }
 
   /**
