@@ -80,6 +80,9 @@ export class RealDatabaseService implements DatabaseService {
       console.log('Database connections initialized successfully');
 
     } catch (error) {
+      // 重置初始化状态标志，确保在出现错误时能够正确处理
+      this.isInitialized = false;
+      this.schemaInitialized = false;
       console.error('Failed to initialize database connections:', error);
       throw error;
     }
@@ -485,43 +488,7 @@ export class RealDatabaseService implements DatabaseService {
     }
   }
 
-  async updateSession(sessionId: string, updates: any): Promise<void> {
-    if (!this.isInitialized || !this.postgresPool) {
-      throw new Error('Database not initialized');
-    }
 
-    // 构建动态更新语句
-    const updateFields = [];
-    const params = [];
-    let paramIndex = 1;
-    
-    for (const [key, value] of Object.entries(updates)) {
-      if (key !== 'id' && key !== 'created_at') {
-        updateFields.push(`${key} = $${paramIndex}`);
-        params.push(value);
-        paramIndex++;
-      }
-    }
-    
-    if (updateFields.length === 0) {
-      return; // 没有需要更新的字段
-    }
-    
-    params.push(sessionId); // 添加WHERE条件参数
-    
-    const sql = `
-      UPDATE game_sessions 
-      SET ${updateFields.join(', ')}, updated_at = NOW()
-      WHERE id = $${paramIndex}
-    `;
-    
-    const client = await this.postgresPool.connect();
-    try {
-      await client.query(sql, params);
-    } finally {
-      client.release();
-    }
-  }
 
   // 新增：创建会话
   async createSession(sessionId: string, playerId?: string, gameState?: any): Promise<void> {
@@ -876,31 +843,7 @@ export class RealDatabaseService implements DatabaseService {
     }
   }
   
-  // Session management methods
-  async deleteSession(sessionId: string): Promise<void> {
-    if (!this.isInitialized || !this.postgresPool) {
-      throw new Error('Database not initialized');
-    }
 
-    const queries = [
-      { sql: 'DELETE FROM conversations WHERE session_id = $1', params: [sessionId] },
-      { sql: 'DELETE FROM character_memories WHERE session_id = $1', params: [sessionId] },
-      { sql: 'DELETE FROM character_relationships WHERE session_id = $1', params: [sessionId] },
-      { sql: 'DELETE FROM story_events WHERE session_id = $1', params: [sessionId] },
-      { sql: 'DELETE FROM characters WHERE session_id = $1', params: [sessionId] },
-      { sql: 'DELETE FROM game_sessions WHERE id = $1', params: [sessionId] }
-    ];
-
-    await this.executeTransaction(queries);
-
-    // Clear related cache
-    if (this.redisEnabled) {
-      const keys = await this.cacheKeys(`*${sessionId}*`);
-      for (const key of keys) {
-        await this.cacheDel(key);
-      }
-    }
-  }
   
   async getPlayerSessions(playerId: string): Promise<any[]> {
     if (!this.isInitialized || !this.postgresPool) {
@@ -1540,7 +1483,9 @@ export class RealDatabaseService implements DatabaseService {
 
     } catch (error) {
       console.error('数据库架构初始化失败:', error);
-      // 不抛出错误，让系统继续运行
+      // 不抛出错误，让系统继续运行，但标记schema未初始化
+      this.schemaInitialized = false;
+      throw error;
     } finally {
       client.release();
     }
@@ -1743,14 +1688,85 @@ export class RealDatabaseService implements DatabaseService {
       client.release();
     }
   }
+  
+  async getSessionById(sessionId: string): Promise<any | null> {
+    if (!this.isInitialized || !this.postgresPool) {
+      throw new Error('Database not initialized');
+    }
 
+    const sql = `
+      SELECT id, session_name, created_at, updated_at, last_activity, is_active, current_location
+      FROM game_sessions 
+      WHERE id = $1
+      LIMIT 1
+    `;
+    
+    const client = await this.postgresPool.connect();
+    try {
+      const result = await client.query(sql, [sessionId]);
+      return result.rows.length > 0 ? result.rows[0] : null;
+    } finally {
+      client.release();
+    }
+  }
+
+  // Session management methods (updated)
+  async updateSession(sessionId: string, updates: any): Promise<void> {
+    if (!this.isInitialized || !this.postgresPool) {
+      throw new Error('Database not initialized');
+    }
+
+    const sql = `
+      UPDATE game_sessions
+      SET 
+        session_name = COALESCE($2, session_name),
+        game_state = COALESCE($3, game_state),
+        is_active = COALESCE($4, is_active),
+        current_location = COALESCE($5, current_location),
+        updated_at = NOW()
+      WHERE id = $1
+    `;
+    
+    const client = await this.postgresPool.connect();
+    try {
+      await client.query(sql, [
+        sessionId,
+        updates.session_name,
+        updates.game_state,
+        updates.is_active,
+        updates.current_location
+      ]);
+    } finally {
+      client.release();
+    }
+  }
+
+  async deleteSession(sessionId: string): Promise<void> {
+    if (!this.isInitialized || !this.postgresPool) {
+      throw new Error('Database not initialized');
+    }
+
+    const sql = `
+      DELETE FROM game_sessions
+      WHERE id = $1
+    `;
+    
+    const client = await this.postgresPool.connect();
+    try {
+      await client.query(sql, [sessionId]);
+    } finally {
+      client.release();
+    }
+  }
+
+  // 新增：更新会话活动时间
   async updateSessionActivity(sessionId: string): Promise<void> {
     if (!this.isInitialized || !this.postgresPool) {
       throw new Error('Database not initialized');
     }
 
     const sql = `
-      UPDATE game_sessions 
+      UPDATE game_sessions
       SET last_activity = NOW(), updated_at = NOW()
       WHERE id = $1
     `;
@@ -1763,13 +1779,14 @@ export class RealDatabaseService implements DatabaseService {
     }
   }
 
+  // 新增：重命名会话
   async renameSession(sessionId: string, newName: string): Promise<void> {
     if (!this.isInitialized || !this.postgresPool) {
       throw new Error('Database not initialized');
     }
 
     const sql = `
-      UPDATE game_sessions 
+      UPDATE game_sessions
       SET session_name = $2, updated_at = NOW()
       WHERE id = $1
     `;
@@ -1782,267 +1799,77 @@ export class RealDatabaseService implements DatabaseService {
     }
   }
 
-  // Location management methods
-  async createLocation(location: any): Promise<any> {
-    if (!this.isInitialized || !this.postgresPool) {
-      throw new Error('Database not initialized');
-    }
-
-    const sql = `
-      INSERT INTO locations (
-        id, name, description, location_type, region_id, 
-        position_x, position_y, location_data, created_at, updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())
-      ON CONFLICT (id) DO UPDATE SET
-        name = EXCLUDED.name,
-        description = EXCLUDED.description,
-        location_type = EXCLUDED.location_type,
-        region_id = EXCLUDED.region_id,
-        position_x = EXCLUDED.position_x,
-        position_y = EXCLUDED.position_y,
-        location_data = EXCLUDED.location_data,
-        updated_at = NOW()
-      RETURNING *
-    `;
-    
-    const params = [
-      location.id,
-      location.name,
-      location.description,
-      location.location_type,
-      location.region_id,
-      location.position_x,
-      location.position_y,
-      location.location_data
-    ];
-    
-    const client = await this.postgresPool.connect();
-    try {
-      const result = await client.query(sql, params);
-      const createdLocation = result.rows[0];
-      
-      // Clear related cache
-      if (this.redisEnabled) {
-        await this.cacheDel(`location:${location.id}`);
-        await this.cacheDel('locations:all');
-      }
-      
-      return createdLocation;
-    } finally {
-      client.release();
-    }
-  }
-
-  async getLocation(locationId: string): Promise<any | null> {
-    if (!this.isInitialized || !this.postgresPool) {
-      throw new Error('Database not initialized');
-    }
-
-    const cacheKey = `location:${locationId}`;
-    
-    // Try cache first
-    if (this.redisEnabled) {
-      const cached = await this.cacheGet(cacheKey);
-      if (cached) {
-        return JSON.parse(cached);
-      }
-    }
-
-    const sql = `
-      SELECT * FROM locations
-      WHERE id = $1
-    `;
-    
-    const client = await this.postgresPool.connect();
-    try {
-      const result = await client.query(sql, [locationId]);
-      const location = result.rows.length > 0 ? result.rows[0] : null;
-      
-      // Cache result for 30 minutes
-      if (location && this.redisEnabled) {
-        await this.cacheSet(cacheKey, JSON.stringify(location), 1800);
-      }
-      
-      return location;
-    } finally {
-      client.release();
-    }
-  }
-
-  async getAllLocations(): Promise<any[]> {
-    if (!this.isInitialized || !this.postgresPool) {
-      throw new Error('Database not initialized');
-    }
-
-    const cacheKey = 'locations:all';
-    
-    // Try cache first
-    if (this.redisEnabled) {
-      const cached = await this.cacheGet(cacheKey);
-      if (cached) {
-        return JSON.parse(cached);
-      }
-    }
-
-    const sql = `
-      SELECT * FROM locations
-      ORDER BY name
-    `;
-    
-    const client = await this.postgresPool.connect();
-    try {
-      const result = await client.query(sql);
-      const locations = result.rows;
-      
-      // Cache result for 15 minutes
-      if (this.redisEnabled) {
-        await this.cacheSet(cacheKey, JSON.stringify(locations), 900);
-      }
-      
-      return locations;
-    } finally {
-      client.release();
-    }
-  }
-
-  async updateLocation(locationId: string, updates: any): Promise<void> {
-    if (!this.isInitialized || !this.postgresPool) {
-      throw new Error('Database not initialized');
-    }
-
-    const setParts = [];
-    const params = [];
-    let paramIndex = 1;
-
-    for (const [key, value] of Object.entries(updates)) {
-      setParts.push(`${key} = $${paramIndex}`);
-      params.push(value);
-      paramIndex++;
-    }
-
-    if (setParts.length === 0) {
-      return;
-    }
-
-    setParts.push(`updated_at = NOW()`);
-    params.push(locationId);
-
-    const sql = `
-      UPDATE locations 
-      SET ${setParts.join(', ')}
-      WHERE id = $${paramIndex}
-    `;
-    
-    const client = await this.postgresPool.connect();
-    try {
-      await client.query(sql, params);
-      
-      // Clear related cache
-      if (this.redisEnabled) {
-        await this.cacheDel(`location:${locationId}`);
-        await this.cacheDel('locations:all');
-      }
-    } finally {
-      client.release();
-    }
-  }
-  
-  // World Lore management methods
+  // 新增：创建世界背景故事
   async createWorldLore(lore: any): Promise<any> {
     if (!this.isInitialized || !this.postgresPool) {
       throw new Error('Database not initialized');
     }
 
+    const loreId = uuidv4();
     const sql = `
       INSERT INTO world_lore (
-        id, session_id, lore_type, title, content, inspiration, 
-        generation_seed, metadata, created_at, updated_at
+        id, session_id, lore_type, title, content, 
+        inspiration, generation_seed, metadata, created_at, updated_at
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())
       RETURNING *
     `;
     
     const params = [
-      lore.id,
+      loreId,
       lore.session_id,
       lore.lore_type,
       lore.title,
       lore.content,
-      lore.inspiration,
-      lore.generation_seed,
-      lore.metadata
+      lore.inspiration || null,
+      lore.generation_seed || null,
+      lore.metadata ? JSON.stringify(lore.metadata) : null
     ];
     
     const client = await this.postgresPool.connect();
     try {
       const result = await client.query(sql, params);
-      const createdLore = result.rows[0];
-      
-      // Clear related cache
-      if (this.redisEnabled) {
-        await this.cacheDel(`world_lore:${lore.session_id}`);
-        await this.cacheDel(`world_lore:${lore.session_id}:${lore.lore_type}`);
-      }
-      
-      return createdLore;
+      return result.rows[0];
     } finally {
       client.release();
     }
   }
 
+  // 新增：根据会话获取世界背景故事
   async getWorldLoreBySession(sessionId: string, loreType?: string): Promise<any[]> {
     if (!this.isInitialized || !this.postgresPool) {
       throw new Error('Database not initialized');
     }
 
-    const cacheKey = loreType 
-      ? `world_lore:${sessionId}:${loreType}`
-      : `world_lore:${sessionId}`;
-    
-    // Try cache first
-    if (this.redisEnabled) {
-      const cached = await this.cacheGet(cacheKey);
-      if (cached) {
-        return JSON.parse(cached);
-      }
-    }
-
     let sql = `
-      SELECT * FROM world_lore
+      SELECT * FROM world_lore 
       WHERE session_id = $1
     `;
-    
     const params = [sessionId];
     
     if (loreType) {
-      sql += ' AND lore_type = $2';
+      sql += ` AND lore_type = $2`;
       params.push(loreType);
     }
     
-    sql += ' ORDER BY created_at';
+    sql += ` ORDER BY created_at DESC`;
     
     const client = await this.postgresPool.connect();
     try {
       const result = await client.query(sql, params);
-      const lore = result.rows;
-      
-      // Cache result for 30 minutes
-      if (this.redisEnabled) {
-        await this.cacheSet(cacheKey, JSON.stringify(lore), 1800);
-      }
-      
-      return lore;
+      return result.rows;
     } finally {
       client.release();
     }
   }
 
+  // 新增：检查会话是否有世界背景故事
   async hasWorldLore(sessionId: string): Promise<boolean> {
     if (!this.isInitialized || !this.postgresPool) {
       throw new Error('Database not initialized');
     }
 
     const sql = `
-      SELECT COUNT(*) as count FROM world_lore
+      SELECT COUNT(*) as count FROM world_lore 
       WHERE session_id = $1
     `;
     
@@ -2055,49 +1882,39 @@ export class RealDatabaseService implements DatabaseService {
     }
   }
 
+  // 新增：更新世界背景故事
   async updateWorldLore(loreId: string, updates: any): Promise<void> {
     if (!this.isInitialized || !this.postgresPool) {
       throw new Error('Database not initialized');
     }
 
-    const setParts = [];
+    const updateFields = [];
     const params = [];
     let paramIndex = 1;
-
+    
     for (const [key, value] of Object.entries(updates)) {
-      setParts.push(`${key} = $${paramIndex}`);
-      params.push(value);
-      paramIndex++;
+      if (key !== 'id' && key !== 'created_at') {
+        updateFields.push(`${key} = $${paramIndex}`);
+        params.push(value);
+        paramIndex++;
+      }
     }
-
-    if (setParts.length === 0) {
+    
+    if (updateFields.length === 0) {
       return;
     }
-
-    setParts.push(`updated_at = NOW()`);
+    
     params.push(loreId);
-
+    
     const sql = `
       UPDATE world_lore 
-      SET ${setParts.join(', ')}
+      SET ${updateFields.join(', ')}, updated_at = NOW()
       WHERE id = $${paramIndex}
     `;
     
     const client = await this.postgresPool.connect();
     try {
       await client.query(sql, params);
-      
-      // Clear related cache - we need to get session_id first
-      const sessionResult = await client.query('SELECT session_id FROM world_lore WHERE id = $1', [loreId]);
-      if (sessionResult.rows.length > 0 && this.redisEnabled) {
-        const sessionId = sessionResult.rows[0].session_id;
-        await this.cacheDel(`world_lore:${sessionId}`);
-        // Clear all lore type caches for this session
-        const loreTypes = ['main_story', 'history', 'legend', 'culture', 'geography'];
-        for (const type of loreTypes) {
-          await this.cacheDel(`world_lore:${sessionId}:${type}`);
-        }
-      }
     } finally {
       client.release();
     }

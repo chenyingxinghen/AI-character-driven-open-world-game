@@ -1,59 +1,41 @@
-declare module 'lru-cache' {
-  export interface LRUCacheOptions<K = any, V = any> {
-    max?: number;
-    ttl?: number;
-    maxSize?: number;
-    sizeCalculation?: (value: V, key: K) => number;
-    dispose?: (value: V, key: K) => void;
-    disposeAfter?: (value: V, key: K) => void;
-    noDisposeOnSet?: boolean;
-    noUpdateTTL?: boolean;
-    noDeleteOnStaleGet?: boolean;
-    allowStaleOnFetchAbort?: boolean;
-    allowStaleOnFetchRejection?: boolean;
-    ignoreFetchAbort?: boolean;
-    fetchMethod?: (key: K, staleValue: V | undefined, options: any) => Promise<V>;
-    allowStale?: boolean;
-    updateAgeOnGet?: boolean;
-    updateAgeOnHas?: boolean;
-  }
-
-  export class LRUCache<K = any, V = any> {
-    constructor(options: LRUCacheOptions<K, V>);
-    
-    set(key: K, value: V, options?: { ttl?: number; size?: number; sizeCalculation?: (value: V, key: K) => number; noDisposeOnSet?: boolean; }): this;
-    get(key: K, options?: { allowStale?: boolean; updateAgeOnGet?: boolean; noDeleteOnStaleGet?: boolean; }): V | undefined;
-    has(key: K, options?: { allowStale?: boolean; updateAgeOnHas?: boolean; }): boolean;
-    delete(key: K): boolean;
-    clear(): void;
-    
-    readonly size: number;
-    readonly max: number;
-    readonly maxSize: number;
-    readonly calculatedSize: number;
-    readonly ttl: number;
-    
-    keys(): Generator<K, void, unknown>;
-    values(): Generator<V, void, unknown>;
-    entries(): Generator<[K, V], void, unknown>;
-    
-    find(fn: (value: V, key: K, cache: this) => boolean, options?: { allowStale?: boolean; }): V | undefined;
-    forEach(fn: (value: V, key: K, cache: this) => void, thisArg?: any): void;
-    
-    getRemainingTTL(key: K): number;
-    
-    purgeStale(): boolean;
-    
-    info(key: K): {
-      value: V;
-      ttl: number;
-      size: number;
-      start: number;
-    } | undefined;
-    
-    dump(): Array<[K, { value: V; ttl: number; size: number; start: number; }]>;
-    load(arr: Array<[K, { value: V; ttl: number; size: number; start: number; }]>): void;
-    
-    peek(key: K, options?: { allowStale?: boolean; }): V | undefined;
-  }
+// 为 lru-cache v5.1.1 创建正确的类型声明
+interface LRUCacheOptions<K = any, V = any> {
+  max?: number;
+  maxAge?: number;
+  length?: (value: V, key: K) => number;
+  dispose?: (key: K, value: V) => void;
+  stale?: boolean;
+  noDisposeOnSet?: boolean;
+  updateAgeOnGet?: boolean;
 }
+
+interface LRUCache<K = any, V = any> {
+  set(key: K, value: V, maxAge?: number): boolean;
+  get(key: K): V | undefined;
+  peek(key: K): V | undefined;
+  has(key: K): boolean;
+  del(key: K): void;
+  reset(): void;
+  prune(): void;
+  
+  // 迭代方法
+  forEach(fn: (value: V, key: K, cache: LRUCache<K, V>) => void, thisArg?: any): void;
+  rforEach(fn: (value: V, key: K, cache: LRUCache<K, V>) => void, thisArg?: any): void;
+  keys(): K[];
+  values(): V[];
+  dump(): Array<{ k: K; v: V; e: number }>;
+  load(arr: Array<{ k: K; v: V; e: number }>): void;
+  
+  readonly max: number;
+  readonly length: number;
+  readonly itemCount: number;
+  readonly lengthCalculator: (value: V, key: K) => number;
+}
+
+// 默认导出构造函数
+declare const LRUCacheConstructor: {
+  new <K = any, V = any>(options: LRUCacheOptions<K, V>): LRUCache<K, V>;
+  <K = any, V = any>(options: LRUCacheOptions<K, V>): LRUCache<K, V>;
+};
+
+export = LRUCacheConstructor;

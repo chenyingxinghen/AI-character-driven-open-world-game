@@ -96,11 +96,11 @@ export class IntelligentCacheManager {
     }
 
     try {
+      // 修复Redis选项，移除不存在的属性
       this.redisClient = new Redis({
         host: this.redisConfig.host,
         port: this.redisConfig.port,
         password: this.redisConfig.password,
-        retryDelayOnFailover: 100,
         enableReadyCheck: false,
         lazyConnect: true
       });
@@ -318,8 +318,9 @@ export class IntelligentCacheManager {
     let memoryFreed = 0;
     const now = Date.now();
 
-    // 清理内存缓存
-    for (const [key, item] of this.memoryCache.entries()) {
+    // 清理内存缓存，将 Map.entries() 转换为数组以避免 TypeScript 编译错误
+    const entries = Array.from(this.memoryCache.entries());
+    for (const [key, item] of entries) {
       if (now - item.timestamp > item.ttl) {
         memoryFreed += item.size;
         this.memoryCache.delete(key);
@@ -430,7 +431,9 @@ export class IntelligentCacheManager {
    * 内存项驱逐
    */
   private evictMemoryItems(requiredSpace: number): void {
-    const items = Array.from(this.memoryCache.entries())
+    // 将 Map.entries() 转换为数组以避免 TypeScript 编译错误
+    const entries = Array.from(this.memoryCache.entries());
+    const items = entries
       .map(([key, item]) => ({ key, ...item }))
       .sort((a, b) => {
         // 基于优先级、访问频率和时间的综合评分
@@ -605,8 +608,9 @@ export class IntelligentCacheManager {
     // 简化的预测实现
     const predictions: Array<{ key: string; confidence: number; config: CacheItemConfig }> = [];
 
-    // 基于访问模式生成预测
-    for (const [key, pattern] of this.accessPatterns.entries()) {
+    // 基于访问模式生成预测，将 Map.entries() 转换为数组以避免 TypeScript 编译错误
+    const entries = Array.from(this.accessPatterns.entries());
+    for (const [key, pattern] of entries) {
       if (key.includes(sessionId)) {
         const hour = new Date().getHours();
         const avgAccess = pattern.hourlyAccess.reduce((sum, count) => sum + count, 0) / 24;
@@ -723,7 +727,9 @@ export class IntelligentCacheManager {
     const hotDataThreshold = 10;
     let promotedCount = 0;
 
-    for (const [key, hotData] of this.hotDataRegistry.entries()) {
+    // 将 Map.entries() 转换为数组以避免 TypeScript 编译错误
+    const entries = Array.from(this.hotDataRegistry.entries());
+    for (const [key, hotData] of entries) {
       if (hotData.accessCount >= hotDataThreshold && 
           now - hotData.promoteTimestamp > 60000) { // 1分钟内不重复提升
         

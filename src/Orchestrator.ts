@@ -37,13 +37,8 @@ export class Orchestrator {
   private databaseService: DatabaseService;
   private worldLoreService: WorldLoreService;
   private sessions: Map<string, GameSession> = new Map();
-  private serviceFactory: DefaultServiceFactory;
 
   constructor() {
-    // Initialize the service factory and register all services
-    this.serviceFactory = new DefaultServiceFactory();
-    this.serviceFactory.registerAllServices();
-    
     this.logger = container.resolve<Logger>(SERVICE_IDENTIFIERS.LOGGER);
     this.databaseService = container.resolve<DatabaseService>(SERVICE_IDENTIFIERS.DATABASE_SERVICE);
     this.worldLoreService = container.resolve<WorldLoreService>(SERVICE_IDENTIFIERS.WORLD_LORE_SERVICE);

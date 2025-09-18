@@ -371,7 +371,9 @@ export class CacheUtil {
     const cache = this.getCache(namespace);
     const now = Date.now();
     
-    for (const [key, item] of cache.entries()) {
+    // 将 Map.entries() 转换为数组以避免 TypeScript 编译错误
+    const entries = Array.from(cache.entries());
+    for (const [key, item] of entries) {
       if (now - item.timestamp > item.ttl) {
         cache.delete(key);
       }

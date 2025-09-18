@@ -48,7 +48,7 @@ export class CharacterManager {
   /**
    * 创建角色
    */
-  createCharacter(profile: CharacterProfile, initialState?: EmotionalState): Character {
+  createCharacter(profile: CharacterProfile, initialState?: EmotionalState, sessionId: string = 'default_session'): Character {
     const character = new Character(profile.id, profile, initialState);
     
     // 注册角色到内存索引
@@ -56,7 +56,7 @@ export class CharacterManager {
     
     // 如果有数据库服务，持久化角色数据
     if (this.databaseService) {
-      this.persistCharacterToDatabase(character).catch(error => {
+      this.persistCharacterToDatabase(character, sessionId).catch(error => {
         this.logger.warn('Failed to persist character to database', error, {
           characterId: profile.id,
           component: 'CharacterManager'
@@ -75,11 +75,11 @@ export class CharacterManager {
   /**
    * 获取所有活跃角色
    */
-  async getAllCharacters(): Promise<Character[]> {
+  async getAllCharacters(sessionId: string = 'default_session'): Promise<Character[]> {
     try {
       // 如果有数据库服务，优先从数据库获取
       if (this.databaseService) {
-        const sessionCharacters = await this.databaseService.getSessionCharacters('default_session');
+        const sessionCharacters = await this.databaseService.getSessionCharacters(sessionId);
         const characters: Character[] = [];
         
         for (const record of sessionCharacters) {
@@ -110,13 +110,13 @@ export class CharacterManager {
   /**
    * 根据位置获取角色
    */
-  async getCharactersInLocation(locationId: string): Promise<Character[]> {
+  async getCharactersInLocation(locationId: string, sessionId: string = 'default_session'): Promise<Character[]> {
     try {
       const characters: Character[] = [];
       
       // 如果有数据库服务，查询数据库中的角色位置
       if (this.databaseService) {
-        const allCharacters = await this.databaseService.getSessionCharacters('default_session');
+        const allCharacters = await this.databaseService.getSessionCharacters(sessionId);
         const locationCharacters = allCharacters.filter(record => 
           record.current_location === locationId && record.is_active
         );
@@ -206,7 +206,7 @@ export class CharacterManager {
   /**
    * 获取角色
    */
-  async getCharacter(characterId: string): Promise<Character | null> {
+  async getCharacter(characterId: string, sessionId: string = 'default_session'): Promise<Character | null> {
     try {
       // 首先检查内存注册表
       let character = this.characterRegistry.get(characterId);
@@ -216,7 +216,7 @@ export class CharacterManager {
       
       // 如果内存中没有，尝试从数据库加载
       if (this.databaseService) {
-        const record = await this.databaseService.getCharacter(characterId, 'default_session');
+        const record = await this.databaseService.getCharacter(characterId, sessionId);
         if (record) {
           character = this.reconstructCharacterFromRecord(record);
           this.characterRegistry.set(characterId, character);
@@ -496,13 +496,13 @@ ${JSON.stringify(context)}
   /**
    * 将角色持久化到数据库
    */
-  private async persistCharacterToDatabase(character: Character): Promise<void> {
+  private async persistCharacterToDatabase(character: Character, sessionId: string = 'default_session'): Promise<void> {
     if (!this.databaseService) return;
 
     try {
       const characterRecord = {
         id: character.id,
-        session_id: 'default_session',
+        session_id: sessionId,
         name: character.name,
         personality: character.personality,
         background: character.profile.background,

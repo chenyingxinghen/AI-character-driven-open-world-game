@@ -103,9 +103,6 @@ export class DomainCoordinator {
       // 初始化世界
       await this.worldManager.initializeWorld();
 
-      // 创建初始角色
-      await this.createInitialCharacters();
-
       const processingTime = Date.now() - startTime;
       
       // 记录性能指标
