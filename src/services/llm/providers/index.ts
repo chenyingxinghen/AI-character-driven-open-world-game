@@ -4,4 +4,4 @@ export * from './GeminiProvider';
 export * from './OpenRouterProvider';
 export * from './OpenAILikeProvider';
 export * from './OllamaProvider';
-export * from './OllamaProvider';
+export * from './ZhipuProvider';

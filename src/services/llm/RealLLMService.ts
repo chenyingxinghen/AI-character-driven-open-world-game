@@ -17,6 +17,7 @@ import { GeminiProvider } from './providers/GeminiProvider';
 import { OpenRouterProvider } from './providers/OpenRouterProvider';
 import { OpenAILikeProvider } from './providers/OpenAILikeProvider';
 import { OllamaProvider } from './providers/OllamaProvider';
+import { ZhipuProvider } from './providers/ZhipuProvider';
 import { LLMProviderAdapter } from './types/LLMTypes';
 
 export interface ProviderHealth {
@@ -59,7 +60,7 @@ export class RealLLMService implements LLMService {
       enabled: true,
       healthCheckInterval: 30000, // 30 seconds
       maxFailures: 3,
-      fallbackOrder: [LLMProvider.OPENAI, LLMProvider.ANTHROPIC, LLMProvider.GEMINI, LLMProvider.OPENROUTER]
+      fallbackOrder: [LLMProvider.OPENAI, LLMProvider.ANTHROPIC, LLMProvider.GEMINI, LLMProvider.OPENROUTER, LLMProvider.ZHIPU]
     };
     
     this.initializeProviders();
@@ -127,6 +128,18 @@ export class RealLLMService implements LLMService {
         })
       );
       this.costTracking[LLMProvider.LOCAL] = 0;
+    }
+
+    // 初始化Zhipu提供者
+    if (this.config.providers[LLMProvider.ZHIPU]?.apiKey) {
+      this.providers.set(
+        LLMProvider.ZHIPU, 
+        new ZhipuProvider(
+          this.config.providers[LLMProvider.ZHIPU]!.apiKey,
+          this.config.providers[LLMProvider.ZHIPU]!.defaultModel
+        )
+      );
+      this.costTracking[LLMProvider.ZHIPU] = 0;
     }
 
     // 初始化OpenAI兼容的提供者

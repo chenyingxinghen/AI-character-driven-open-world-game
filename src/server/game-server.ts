@@ -3,11 +3,12 @@ import { v4 as uuidv4 } from 'uuid';
 import { Orchestrator, OrchestratorResult } from '../Orchestrator';
 import { Logger } from '../services/Logger';
 import { container } from '../services/DependencyInjectionContainer';
-import { DefaultServiceFactory, SERVICE_IDENTIFIERS } from '../services/factory';
+import { SERVICE_IDENTIFIERS, DefaultServiceFactory } from '../services/factory';
 import { DatabaseService } from '../services/database/DatabaseService';
 import path from 'path';
 import { GameContextService } from '../services/game/GameContextService';
 import * as dotenv from 'dotenv';
+import { WorldLoreService } from '../services/world/WorldLoreService';
 
 // Load environment variables
 dotenv.config({ path: path.join(__dirname, '../../.env') });
@@ -41,18 +42,17 @@ interface ConnectedClient {
 const sessions: Map<string, GameSession> = new Map();
 const clients: Map<WebSocket, ConnectedClient> = new Map();
 let orchestrator: Orchestrator;
-let logger: Logger;
+let logger: Logger = new Logger(); // 初始化logger
 let databaseService: DatabaseService;
 let gameContextService: GameContextService;
 
 // Initialize game orchestrator and logger
 async function initializeGameServer() {
   try {
-    // Initialize the service factory and register all services
-    const serviceFactory = new DefaultServiceFactory();
-    serviceFactory.registerAllServices();
+    // Create service factory and register all services
+    const factory = new DefaultServiceFactory();
+    factory.registerAllServices();
     
-    logger = new Logger();
     // Initialize database service
     databaseService = container.resolve<DatabaseService>(SERVICE_IDENTIFIERS.DATABASE_SERVICE);
     await databaseService.connect();
@@ -299,12 +299,21 @@ async function handleLoadSession(ws: WebSocket, payload: any): Promise<void> {
     client.sessionId = sessionId;
     client.playerId = session.player_id;
     
+    // 获取历史对话
+    let conversations: any[] = [];
+    try {
+      conversations = await databaseService.getConversationHistory(sessionId, 50);
+    } catch (error) {
+      logger.warn('Failed to get conversation history for session:', sessionId);
+    }
+    
     logger.info(`Loaded session ${sessionId} for user ${client.username}`);
     
-    // Send session loaded message
+    // Send session loaded message with conversation history
     sendMessage(ws, 'session_loaded', { 
       sessionId: sessionId,
-      sessionName: session.session_name
+      sessionName: session.session_name,
+      conversations: conversations
     });
     
     // Send initial game state
@@ -386,13 +395,14 @@ async function createSession(ws: WebSocket, payload: any): Promise<void> {
     const sessionResult = await databaseService.createSessionForUser(
       client.userId, 
       sessionName, 
-      {
+      inspiration ? {
         timeOfDay: 'afternoon',
         weather: 'sunny',
         atmosphere: 'peaceful',
         playerLevel: 1,
-        completedQuests: []
-      }
+        completedQuests: [],
+        inspiration: inspiration
+      } : undefined  // 如果没有灵感，使用数据库中的默认值
     );
     
     // Create session through orchestrator (for world lore generation)
@@ -423,6 +433,35 @@ async function createSession(ws: WebSocket, payload: any): Promise<void> {
       sessionId: session.id,
       sessionName: sessionResult.session_name
     });
+    
+    // 获取WorldLoreService并发送worldlore内容
+    try {
+      const worldLoreService = container.resolve<WorldLoreService>(SERVICE_IDENTIFIERS.WORLD_LORE_SERVICE);
+      const worldLore = await worldLoreService.getWorldLoreForSession(session.id);
+      
+      // 发送worldlore内容给客户端
+      if (worldLore && worldLore.length > 0) {
+        // 发送主故事作为欢迎消息的一部分
+        const mainStory = worldLore.find((lore: any) => lore.loreType === 'main_story');
+        if (mainStory) {
+          sendMessage(ws, 'character_response', {
+            characterId: 'world',
+            characterName: '世界背景',
+            content: `世界背景：${mainStory.content}`,
+            type: 'narration',
+            timestamp: new Date().toISOString()
+          });
+        }
+        
+        // 发送所有worldlore内容
+        sendMessage(ws, 'world_lore_update', {
+          sessionId: session.id,
+          worldLore: worldLore
+        });
+      }
+    } catch (loreError) {
+      logger.warn(`Failed to send world lore for session ${session.id}:`, loreError as Error);
+    }
     
     // Send initial game state
     await sendInitialState(ws, session.id);
@@ -470,9 +509,8 @@ async function handlePlayerInput(ws: WebSocket, payload: any): Promise<void> {
           });
         }
       }
-      
-      // Send narrative response
-      if (coordination.responses.narrative) {
+      // 只有在没有角色响应或角色响应为空时，才发送叙述者响应
+      else if (coordination.responses.narrative) {
         sendMessage(ws, 'character_response', {
           characterId: 'narrator',
           characterName: '叙述者',

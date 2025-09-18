@@ -455,7 +455,8 @@ export class RealDatabaseService implements DatabaseService {
     let paramIndex = 1;
     
     for (const [key, value] of Object.entries(updates)) {
-      if (key !== 'id' && key !== 'created_at') {
+      // 确保不会重复添加updated_at字段
+      if (key !== 'id' && key !== 'created_at' && key !== 'updated_at') {
         updateFields.push(`${key} = $${paramIndex}`);
         params.push(value);
         paramIndex++;
@@ -466,11 +467,14 @@ export class RealDatabaseService implements DatabaseService {
       return; // 没有需要更新的字段
     }
     
+    // 总是更新updated_at字段，但只添加一次
+    updateFields.push(`updated_at = NOW()`);
+    
     params.push(characterId, sessionId); // 添加WHERE条件参数
     
     const sql = `
       UPDATE characters 
-      SET ${updateFields.join(', ')}, updated_at = NOW()
+      SET ${updateFields.join(', ')}
       WHERE id = $${paramIndex} AND session_id = $${paramIndex + 1}
     `;
     
@@ -1810,17 +1814,18 @@ export class RealDatabaseService implements DatabaseService {
       throw new Error('Database not initialized');
     }
 
-    const sql = `
-      DELETE FROM game_sessions
-      WHERE id = $1
-    `;
-    
-    const client = await this.postgresPool.connect();
-    try {
-      await client.query(sql, [sessionId]);
-    } finally {
-      client.release();
-    }
+    // 使用事务删除会话及其所有相关数据
+    const queries = [
+      { sql: 'DELETE FROM character_memories WHERE session_id = $1', params: [sessionId] },
+      { sql: 'DELETE FROM character_relationships WHERE session_id = $1', params: [sessionId] },
+      { sql: 'DELETE FROM conversations WHERE session_id = $1', params: [sessionId] },
+      { sql: 'DELETE FROM characters WHERE session_id = $1', params: [sessionId] },
+      { sql: 'DELETE FROM story_events WHERE session_id = $1', params: [sessionId] },
+      { sql: 'DELETE FROM world_lore WHERE session_id = $1', params: [sessionId] },
+      { sql: 'DELETE FROM game_sessions WHERE id = $1', params: [sessionId] }
+    ];
+
+    await this.executeTransaction(queries);
   }
 
   // 新增：更新会话活动时间

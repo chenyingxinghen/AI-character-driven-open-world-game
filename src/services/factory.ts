@@ -98,9 +98,10 @@ export class DefaultServiceFactory implements ServiceFactory {
       const anthropicApiKey = process.env.ANTHROPIC_API_KEY;
       const geminiApiKey = process.env.GEMINI_API_KEY;
       const openRouterApiKey = process.env.OPENROUTER_API_KEY;
+      const zhipuApiKey = process.env.ZHIPU_API_KEY;
       
       // If we have real API keys, use RealLLMService
-      if (openaiApiKey || anthropicApiKey || geminiApiKey || openRouterApiKey) {
+      if (openaiApiKey || anthropicApiKey || geminiApiKey || openRouterApiKey || zhipuApiKey) {
         const config = {
           providers: {
             ...(openaiApiKey ? {
@@ -158,14 +159,29 @@ export class DefaultServiceFactory implements ServiceFactory {
                   outputTokenPrice: parseFloat(process.env.OPENROUTER_PRICING_OUTPUT || '0.0002')
                 }
               }
+            } : {}),
+            ...(zhipuApiKey ? {
+              [LLMProvider.ZHIPU]: {
+                apiKey: zhipuApiKey,
+                defaultModel: process.env.ZHIPU_DEFAULT_MODEL || 'glm-4',
+                rateLimit: {
+                  requestsPerMinute: parseInt(process.env.ZHIPU_RATE_LIMIT_RPM || '60'),
+                  tokensPerMinute: parseInt(process.env.ZHIPU_RATE_LIMIT_TPM || '150000')
+                },
+                pricing: {
+                  inputTokenPrice: parseFloat(process.env.ZHIPU_PRICING_INPUT || '0.0001'),
+                  outputTokenPrice: parseFloat(process.env.ZHIPU_PRICING_OUTPUT || '0.0001')
+                }
+              }
             } : {})
           },
           defaultProvider: this.parseLLMProvider(process.env.DEFAULT_LLM_PROVIDER) || 
-                        (openaiApiKey ? LLMProvider.OPENAI : 
+                        (geminiApiKey ? LLMProvider.GEMINI :
+                        openaiApiKey ? LLMProvider.OPENAI : 
                         anthropicApiKey ? LLMProvider.ANTHROPIC : 
-                        geminiApiKey ? LLMProvider.GEMINI : 
                         openRouterApiKey ? LLMProvider.OPENROUTER : 
-                        LLMProvider.OPENAI),
+                        zhipuApiKey ? LLMProvider.ZHIPU :
+                        LLMProvider.GEMINI), // 默认使用Gemini而不是OpenAI
           retryConfig: {
             maxAttempts: parseInt(process.env.LLM_RETRY_MAX_ATTEMPTS || '3'),
             backoffMultiplier: parseFloat(process.env.LLM_RETRY_BACKOFF_MULTIPLIER || '2'),

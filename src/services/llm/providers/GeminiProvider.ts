@@ -3,24 +3,16 @@ import { FormattedTextGenerator } from '../FormattedTextResponse';
 import { FormattedTextExtractorService } from '../FormattedTextExtractorService';
 import { Logger } from '../../Logger';
 
-// Note: You'll need to install the Google Generative AI SDK
-// npm install @google/generative-ai
-import { GoogleGenerativeAI, GenerativeModel } from '@google/generative-ai';
-
 export class GeminiProvider implements LLMProviderAdapter {
-  private client: GoogleGenerativeAI;
-  private model: GenerativeModel;
-  private modelName: string;
+  private model: string;
   private rateLimit: RateLimitStatus;
   private apiKey: string;
   private extractor: FormattedTextExtractorService;
   private logger: Logger;
 
-  constructor(apiKey: string, model: string = 'gemini-pro', logger?: Logger) {
+  constructor(apiKey: string, model: string = 'gemini-2.5-flash-lite', logger?: Logger) {
     this.apiKey = apiKey;
-    this.client = new GoogleGenerativeAI(apiKey);
-    this.modelName = model;
-    this.model = this.client.getGenerativeModel({ model: model });
+    this.model = model;
     this.logger = logger || console as any;
     this.extractor = new FormattedTextExtractorService(this.logger);
     this.rateLimit = {
@@ -38,30 +30,27 @@ export class GeminiProvider implements LLMProviderAdapter {
     
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
-        const result = await this.model.generateContent({
-          contents: [{ role: 'user', parts: [{ text: prompt }] }],
-          generationConfig: {
-            maxOutputTokens: options?.maxTokens || 150,
-            temperature: options?.temperature || 0.7
-          }
+        const response = await this.callGeminiAPI(prompt, {
+          maxTokens: options?.maxTokens,
+          temperature: options?.temperature
         });
 
         // Update rate limit status
         this.updateRateLimit(1);
         
-        return result.response.text() || '';
+        return response;
       } catch (error: any) {
         lastError = error;
         
         // If this is the last attempt, throw the error
         if (attempt === maxRetries) {
-          console.error('Gemini API error after max retries:', error);
+          this.logger.error('Gemini API error after max retries:', error);
           throw error;
         }
         
         // Wait before retrying with exponential backoff
         const delay = Math.pow(2, attempt) * 1000;
-        console.warn(`Gemini API error (attempt ${attempt + 1}/${maxRetries + 1}), retrying in ${delay}ms:`, error.message);
+        this.logger.warn(`Gemini API error (attempt ${attempt + 1}/${maxRetries + 1}), retrying in ${delay}ms:`, error.message);
         await new Promise(resolve => setTimeout(resolve, delay));
       }
     }
@@ -79,20 +68,13 @@ export class GeminiProvider implements LLMProviderAdapter {
     
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
-        const result = await this.model.generateContent({
-          contents: [{ role: 'user', parts: [{ text: characterPrompt }] }],
-          generationConfig: {
-            temperature: 0.7
-          }
-        });
+        const response = await this.callGeminiAPI(characterPrompt);
 
         // Update rate limit status
         this.updateRateLimit(1);
         
-        const content = result.response.text() || '';
-        
         // 使用格式化文本提取器解析响应
-        const extractedResult = this.extractor.extractCharacterDialogue(content);
+        const extractedResult = this.extractor.extractCharacterDialogue(response);
         
         return {
           dialogue: extractedResult.dialogue,
@@ -131,20 +113,13 @@ export class GeminiProvider implements LLMProviderAdapter {
     
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
-        const result = await this.model.generateContent({
-          contents: [{ role: 'user', parts: [{ text: directorPrompt }] }],
-          generationConfig: {
-            temperature: 0.5
-          }
-        });
+        const response = await this.callGeminiAPI(directorPrompt);
 
         // Update rate limit status
         this.updateRateLimit(1);
         
-        const content = result.response.text() || '';
-        
         // 使用格式化文本提取器解析响应
-        const extractedResult = this.extractor.extractDirectorDecision(content);
+        const extractedResult = this.extractor.extractDirectorDecision(response);
         
         return {
           action: extractedResult.action,
@@ -181,18 +156,49 @@ export class GeminiProvider implements LLMProviderAdapter {
   async healthCheck(): Promise<boolean> {
     try {
       // 发送一个简单的请求来检查连接
-      await this.model.generateContent({
-        contents: [{ role: 'user', parts: [{ text: 'Hello' }] }]
-      });
-      return true;
+      const url = `https://generativelanguage.googleapis.com/v1beta/models?key=${this.apiKey}`;
+      const response = await fetch(url);
+      return response.ok;
     } catch (error) {
-      console.error('Gemini health check failed:', error);
+      this.logger.error('Gemini health check failed:', error as Error);
       return false;
     }
   }
 
   getModel(): string {
-    return this.modelName;
+    return this.model;
+  }
+
+  private async callGeminiAPI(prompt: string, options?: { maxTokens?: number; temperature?: number }): Promise<string> {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${this.model}:generateContent?key=${this.apiKey}`;
+    
+    const requestBody = {
+      contents: [{
+        parts: [{
+          text: prompt
+        }]
+      }],
+      generationConfig: {
+        temperature: options?.temperature || 0.7,
+        maxOutputTokens: options?.maxTokens || 150
+      }
+    };
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(requestBody)
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Gemini API error: ${response.status} ${response.statusText} - ${errorText}`);
+    }
+
+    const data = await response.json();
+    return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
   }
 
   private updateRateLimit(usedRequests: number): void {

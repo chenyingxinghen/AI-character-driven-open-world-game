@@ -500,6 +500,9 @@ ${JSON.stringify(context)}
     if (!this.databaseService) return;
 
     try {
+      // 确保会话存在
+      await this.ensureSessionExists(sessionId);
+      
       const characterRecord = {
         id: character.id,
         session_id: sessionId,
@@ -551,6 +554,31 @@ ${JSON.stringify(context)}
     }
 
     return character;
+  }
+
+  /**
+   * 确保会话存在
+   */
+  private async ensureSessionExists(sessionId: string): Promise<void> {
+    if (!this.databaseService) return;
+    
+    try {
+      // 尝试获取会话，如果不存在则创建
+      const session = await this.databaseService.getSession(sessionId);
+      if (!session) {
+        await this.databaseService.createSession(sessionId);
+      }
+    } catch (error) {
+      // 如果获取会话失败，尝试创建会话
+      try {
+        await this.databaseService.createSession(sessionId);
+      } catch (createError) {
+        this.logger.warn('Failed to ensure session exists', createError as Error, {
+          sessionId,
+          component: 'CharacterManager'
+        });
+      }
+    }
   }
 
   /**

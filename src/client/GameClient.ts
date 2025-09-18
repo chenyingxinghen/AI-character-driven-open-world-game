@@ -51,6 +51,20 @@ interface GameState {
   hints: string[];
 }
 
+// 添加WorldLore接口定义
+interface WorldLore {
+  id: string;
+  sessionId: string;
+  loreType: 'main_story' | 'history' | 'legend' | 'culture' | 'geography';
+  title: string;
+  content: string;
+  inspiration?: string;
+  generationSeed: string;
+  metadata?: any;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 export interface GameClientConfig {
   websocketUrl: string;
   playerId: string;
@@ -75,6 +89,8 @@ export class GameClient {
   private onSceneUpdateHandlers: ((scene: Scene) => void)[] = [];
   private onActionOptionsUpdateHandlers: ((options: ActionOption[]) => void)[] = [];
   private onLocationTransitionHandlers: ((transition: any) => void)[] = [];
+  private onSessionCreatedHandlers: ((sessionId: string) => void)[] = [];
+  private onWorldLoreUpdateHandlers: ((worldLore: WorldLore[]) => void)[] = []; // 添加worldlore更新处理器
 
   constructor(config: GameClientConfig) {
     this.wsManager = new WebSocketManager(config.websocketUrl);
@@ -138,6 +154,8 @@ export class GameClient {
     this.wsManager.subscribe('session_created', (data: any) => {
       this.sessionId = data.sessionId;
       console.log('Session created:', this.sessionId);
+      // 调用会话创建处理器
+      this.onSessionCreatedHandlers.forEach(handler => handler(this.sessionId!));
     });
 
     // 新增位置过渡消息处理
@@ -159,6 +177,13 @@ export class GameClient {
         message: data.message
       };
       this.onLocationTransitionHandlers.forEach(handler => handler(transition));
+    });
+    
+    // 添加world_lore_update消息处理
+    this.wsManager.subscribe('world_lore_update', (data: any) => {
+      console.log('Received world lore update:', data);
+      // 调用worldlore更新处理器
+      this.onWorldLoreUpdateHandlers.forEach(handler => handler(data.worldLore));
     });
   }
 
@@ -234,6 +259,16 @@ export class GameClient {
 
   onLocationTransition(handler: (transition: any) => void): void {
     this.onLocationTransitionHandlers.push(handler);
+  }
+
+  // 添加会话创建事件处理器注册方法
+  onSessionCreated(handler: (sessionId: string) => void): void {
+    this.onSessionCreatedHandlers.push(handler);
+  }
+  
+  // 添加worldlore更新事件处理器注册方法
+  onWorldLoreUpdate(handler: (worldLore: WorldLore[]) => void): void {
+    this.onWorldLoreUpdateHandlers.push(handler);
   }
 
   // Getters

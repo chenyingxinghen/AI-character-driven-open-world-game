@@ -192,7 +192,6 @@
         
         /* 游戏面板 */
         .game-panel {
-            display: none;
             background: rgba(255, 255, 255, 0.98);
             border-radius: 15px;
             box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
@@ -1384,7 +1383,7 @@
                 bulkSelectMode = false;
                 
                 document.getElementById('sessionPanel').classList.add('hidden');
-                document.getElementById('gamePanel').classList.add('hidden');
+                document.getElementById('gamePanel').classList.remove('visible');
                 document.getElementById('loginPanel').classList.remove('hidden');
                 document.getElementById('usernameInput').value = '';
             }
@@ -1590,7 +1589,7 @@
             
             // 如果删除的是当前正在进行的会话，返回会话列表
             if (currentSession && currentSession.sessionId === payload.sessionId) {
-                document.getElementById('gamePanel').classList.add('hidden');
+                document.getElementById('gamePanel').classList.remove('visible');
                 document.getElementById('sessionPanel').classList.remove('hidden');
                 currentSession = null;
             }

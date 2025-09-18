@@ -366,7 +366,6 @@ export class DomainCoordinator {
         domainsInvolved.push('character');
         const characterResult = await this.handleCharacterDomain(classification, gameContext);
         responses.characterResponses = characterResult.responses;
-        responses.narrative = characterResult.responses[0] || 'Character interaction completed.';
         stateChanges.characterUpdates = characterResult.updates;
         break;
 
@@ -419,7 +418,7 @@ export class DomainCoordinator {
     const updates: any[] = [];
 
     // 获取当前位置的角色
-    const locationCharacters = await this.getCharactersInLocation(gameContext.currentLocation);
+    const locationCharacters = await this.getCharactersInLocation(gameContext.currentLocation, gameContext.sessionId);
 
     for (const character of locationCharacters) {
       // 生成角色响应
@@ -945,12 +944,12 @@ ${characterDescriptions}
   /**
    * 获取位置中的角色
    */
-  private async getCharactersInLocation(locationId: string): Promise<Character[]> {
+  private async getCharactersInLocation(locationId: string, sessionId: string = 'default_session'): Promise<Character[]> {
     try {
       this.logger.debug(`Getting characters for location: ${locationId}`);
       
       // 优先从角色管理器获取实际数据
-      const charactersInLocation = await this.characterManager.getCharactersInLocation(locationId);
+      const charactersInLocation = await this.characterManager.getCharactersInLocation(locationId, sessionId);
       
       if (charactersInLocation && charactersInLocation.length > 0) {
         this.logger.info(`Found ${charactersInLocation.length} characters in location ${locationId}`, {
@@ -965,7 +964,7 @@ ${characterDescriptions}
       
       if (shouldCreateCharacter) {
         this.logger.info(`Creating dynamic character for location: ${locationId}`);
-        const dynamicCharacter = await this.createDynamicCharacterForLocation(locationId);
+        const dynamicCharacter = await this.createDynamicCharacterForLocation(locationId, sessionId);
         return [dynamicCharacter];
       }
       
@@ -1010,7 +1009,7 @@ ${characterDescriptions}
   /**
    * 为位置动态创建角色
    */
-  private async createDynamicCharacterForLocation(locationId: string): Promise<Character> {
+  private async createDynamicCharacterForLocation(locationId: string, sessionId: string = 'default_session'): Promise<Character> {
     // 根据位置类型生成适当的角色配置
     let characterProfile: CharacterProfile;
     
@@ -1059,10 +1058,10 @@ ${characterDescriptions}
     }
 
     // 使用角色管理器创建角色（这将自动处理注册和持久化）
-    const character = this.characterManager.createCharacter(characterProfile);
+    const character = this.characterManager.createCharacter(characterProfile, undefined, sessionId);
     
     // 更新角色位置
-    await this.characterManager.updateCharacterLocation(character.id, locationId);
+    await this.characterManager.updateCharacterLocation(character.id, locationId, sessionId);
     
     this.logger.info(`Created dynamic character for location`, {
       characterId: character.id,

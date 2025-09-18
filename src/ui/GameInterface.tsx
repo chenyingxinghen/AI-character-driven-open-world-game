@@ -328,6 +328,11 @@ const GameInterface: React.FC = () => {
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [transitionMessage, setTransitionMessage] = useState('');
 
+  // 添加会话ID状态，用于控制游戏面板显示
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  // 添加worldlore状态
+  const [worldLore, setWorldLore] = useState<any[]>([]);
+
   // 连接到游戏服务器
   useEffect(() => {
     const connectToGame = async () => {
@@ -374,6 +379,17 @@ const GameInterface: React.FC = () => {
               };
               setResponses((prev: GameResponse[]) => [...prev, arrivalResponse]);
             }
+          });
+          
+          // 添加会话创建处理器，用于控制游戏面板显示
+          gameClient.onSessionCreated((sessionId: string) => {
+            setSessionId(sessionId);
+          });
+          
+          // 添加worldlore更新处理器
+          gameClient.onWorldLoreUpdate((worldLore: any[]) => {
+            setWorldLore(worldLore);
+            console.log('World lore updated:', worldLore);
           });
         }
       } catch (error) {
@@ -430,8 +446,14 @@ const GameInterface: React.FC = () => {
   // 处理退出
   const handleExit = () => {
     gameClient.disconnect();
+    setSessionId(null); // 清除会话ID以隐藏游戏面板
     console.log('退出游戏');
   };
+
+  // 如果没有会话ID，不显示游戏面板
+  if (!sessionId) {
+    return null;
+  }
 
   return (
     <div className="game-interface">

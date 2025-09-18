@@ -411,6 +411,19 @@ export class EnvironmentConfigManager {
       };
     }
     
+    if (process.env.ZHIPU_API_KEY) {
+      providers.zhipu = {
+        apiKey: process.env.ZHIPU_API_KEY,
+        maxTokens: this.getEnvNumber('ZHIPU_MAX_TOKENS', 4000),
+        temperature: this.getEnvNumber('ZHIPU_TEMPERATURE', 0.7),
+        timeout: this.getEnvNumber('ZHIPU_TIMEOUT', 30000),
+        rateLimit: {
+          requestsPerMinute: this.getEnvNumber('ZHIPU_RPM', 60),
+          tokensPerMinute: this.getEnvNumber('ZHIPU_TPM', 100000)
+        }
+      };
+    }
+    
     if (process.env.ANTHROPIC_API_KEY) {
       providers.anthropic = {
         apiKey: process.env.ANTHROPIC_API_KEY,

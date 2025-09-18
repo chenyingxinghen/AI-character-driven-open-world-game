@@ -139,8 +139,29 @@ export class Orchestrator {
       }
       
       // Try to load from database
-      // Note: This would require implementing a getSession method in DatabaseService
-      this.logger.warn(`Session ${sessionId} not found in memory`);
+      try {
+        const sessionData = await this.databaseService.getSession(sessionId);
+        if (sessionData) {
+          const gameSession: GameSession = {
+            id: sessionData.id,
+            playerId: sessionData.player_id,
+            createdAt: sessionData.created_at,
+            lastActivity: new Date(),
+            isActive: sessionData.is_active !== false,
+            metadata: sessionData.game_state || {}
+          };
+          
+          // Store in memory for future access
+          this.sessions.set(sessionId, gameSession);
+          
+          this.logger.info(`Session ${sessionId} loaded from database`);
+          return gameSession;
+        }
+      } catch (dbError) {
+        this.logger.warn(`Failed to load session ${sessionId} from database:`, dbError as Error);
+      }
+      
+      this.logger.warn(`Session ${sessionId} not found in memory or database`);
       return null;
     } catch (error) {
       this.logger.error(`Error loading session ${sessionId}:`, error as Error);
