@@ -343,59 +343,70 @@ async function validateTables(): Promise<boolean> {
 }
 
 /**
- * 插入基础数据
+ * 初始化示例数据（可选）
+ * 该函数不在自动初始化中调用，需要手动调用
  */
-async function insertSeedData(): Promise<boolean> {
-  logger.info('插入基础数据...');
+export async function insertSampleData(options?: {
+  includeExampleSession?: boolean;
+  includeExampleCharacter?: boolean;
+}): Promise<boolean> {
+  logger.info('初始化示例数据...');
+
+  const config = {
+    includeExampleSession: false,
+    includeExampleCharacter: false,
+    ...options
+  };
 
   const client = new Client(dbConfig);
 
   try {
     await client.connect();
 
-    // 检查是否已有数据
-    const sessionCheck = await client.query('SELECT COUNT(*) FROM game_sessions');
-    if (parseInt(sessionCheck.rows[0].count) > 0) {
-      logger.info('数据库中已有数据，跳过基础数据插入');
-      return true;
+    if (config.includeExampleSession) {
+      // 插入示例会话
+      await client.query(`\
+        INSERT INTO game_sessions (id, player_id, game_state) 
+        VALUES ($1, $2, $3) 
+        ON CONFLICT (id) DO NOTHING
+      `, ['example-session-1', 'example-player', JSON.stringify({
+        currentLocation: 'town_square',
+        startTime: new Date().toISOString()
+      })]);
+
+      logger.success('示例会话创建完成');
     }
 
-    // 插入示例会话
-    await client.query(`\
-      INSERT INTO game_sessions (id, player_id, game_state) 
-      VALUES ($1, $2, $3) 
-      ON CONFLICT (id) DO NOTHING
-    `, ['example-session-1', 'example-player', JSON.stringify({
-      currentLocation: 'town_square',
-      startTime: new Date().toISOString()
-    })]);
+    if (config.includeExampleCharacter) {
+      // 插入示例角色
+      await client.query(`\
+        INSERT INTO characters (id, session_id, name, personality, background, current_location, emotional_state, character_data) 
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8) 
+        ON CONFLICT (id) DO NOTHING
+      `, [
+        'town-guard-1',
+        'example-session-1',
+        '镇守卫',
+        JSON.stringify({
+          traits: { friendly: 0.7, dutiful: 0.9, cautious: 0.6 },
+          values: { justice: 0.9, order: 0.8, protection: 0.9 }
+        }),
+        '一位尽职尽责的镇守卫，负责保护镇中心广场的安全',
+        'town_square',
+        JSON.stringify({ mood: 'alert', confidence: 0.8 }),
+        JSON.stringify({
+          equipment: ['sword', 'shield', 'armor'],
+          duties: ['patrol', 'protect citizens', 'maintain order']
+        })
+      ]);
 
-    // 插入示例角色
-    await client.query(`\
-      INSERT INTO characters (id, session_id, name, personality, background, current_location, emotional_state, character_data) 
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8) 
-      ON CONFLICT (id) DO NOTHING
-    `, [
-      'town-guard-1',
-      'example-session-1',
-      '镇守卫',
-      JSON.stringify({
-        traits: { friendly: 0.7, dutiful: 0.9, cautious: 0.6 },
-        values: { justice: 0.9, order: 0.8, protection: 0.9 }
-      }),
-      '一位尽职尽责的镇守卫，负责保护镇中心广场的安全',
-      'town_square',
-      JSON.stringify({ mood: 'alert', confidence: 0.8 }),
-      JSON.stringify({
-        equipment: ['sword', 'shield', 'armor'],
-        duties: ['patrol', 'protect citizens', 'maintain order']
-      })
-    ]);
+      logger.success('示例角色创建完成');
+    }
 
-    logger.success('基础数据插入完成');
+    logger.success('示例数据初始化完成');
     return true;
   } catch (error) {
-    logger.error('插入基础数据失败:', (error as Error).message);
+    logger.error('初始化示例数据失败:', (error as Error).message);
     return false;
   } finally {
     await client.end();
@@ -438,16 +449,10 @@ async function initializeDatabase(): Promise<void> {
       process.exit(1);
     }
 
-    // 5. 插入基础数据
-    const seedDataInserted = await insertSeedData();
-    if (!seedDataInserted) {
-      logger.warn('基础数据插入失败，但可以继续');
-    }
-
-    // 6. 检查Redis连接（可选）
+    // 5. 检查Redis连接（可选）
     await checkRedisConnection();
 
-    logger.success('=== 数据库初始化完成 ===');
+    logger.info('\n数据库初始化完成！');
     logger.info('\n数据库配置信息:');
     logger.info(`  主机: ${dbConfig.host}:${dbConfig.port}`);
     logger.info(`  数据库: ${dbConfig.database}`);
@@ -458,6 +463,7 @@ async function initializeDatabase(): Promise<void> {
     }
 
     logger.info('\n游戏系统现在可以启动了！');
+    logger.info('\n如需初始化示例数据，请手动调用 insertSampleData() 函数');
 
   } catch (error) {
     logger.error('数据库初始化过程中发生错误:', (error as Error).message);

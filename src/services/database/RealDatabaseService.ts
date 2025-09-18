@@ -1475,9 +1475,6 @@ export class RealDatabaseService implements DatabaseService {
 
       await client.query(indexesSql);
 
-      // 插入一些基础数据（如果不存在的话）
-      await this.insertInitialData(client);
-
       this.schemaInitialized = true;
       console.log('数据库架构初始化完成');
 
@@ -1492,96 +1489,163 @@ export class RealDatabaseService implements DatabaseService {
   }
 
   /**
-   * 插入初始化数据
+   * 初始化示例数据（可选）
+   * 该方法不在数据库连接时自动调用，需要手动调用
    */
-  private async insertInitialData(client: PoolClient): Promise<void> {
-    try {
-      // 检查是否已有基础数据
-      const existingSessionsResult = await client.query('SELECT COUNT(*) as count FROM game_sessions');
-      const existingSessionsCount = parseInt(existingSessionsResult.rows[0].count);
-
-      if (existingSessionsCount === 0) {
-        console.log('插入初始化数据...');
-
-        // 创建一个示例会话
-        const sampleSessionId = uuidv4();
-        const samplePlayerId = uuidv4();
-
-        await client.query(`
-          INSERT INTO game_sessions (id, player_id, game_state, is_active)
-          VALUES ($1, $2, $3, $4)
-        `, [
-          sampleSessionId,
-          samplePlayerId,
-          JSON.stringify({
-            timeOfDay: 'afternoon',
-            weather: 'sunny',
-            atmosphere: 'peaceful',
-            playerLevel: 1,
-            completedQuests: []
-          }),
-          true
-        ]);
-
-        // 创建一些基础角色
-        const characters = [
-          {
-            id: uuidv4(),
-            name: '城镇守卫',
-            personality: { traits: ['dutiful', 'protective', 'serious'], mood: 'neutral' },
-            background: '一位尽职尽责的城镇守卫，负责维护镇中心广场的安全与秩序。',
-            current_location: 'town_square'
-          },
-          {
-            id: uuidv4(),
-            name: '图书管理员',
-            personality: { traits: ['knowledgeable', 'patient', 'helpful'], mood: 'friendly' },
-            background: '博学的图书管理员，掌握着古老的知识和智慧。',
-            current_location: 'library'
-          },
-          {
-            id: uuidv4(),
-            name: '商人',
-            personality: { traits: ['friendly', 'talkative', 'business-minded'], mood: 'cheerful' },
-            background: '热情的商人，总是eager to share stories and sell goods.',
-            current_location: 'market'
-          }
-        ];
-
-        for (const character of characters) {
-          await client.query(`
-            INSERT INTO characters (id, session_id, name, personality, background, current_location, is_active)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
-          `, [
-            character.id,
-            sampleSessionId,
-            character.name,
-            JSON.stringify(character.personality),
-            character.background,
-            character.current_location,
-            true
-          ]);
-        }
-
-        // 插入玩家偏好设置
-        await client.query(`
-          INSERT INTO player_preferences (player_id, preferences)
-          VALUES ($1, $2)
-        `, [
-          samplePlayerId,
-          JSON.stringify({
-            language: 'zh',
-            difficulty: 'normal',
-            narrativeStyle: 'immersive'
-          })
-        ]);
-
-        console.log('初始化数据插入完成');
-      }
-    } catch (error) {
-      console.warn('插入初始化数据时出现错误:', error);
-      // 不抛出错误，让系统继续运行
+  async initializeSampleData(options?: {
+    createSampleSession?: boolean;
+    createSampleCharacters?: boolean;
+    createSamplePlayerPreferences?: boolean;
+  }): Promise<void> {
+    if (!this.isInitialized || !this.postgresPool) {
+      throw new Error('Database not initialized');
     }
+
+    const config = {
+      createSampleSession: false,
+      createSampleCharacters: false,
+      createSamplePlayerPreferences: false,
+      ...options
+    };
+
+    const client = await this.postgresPool.connect();
+    try {
+      console.log('初始化示例数据...');
+
+      if (config.createSampleSession) {
+        await this.createSampleSession(client);
+      }
+
+      if (config.createSampleCharacters) {
+        await this.createSampleCharacters(client);
+      }
+
+      if (config.createSamplePlayerPreferences) {
+        await this.createSamplePlayerPreferences(client);
+      }
+
+      console.log('示例数据初始化完成');
+    } catch (error) {
+      console.warn('初始化示例数据时出现错误:', error);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * 创建示例会话
+   */
+  private async createSampleSession(client: PoolClient): Promise<string> {
+    const sampleSessionId = uuidv4();
+    const samplePlayerId = uuidv4();
+
+    await client.query(`
+      INSERT INTO game_sessions (id, player_id, game_state, is_active)
+      VALUES ($1, $2, $3, $4)
+    `, [
+      sampleSessionId,
+      samplePlayerId,
+      JSON.stringify({
+        timeOfDay: 'afternoon',
+        weather: 'sunny',
+        atmosphere: 'peaceful',
+        playerLevel: 1,
+        completedQuests: []
+      }),
+      true
+    ]);
+
+    console.log('示例会话创建完成:', sampleSessionId);
+    return sampleSessionId;
+  }
+
+  /**
+   * 创建示例角色
+   */
+  private async createSampleCharacters(client: PoolClient, sessionId?: string): Promise<void> {
+    // 如果未提供sessionId，先查找一个活跃的会话
+    let targetSessionId = sessionId;
+    if (!targetSessionId) {
+      const sessionResult = await client.query('SELECT id FROM game_sessions WHERE is_active = true LIMIT 1');
+      if (sessionResult.rows.length === 0) {
+        targetSessionId = await this.createSampleSession(client);
+      } else {
+        targetSessionId = sessionResult.rows[0].id;
+      }
+    }
+
+    const characters = [
+      {
+        id: uuidv4(),
+        name: '城镇守卫',
+        personality: { traits: ['dutiful', 'protective', 'serious'], mood: 'neutral' },
+        background: '一位尽职尽责的城镇守卫，负责维护镇中心广场的安全与秩序。',
+        current_location: 'town_square'
+      },
+      {
+        id: uuidv4(),
+        name: '图书管理员',
+        personality: { traits: ['knowledgeable', 'patient', 'helpful'], mood: 'friendly' },
+        background: '博学的图书管理员，掌握着古老的知识和智慧。',
+        current_location: 'library'
+      },
+      {
+        id: uuidv4(),
+        name: '商人',
+        personality: { traits: ['friendly', 'talkative', 'business-minded'], mood: 'cheerful' },
+        background: '热情的商人，总是eager to share stories and sell goods.',
+        current_location: 'market'
+      }
+    ];
+
+    for (const character of characters) {
+      await client.query(`
+        INSERT INTO characters (id, session_id, name, personality, background, current_location, is_active)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+      `, [
+        character.id,
+        targetSessionId,
+        character.name,
+        JSON.stringify(character.personality),
+        character.background,
+        character.current_location,
+        true
+      ]);
+    }
+
+    console.log('示例角色创建完成');
+  }
+
+  /**
+   * 创建示例玩家偏好设置
+   */
+  private async createSamplePlayerPreferences(client: PoolClient, playerId?: string): Promise<void> {
+    // 如果未提供playerId，先查找一个玩家
+    let targetPlayerId = playerId;
+    if (!targetPlayerId) {
+      const playerResult = await client.query('SELECT player_id FROM game_sessions LIMIT 1');
+      if (playerResult.rows.length === 0) {
+        console.warn('未找到玩家ID，跳过创建示例偏好设置');
+        return;
+      }
+      targetPlayerId = playerResult.rows[0].player_id;
+    }
+
+    await client.query(`
+      INSERT INTO player_preferences (player_id, preferences)
+      VALUES ($1, $2)
+      ON CONFLICT (player_id) DO NOTHING
+    `, [
+      targetPlayerId,
+      JSON.stringify({
+        language: 'zh',
+        difficulty: 'normal',
+        narrativeStyle: 'immersive'
+      })
+    ]);
+
+    console.log('示例玩家偏好设置创建完成');
   }
   
   // User management methods

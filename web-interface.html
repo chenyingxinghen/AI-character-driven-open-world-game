@@ -929,6 +929,12 @@
                 case 'session_loaded':
                     handleSessionLoaded(message.payload);
                     break;
+                case 'session_renamed':
+                    handleSessionRenamed(message.payload);
+                    break;
+                case 'session_deleted':
+                    handleSessionDeleted(message.payload);
+                    break;
                 case 'character_response':
                     addMessage(message.payload);
                     break;
@@ -983,6 +989,9 @@
             
             // 获取用户的会话列表
             sendMessage('get_user_sessions', {});
+            
+            // 启动自动刷新
+            startAutoRefresh();
         }
 
         // 处理用户会话列表
@@ -1162,6 +1171,20 @@
                     欢迎来到新的冒险：${payload.sessionName}
                 </div>
             `;
+            
+            // 更新本地会话列表 - 添加新创建的会话
+            const newSession = {
+                id: payload.sessionId,
+                session_name: payload.sessionName,
+                description: payload.description || '',
+                world_style: payload.worldStyle || 'fantasy',
+                difficulty: payload.difficulty || 'normal',
+                inspiration: payload.inspiration || null,
+                created_at: new Date().toISOString(),
+                last_activity: new Date().toISOString()
+            };
+            sessions.unshift(newSession); // 添加到列表开头
+            updateSessionStats(); // 更新统计信息
         }
 
         // 加载会话
@@ -1176,21 +1199,53 @@
             document.getElementById('sessionPanel').classList.add('hidden');
             document.getElementById('gamePanel').classList.remove('hidden');
             
-            // 清空对话区域，准备接收游戏状态
+            // 清空对话区域
             document.getElementById('conversationArea').innerHTML = `
                 <div class="message system">
                     已加载存档：${payload.sessionName}
                 </div>
             `;
+            
+            // 如果有历史对话，显示历史对话
+            if (payload.conversations && payload.conversations.length > 0) {
+                payload.conversations.forEach(conversation => {
+                    addMessage({
+                        characterId: conversation.character_id || 'character',
+                        characterName: conversation.character_name || '角色',
+                        content: conversation.content,
+                        type: conversation.message_type || 'character'
+                    });
+                });
+            }
+            
+            // 更新场景描述
+            if (payload.currentScene) {
+                updateScene(payload.currentScene);
+            }
+            
+            // 更新本地会话的最后活动时间
+            const sessionIndex = sessions.findIndex(s => s.id === payload.sessionId);
+            if (sessionIndex !== -1) {
+                sessions[sessionIndex].last_activity = new Date().toISOString();
+                updateSessionStats();
+            }
         }
 
         // 重命名会话
         function renameSession(sessionId) {
             const newName = prompt('请输入新的存档名称:');
-            if (newName) {
-                sendMessage('rename_session', { sessionId: sessionId, newName: newName });
-                // 重新获取会话列表
-                setTimeout(() => sendMessage('get_user_sessions', {}), 500);
+            if (newName && newName.trim()) {
+                sendMessage('rename_session', { sessionId: sessionId, newName: newName.trim() });
+                
+                // 立即更新本地数据
+                const sessionIndex = sessions.findIndex(s => s.id === sessionId);
+                if (sessionIndex !== -1) {
+                    sessions[sessionIndex].session_name = newName.trim();
+                    renderSessionList();
+                }
+                
+                // 重新获取会话列表以确保数据同步
+                setTimeout(() => sendMessage('get_user_sessions', {}), 300);
             }
         }
 
@@ -1198,8 +1253,17 @@
         function deleteSession(sessionId) {
             if (confirm('确定要删除这个存档吗？此操作无法撤销。')) {
                 sendMessage('delete_session', { sessionId: sessionId });
-                // 重新获取会话列表
-                setTimeout(() => sendMessage('get_user_sessions', {}), 500);
+                
+                // 立即从本地数据中移除
+                const sessionIndex = sessions.findIndex(s => s.id === sessionId);
+                if (sessionIndex !== -1) {
+                    sessions.splice(sessionIndex, 1);
+                    updateSessionStats();
+                    renderSessionList();
+                }
+                
+                // 重新获取会话列表以确保数据同步
+                setTimeout(() => sendMessage('get_user_sessions', {}), 300);
             }
         }
 
@@ -1302,7 +1366,7 @@
                 document.getElementById('sessionPanel').classList.remove('hidden');
                 currentSession = null;
                 
-                // 重新获取会话列表
+                // 重新获取会话列表以刷新数据
                 sendMessage('get_user_sessions', {});
             }
         }
@@ -1310,6 +1374,9 @@
         // 退出登录
         function logout() {
             if (confirm('确定要退出登录吗？')) {
+                // 停止自动刷新
+                stopAutoRefresh();
+                
                 currentUser = null;
                 currentSession = null;
                 sessions = [];
@@ -1361,9 +1428,15 @@
                 }
                 
                 if (confirm(`确定要删除选中的 ${selectedSessions.size} 个存档吗？此操作无法撤销。`)) {
-                    for (const sessionId of selectedSessions) {
+                    // 从本地数据中移除选中的会话
+                    const sessionsToDelete = Array.from(selectedSessions);
+                    sessions = sessions.filter(session => !selectedSessions.has(session.id));
+                    
+                    // 发送删除请求到服务器
+                    for (const sessionId of sessionsToDelete) {
                         sendMessage('delete_session', { sessionId });
                     }
+                    
                     selectedSessions.clear();
                     bulkSelectMode = false;
                     
@@ -1371,8 +1444,12 @@
                     button.textContent = '批量删除';
                     button.style.background = '#e53e3e';
                     
-                    // 重新获取会话列表
-                    setTimeout(() => sendMessage('get_user_sessions', {}), 500);
+                    // 更新UI
+                    renderSessionList();
+                    updateSessionStats();
+                    
+                    // 重新获取会话列表以确保数据同步
+                    setTimeout(() => sendMessage('get_user_sessions', {}), 300);
                 }
             }
         }
@@ -1455,6 +1532,29 @@
             };
             return difficulties[difficulty] || difficulty;
         }
+        
+        // 添加一个自动刷新机制，用于定期同步数据
+        let autoRefreshInterval = null;
+        
+        function startAutoRefresh() {
+            // 每30秒刷新一次会话列表（仅在会话管理页面）
+            if (autoRefreshInterval) {
+                clearInterval(autoRefreshInterval);
+            }
+            
+            autoRefreshInterval = setInterval(() => {
+                if (currentUser && !document.getElementById('sessionPanel').classList.contains('hidden')) {
+                    sendMessage('get_user_sessions', {});
+                }
+            }, 30000); // 30秒
+        }
+        
+        function stopAutoRefresh() {
+            if (autoRefreshInterval) {
+                clearInterval(autoRefreshInterval);
+                autoRefreshInterval = null;
+            }
+        }
 
         // 显示错误消息
         function showError(message) {
@@ -1462,6 +1562,39 @@
         }
         
         // 新增的消息处理函数
+        
+        // 处理会话重命名成功
+        function handleSessionRenamed(payload) {
+            const sessionIndex = sessions.findIndex(s => s.id === payload.sessionId);
+            if (sessionIndex !== -1) {
+                sessions[sessionIndex].session_name = payload.newName;
+                sessions[sessionIndex].last_activity = new Date().toISOString();
+                renderSessionList();
+                updateSessionStats();
+            }
+            
+            // 如果当前正在这个会话中，更新游戏标题
+            if (currentSession && currentSession.sessionId === payload.sessionId) {
+                document.getElementById('gameTitle').textContent = payload.newName;
+            }
+        }
+        
+        // 处理会话删除成功
+        function handleSessionDeleted(payload) {
+            const sessionIndex = sessions.findIndex(s => s.id === payload.sessionId);
+            if (sessionIndex !== -1) {
+                sessions.splice(sessionIndex, 1);
+                renderSessionList();
+                updateSessionStats();
+            }
+            
+            // 如果删除的是当前正在进行的会话，返回会话列表
+            if (currentSession && currentSession.sessionId === payload.sessionId) {
+                document.getElementById('gamePanel').classList.add('hidden');
+                document.getElementById('sessionPanel').classList.remove('hidden');
+                currentSession = null;
+            }
+        }
         
         // 处理用户名修改成功
         function handleUsernameChanged(payload) {

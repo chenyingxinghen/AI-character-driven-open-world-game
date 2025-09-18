@@ -19,19 +19,19 @@ export class GameModePerformanceOptimizer {
   private deviationCalculationCache: any;
   private interventionCache: any;
   
-  private memoryWatermarks = {
-    low: 100 * 1024 * 1024,    // 100MB
-    medium: 250 * 1024 * 1024, // 250MB
-    high: 500 * 1024 * 1024,   // 500MB
-    critical: 750 * 1024 * 1024 // 750MB
+  private memoryWatermarks: {
+    low: number;
+    medium: number;
+    high: number;
+    critical: number;
   };
 
-  private performanceMetrics = {
-    cacheHits: 0,
-    cacheMisses: 0,
-    averageResponseTime: 0,
-    memoryCleanups: 0,
-    optimizationEvents: 0
+  private performanceMetrics: {
+    cacheHits: number;
+    cacheMisses: number;
+    averageResponseTime: number;
+    memoryCleanups: number;
+    optimizationEvents: number;
   };
 
   private sessionRegistry = new Map<string, {
@@ -42,40 +42,74 @@ export class GameModePerformanceOptimizer {
   }>();
 
   constructor(private logger: Logger) {
-    // 初始化缓存，使用与 lru-cache v5.1.1 兼容的选项
-    this.storyOutlineCache = new LRUCache({
-      max: 100,
-      maxAge: 30 * 60 * 1000 // 30分钟
-    });
+    // 初始化属性为空值，等待具体配置
+    this.memoryWatermarks = {
+      low: 0,
+      medium: 0,
+      high: 0,
+      critical: 0
+    };
 
-    this.responseCache = new LRUCache({
-      max: 500,
-      maxAge: 10 * 60 * 1000 // 10分钟
-    });
+    this.performanceMetrics = {
+      cacheHits: 0,
+      cacheMisses: 0,
+      averageResponseTime: 0,
+      memoryCleanups: 0,
+      optimizationEvents: 0
+    };
 
-    this.deviationCalculationCache = new LRUCache({
-      max: 200,
-      maxAge: 5 * 60 * 1000 // 5分钟
-    });
+    // 缓存将在具体使用时初始化
+  }
 
-    this.interventionCache = new LRUCache({
-      max: 150,
-      maxAge: 15 * 60 * 1000 // 15分钟
-    });
+  /**
+   * 初始化缓存配置
+   */
+  initializeCaches(options?: {
+    storyOutlineCache?: { max: number; maxAge: number };
+    responseCache?: { max: number; maxAge: number };
+    deviationCache?: { max: number; maxAge: number };
+    interventionCache?: { max: number; maxAge: number };
+  }): void {
+    const defaultOptions = {
+      storyOutlineCache: { max: 100, maxAge: 30 * 60 * 1000 },
+      responseCache: { max: 500, maxAge: 10 * 60 * 1000 },
+      deviationCache: { max: 200, maxAge: 5 * 60 * 1000 },
+      interventionCache: { max: 150, maxAge: 15 * 60 * 1000 }
+    };
 
-    this.startMemoryMonitoring();
-    this.startPerformanceMonitoring();
+    const config = { ...defaultOptions, ...options };
+
+    this.storyOutlineCache = new LRUCache(config.storyOutlineCache);
+    this.responseCache = new LRUCache(config.responseCache);
+    this.deviationCalculationCache = new LRUCache(config.deviationCache);
+    this.interventionCache = new LRUCache(config.interventionCache);
+
+    this.logger.info('Caches initialized', { config, component: 'GameModePerformanceOptimizer' });
+  }
+
+  /**
+   * 配置内存水位
+   */
+  configureMemoryWatermarks(watermarks: {
+    low: number;
+    medium: number;
+    high: number;
+    critical: number;
+  }): void {
+    this.memoryWatermarks = watermarks;
+    this.logger.info('Memory watermarks configured', { watermarks, component: 'GameModePerformanceOptimizer' });
   }
 
   /**
    * 启动内存监控
    */
-  private startMemoryMonitoring(): void {
+  startMemoryMonitoring(intervalMs: number = 30000): void {
     setInterval(() => {
       this.monitorMemoryUsage();
-    }, 30000); // 每30秒检查一次内存
+    }, intervalMs);
 
     this.logger.info('Memory monitoring started', {
+      intervalMs,
       component: 'GameModePerformanceOptimizer'
     });
   }
@@ -83,12 +117,13 @@ export class GameModePerformanceOptimizer {
   /**
    * 启动性能监控
    */
-  private startPerformanceMonitoring(): void {
+  startPerformanceMonitoring(intervalMs: number = 60000): void {
     setInterval(() => {
       this.reportPerformanceMetrics();
-    }, 60000); // 每分钟报告一次性能指标
+    }, intervalMs);
 
     this.logger.info('Performance monitoring started', {
+      intervalMs,
       component: 'GameModePerformanceOptimizer'
     });
   }
@@ -100,6 +135,11 @@ export class GameModePerformanceOptimizer {
     storyId: string,
     loader: () => Promise<StoryOutline>
   ): Promise<StoryOutline> {
+    if (!this.storyOutlineCache) {
+      this.logger.warn('Story outline cache not initialized, loading directly', { storyId });
+      return await loader();
+    }
+
     const cacheKey = `story_outline_${storyId}`;
     
     // 尝试从缓存获取
@@ -150,7 +190,10 @@ export class GameModePerformanceOptimizer {
   ): Promise<string> {
     const { useCache = true, priority = 'medium' } = options;
     
-    if (!useCache) {
+    if (!useCache || !this.responseCache) {
+      if (!this.responseCache) {
+        this.logger.warn('Response cache not initialized, generating directly');
+      }
       return await generator();
     }
 
@@ -202,6 +245,11 @@ export class GameModePerformanceOptimizer {
     plotPoint: PlotPoint | null,
     calculator: (action: string, expected: string, point: PlotPoint | null) => number
   ): number {
+    if (!this.deviationCalculationCache) {
+      this.logger.warn('Deviation calculation cache not initialized, calculating directly');
+      return calculator(action, expectedAction, plotPoint);
+    }
+
     const cacheKey = `deviation_${this.hashKey(`${action}_${expectedAction}_${plotPoint?.id || 'null'}`)}`;
     
     // 尝试从缓存获取
@@ -229,6 +277,11 @@ export class GameModePerformanceOptimizer {
     limit: number,
     loader: (sessionId: string, limit: number) => Promise<InterventionRecord[]>
   ): Promise<InterventionRecord[]> {
+    if (!this.interventionCache) {
+      this.logger.warn('Intervention cache not initialized, loading directly');
+      return loader(sessionId, limit);
+    }
+
     const cacheKey = `interventions_${sessionId}_${limit}`;
     
     // 尝试从缓存获取
@@ -323,7 +376,19 @@ export class GameModePerformanceOptimizer {
   /**
    * 预热关键数据
    */
-  async warmupCriticalData(sessionId: string, storyOutlineId: string): Promise<void> {
+  async warmupCriticalData(
+    sessionId: string, 
+    storyOutlineId: string,
+    loaders?: {
+      storyOutlineLoader?: () => Promise<StoryOutline>;
+      responseTemplateLoaders?: Record<string, () => Promise<string>>;
+    }
+  ): Promise<void> {
+    if (!this.storyOutlineCache || !this.responseCache) {
+      this.logger.warn('Caches not initialized, skipping warmup', { sessionId });
+      return;
+    }
+
     this.logger.info('Starting critical data warmup', {
       sessionId,
       storyOutlineId,
@@ -333,23 +398,21 @@ export class GameModePerformanceOptimizer {
     try {
       // 预加载故事大纲
       const storyKey = `story_outline_${storyOutlineId}`;
-      if (!this.storyOutlineCache.has(storyKey)) {
-        // 这里应该调用实际的加载函数
-        this.logger.debug('Story outline would be preloaded', { storyOutlineId });
+      if (!this.storyOutlineCache.has(storyKey) && loaders?.storyOutlineLoader) {
+        const outline = await loaders.storyOutlineLoader();
+        this.storyOutlineCache.set(storyKey, outline);
+        this.logger.debug('Story outline preloaded', { storyOutlineId });
       }
 
       // 预加载常用响应模板
-      const commonResponseKeys = [
-        'default_response',
-        'intervention_response',
-        'deviation_response'
-      ];
-
-      for (const key of commonResponseKeys) {
-        const cacheKey = `response_template_${key}`;
-        if (!this.responseCache.has(cacheKey)) {
-          // 这里可以预加载通用响应模板
-          this.logger.debug('Response template would be preloaded', { key });
+      if (loaders?.responseTemplateLoaders) {
+        for (const [key, loader] of Object.entries(loaders.responseTemplateLoaders)) {
+          const cacheKey = `response_template_${key}`;
+          if (!this.responseCache.has(cacheKey)) {
+            const template = await loader();
+            this.responseCache.set(cacheKey, template);
+            this.logger.debug('Response template preloaded', { key });
+          }
         }
       }
 
@@ -374,13 +437,15 @@ export class GameModePerformanceOptimizer {
     const memUsage = (process as any).memoryUsage();
     const heapUsed = memUsage.heapUsed;
 
-    // 检查内存水位
-    if (heapUsed > this.memoryWatermarks.critical) {
-      this.triggerEmergencyCleanup();
-    } else if (heapUsed > this.memoryWatermarks.high) {
-      this.triggerAggressiveCleanup();
-    } else if (heapUsed > this.memoryWatermarks.medium) {
-      this.triggerNormalCleanup();
+    // 只有在配置了内存水位时才进行检查
+    if (this.memoryWatermarks.critical > 0) {
+      if (heapUsed > this.memoryWatermarks.critical) {
+        this.triggerEmergencyCleanup();
+      } else if (heapUsed > this.memoryWatermarks.high) {
+        this.triggerAggressiveCleanup();
+      } else if (heapUsed > this.memoryWatermarks.medium) {
+        this.triggerNormalCleanup();
+      }
     }
 
     this.logger.debug('Memory usage monitored', {
@@ -524,24 +589,37 @@ export class GameModePerformanceOptimizer {
    * 获取缓存统计
    */
   private getCacheStats(): any {
-    return {
-      storyOutline: {
+    const stats: any = {};
+    
+    if (this.storyOutlineCache) {
+      stats.storyOutline = {
         size: this.storyOutlineCache.itemCount,
         max: this.storyOutlineCache.max
-      },
-      response: {
+      };
+    }
+    
+    if (this.responseCache) {
+      stats.response = {
         size: this.responseCache.itemCount,
         max: this.responseCache.max
-      },
-      deviation: {
+      };
+    }
+    
+    if (this.deviationCalculationCache) {
+      stats.deviation = {
         size: this.deviationCalculationCache.itemCount,
         max: this.deviationCalculationCache.max
-      },
-      intervention: {
+      };
+    }
+    
+    if (this.interventionCache) {
+      stats.intervention = {
         size: this.interventionCache.itemCount,
         max: this.interventionCache.max
-      }
-    };
+      };
+    }
+    
+    return stats;
   }
 
   /**
@@ -601,11 +679,19 @@ export class GameModePerformanceOptimizer {
    * 关闭优化器
    */
   shutdown(): void {
-    // 清理所有缓存
-    this.storyOutlineCache.reset();
-    this.responseCache.reset();
-    this.deviationCalculationCache.reset();
-    this.interventionCache.reset();
+    // 清理所有缓存（如果已初始化）
+    if (this.storyOutlineCache) {
+      this.storyOutlineCache.reset();
+    }
+    if (this.responseCache) {
+      this.responseCache.reset();
+    }
+    if (this.deviationCalculationCache) {
+      this.deviationCalculationCache.reset();
+    }
+    if (this.interventionCache) {
+      this.interventionCache.reset();
+    }
     
     // 清理会话注册表
     this.sessionRegistry.clear();

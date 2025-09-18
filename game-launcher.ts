@@ -83,13 +83,14 @@ async function checkDatabase(): Promise<boolean> {
 }
 
 /**
- * 初始化数据库（如果需要）
+ * 初始化数据库架构（如果需要）
+ * 只初始化表结构，不插入数据
  */
-async function initializeDatabase(): Promise<void> {
+async function initializeDatabaseSchema(): Promise<void> {
   const schemaPath = path.join(__dirname, 'database', 'schema.sql');
   
   if (!fs.existsSync(schemaPath)) {
-    logger.warn('Database schema file not found, skipping database initialization');
+    logger.warn('Database schema file not found, skipping database schema initialization');
     return;
   }
 
@@ -112,21 +113,21 @@ async function initializeDatabase(): Promise<void> {
     return new Promise<void>((resolve, reject) => {
       psqlProcess.on('close', (code) => {
         if (code === 0) {
-          logger.info('Database initialized successfully');
+          logger.info('Database schema initialized successfully');
           resolve();
         } else {
-          logger.warn(`Database initialization exited with code ${code}`);
+          logger.warn(`Database schema initialization exited with code ${code}`);
           resolve(); // 继续启动，即使数据库初始化失败
         }
       });
 
       psqlProcess.on('error', (error) => {
-        logger.warn('Database initialization error:', error);
+        logger.warn('Database schema initialization error:', error);
         resolve(); // 继续启动
       });
     });
   } catch (error) {
-    logger.warn('Could not run database initialization:', error as Error);
+    logger.warn('Could not run database schema initialization:', error as Error);
   }
 }
 
@@ -208,7 +209,7 @@ async function main(): Promise<void> {
     if (hasFullConfig) {
       const dbConnected = await checkDatabase();
       if (dbConnected) {
-        await initializeDatabase();
+        await initializeDatabaseSchema();
       }
     }
     
