@@ -8,6 +8,8 @@ import { LLMService } from './services/llm/LLMService';
 import { container } from './services/DependencyInjectionContainer';
 import { DatabaseService } from './services/database/DatabaseService';
 import { WorldLoreService } from './services/world/WorldLoreService';
+import { StoryOutlineGeneratorService } from './services/gameMode/StoryOutlineGeneratorService';
+import { EnhancedInitialSceneService } from './services/gameMode/EnhancedInitialSceneService';
 import { v4 as uuidv4 } from 'uuid';
 
 // Session interface
@@ -36,12 +38,16 @@ export class Orchestrator {
   private logger: Logger;
   private databaseService: DatabaseService;
   private worldLoreService: WorldLoreService;
+  private storyOutlineGeneratorService: StoryOutlineGeneratorService;
+  private enhancedInitialSceneService: EnhancedInitialSceneService;
   private sessions: Map<string, GameSession> = new Map();
 
   constructor() {
     this.logger = container.resolve<Logger>(SERVICE_IDENTIFIERS.LOGGER);
     this.databaseService = container.resolve<DatabaseService>(SERVICE_IDENTIFIERS.DATABASE_SERVICE);
     this.worldLoreService = container.resolve<WorldLoreService>(SERVICE_IDENTIFIERS.WORLD_LORE_SERVICE);
+    this.storyOutlineGeneratorService = container.resolve<StoryOutlineGeneratorService>(SERVICE_IDENTIFIERS.STORY_OUTLINE_GENERATOR_SERVICE);
+    this.enhancedInitialSceneService = container.resolve<EnhancedInitialSceneService>(SERVICE_IDENTIFIERS.ENHANCED_INITIAL_SCENE_SERVICE);
     this.sessionEngine = new GameSessionEngine();
     this.domainCoordinator = container.resolve<DomainCoordinator>(SERVICE_IDENTIFIERS.DOMAIN_COORDINATOR);
     
@@ -49,7 +55,7 @@ export class Orchestrator {
     const llmService = container.resolve<LLMService>(SERVICE_IDENTIFIERS.LLM_SERVICE);
     this.gameModeManager = new GameModeManager(llmService, this.logger, this.databaseService);
     
-    this.logger.info('Orchestrator initialized with domain architecture and game mode system');
+    this.logger.info('Orchestrator initialized with enhanced story and scene generation');
   }
 
   /**
@@ -68,7 +74,12 @@ export class Orchestrator {
   /**
    * 创建新的游戏会话
    */
-  async createSession(sessionIdOrPlayerId: string = 'player1', inspiration?: string): Promise<GameSession> {
+  async createSession(
+    sessionIdOrPlayerId: string = 'player1', 
+    inspiration?: string,
+    gameMode: 'free' | 'script' | 'guided_free' = 'guided_free',
+    playerPreferences?: any
+  ): Promise<GameSession> {
     try {
       // Check if the first parameter is a valid UUID (session ID) or a player ID
       const isSessionId = sessionIdOrPlayerId.includes('-') && sessionIdOrPlayerId.length > 20;
@@ -92,7 +103,7 @@ export class Orchestrator {
         createdAt: new Date(),
         lastActivity: new Date(),
         isActive: true,
-        metadata: { currentLocation: 'town_square' }
+        metadata: { currentLocation: 'town_square', gameMode, hasStoryOutline: false }
       };
       
       this.sessions.set(sessionId, gameSession);
@@ -108,22 +119,62 @@ export class Orchestrator {
       }
       
       // 生成世界背景故事
+      let worldLore: any[] = [];
       try {
         this.logger.info(`Generating world lore for session ${sessionId}...`);
         const loreOptions = {
           inspiration: inspiration,
-          setting: 'fantasy' as const, // 可以从额外参数获取
+          setting: 'fantasy' as const,
           complexity: 'moderate' as const,
           locale: 'zh' as const
         };
-        await this.worldLoreService.generateWorldLoreForSession(sessionId, loreOptions);
+        worldLore = await this.worldLoreService.generateWorldLoreForSession(sessionId, loreOptions);
         this.logger.info(`World lore generated successfully for session ${sessionId}`);
       } catch (loreError) {
-        // 即使世界背景故事生成失败，也不影响会话创建
         this.logger.warn(`Failed to generate world lore for session ${sessionId}:`, loreError as Error);
       }
       
-      this.logger.info(`Created new session ${sessionId} for player ${playerId}`);
+      // 根据游戏模式生成剧情大纲和初始场景
+      if (gameMode !== 'free') {
+        try {
+          this.logger.info(`Generating story outline and initial scene for ${gameMode} mode...`);
+          
+          // 生成增强初始场景（包含剧情大纲生成）
+          const initialScenePackage = await this.enhancedInitialSceneService.generateEnhancedInitialScene({
+            sessionId,
+            worldLore,
+            gameMode,
+            playerPreferences: {
+              startingLocationPreference: playerPreferences?.startingLocationPreference,
+              characterInteractionLevel: playerPreferences?.characterInteractionLevel || 'medium',
+              atmospherePreference: playerPreferences?.atmospherePreference,
+              difficultyLevel: playerPreferences?.difficultyLevel || 'normal',
+              storyPacing: playerPreferences?.storyPacing || 'medium'
+            }
+          });
+          
+          // 更新会话元数据
+          gameSession.metadata = {
+            ...gameSession.metadata,
+            hasStoryOutline: true,
+            currentLocation: initialScenePackage.startingLocation.id,
+            storyContext: initialScenePackage.storyContext,
+            nearbyCharacters: initialScenePackage.nearbyCharacters.map(c => c.id),
+            initialSceneGenerated: true
+          };
+          
+          this.logger.info(`Story outline and initial scene generated for session ${sessionId}`, {
+            locationName: initialScenePackage.startingLocation.name,
+            characterCount: initialScenePackage.nearbyCharacters.length,
+            currentPlotPoint: initialScenePackage.storyContext.currentPlotPoint
+          });
+          
+        } catch (sceneError) {
+          this.logger.warn(`Failed to generate story outline/initial scene for session ${sessionId}:`, sceneError as Error);
+        }
+      }
+      
+      this.logger.info(`Created new session ${sessionId} for player ${playerId} with mode ${gameMode}`);
       return gameSession;
     } catch (error) {
       this.logger.error(`Error creating session:`, error as Error);

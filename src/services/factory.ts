@@ -8,6 +8,8 @@ import { MockDatabaseService, DatabaseService } from './database/DatabaseService
 import { Logger, LogLevel } from './Logger';
 import { GameContextService } from './game/GameContextService';
 import { WorldLoreService } from './world/WorldLoreService';
+import { StoryOutlineGeneratorService } from './gameMode/StoryOutlineGeneratorService';
+import { EnhancedInitialSceneService } from './gameMode/EnhancedInitialSceneService';
 
 // Import domain managers
 import { CharacterManager } from '../domains/character/aggregates';
@@ -25,6 +27,8 @@ export const SERVICE_IDENTIFIERS = {
   LOGGER: 'LOGGER',
   GAME_CONTEXT_SERVICE: 'GAME_CONTEXT_SERVICE',
   WORLD_LORE_SERVICE: 'WORLD_LORE_SERVICE',
+  STORY_OUTLINE_GENERATOR_SERVICE: 'STORY_OUTLINE_GENERATOR_SERVICE',
+  ENHANCED_INITIAL_SCENE_SERVICE: 'ENHANCED_INITIAL_SCENE_SERVICE',
   
   // Domain service identifiers
   CHARACTER_MANAGER: 'CHARACTER_MANAGER',
@@ -42,6 +46,8 @@ export interface ServiceFactory {
   createLogger(): Logger;
   createGameContextService(): GameContextService;
   createWorldLoreService(): WorldLoreService;
+  createStoryOutlineGeneratorService(): StoryOutlineGeneratorService;
+  createEnhancedInitialSceneService(): EnhancedInitialSceneService;
   
   // Domain manager creation methods
   createCharacterManager(): CharacterManager;
@@ -58,6 +64,8 @@ export class DefaultServiceFactory implements ServiceFactory {
   private gameContextService?: GameContextService;
   private unifiedInputClassificationService?: UnifiedInputClassificationService;
   private worldLoreService?: WorldLoreService;
+  private storyOutlineGeneratorService?: StoryOutlineGeneratorService;
+  private enhancedInitialSceneService?: EnhancedInitialSceneService;
   
   // Domain managers (lazy initialization)
   private characterManager?: CharacterManager;
@@ -302,6 +310,31 @@ export class DefaultServiceFactory implements ServiceFactory {
     return this.worldLoreService;
   }
 
+  createStoryOutlineGeneratorService(): StoryOutlineGeneratorService {
+    if (!this.storyOutlineGeneratorService) {
+      this.storyOutlineGeneratorService = new StoryOutlineGeneratorService(
+        this.createLLMService(),
+        this.createWorldLoreService(),
+        this.createDatabaseService(),
+        this.createLogger()
+      );
+    }
+    return this.storyOutlineGeneratorService;
+  }
+
+  createEnhancedInitialSceneService(): EnhancedInitialSceneService {
+    if (!this.enhancedInitialSceneService) {
+      this.enhancedInitialSceneService = new EnhancedInitialSceneService(
+        this.createLLMService(),
+        this.createWorldLoreService(),
+        this.createDatabaseService(),
+        this.createStoryOutlineGeneratorService(),
+        this.createLogger()
+      );
+    }
+    return this.enhancedInitialSceneService;
+  }
+
   // Domain manager creation methods
   createCharacterManager(): CharacterManager {
     if (!this.characterManager) {
@@ -367,6 +400,8 @@ export class DefaultServiceFactory implements ServiceFactory {
     container.register(SERVICE_IDENTIFIERS.DATABASE_SERVICE, () => this.createDatabaseService());
     container.register(SERVICE_IDENTIFIERS.GAME_CONTEXT_SERVICE, () => this.createGameContextService());
     container.register(SERVICE_IDENTIFIERS.WORLD_LORE_SERVICE, () => this.createWorldLoreService());
+    container.register(SERVICE_IDENTIFIERS.STORY_OUTLINE_GENERATOR_SERVICE, () => this.createStoryOutlineGeneratorService());
+    container.register(SERVICE_IDENTIFIERS.ENHANCED_INITIAL_SCENE_SERVICE, () => this.createEnhancedInitialSceneService());
     
     // Register domain managers
     container.register(SERVICE_IDENTIFIERS.CHARACTER_MANAGER, () => this.createCharacterManager());

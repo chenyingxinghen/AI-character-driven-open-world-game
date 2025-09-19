@@ -383,7 +383,7 @@ async function handleDeleteSession(ws: WebSocket, payload: any): Promise<void> {
 }
 
 async function createSession(ws: WebSocket, payload: any): Promise<void> {
-  const { sessionName, inspiration, description, worldStyle, difficulty } = payload;
+  const { sessionName, inspiration, description, worldStyle, difficulty, gameMode } = payload;
   const client = clients.get(ws);
   
   if (!client?.userId) {
@@ -392,6 +392,9 @@ async function createSession(ws: WebSocket, payload: any): Promise<void> {
   }
   
   try {
+    // 确定游戏模式，默认为引导自由模式
+    const selectedGameMode = gameMode || 'guided_free';
+    
     // Create session in database for the user with all parameters
     const sessionResult = await databaseService.createSessionForUser(
       client.userId, 
@@ -405,14 +408,26 @@ async function createSession(ws: WebSocket, payload: any): Promise<void> {
         inspiration: inspiration,
         description: description,
         worldStyle: worldStyle || 'fantasy',
-        difficulty: difficulty || 'normal'
+        difficulty: difficulty || 'normal',
+        gameMode: selectedGameMode
       }
     );
     
-    // Create session through orchestrator (for world lore generation)
+    // 准备玩家偏好设置
+    const playerPreferences = {
+      startingLocationPreference: worldStyle === 'urban' ? 'city' : 'village',
+      characterInteractionLevel: 'medium',
+      atmospherePreference: description ? 'story_driven' : 'exploration',
+      difficultyLevel: difficulty || 'normal',
+      storyPacing: 'medium'
+    };
+    
+    // Create session through orchestrator with enhanced parameters
     const gameSession = await orchestrator.createSession(
       sessionResult.id, // Use the database session ID
-      inspiration // Pass inspiration for world lore generation
+      inspiration, // Pass inspiration for world lore generation
+      selectedGameMode, // Pass game mode
+      playerPreferences // Pass player preferences
     );
     
     const session: GameSession = {
@@ -430,7 +445,7 @@ async function createSession(ws: WebSocket, payload: any): Promise<void> {
     client.sessionId = session.id;
     client.playerId = gameSession.playerId;
     
-    logger.info(`Created session ${session.id} ("${sessionResult.session_name}") for user ${client.username}`);
+    logger.info(`Created session ${session.id} ("${sessionResult.session_name}") for user ${client.username} with mode ${selectedGameMode}`);
     
     // Send session created message with additional metadata
     sendMessage(ws, 'session_created', { 
@@ -439,7 +454,9 @@ async function createSession(ws: WebSocket, payload: any): Promise<void> {
       description: description,
       worldStyle: worldStyle || 'fantasy',
       difficulty: difficulty || 'normal',
-      inspiration: inspiration
+      inspiration: inspiration,
+      gameMode: selectedGameMode,
+      hasStoryOutline: session.metadata?.hasStoryOutline || false
     });
     
     // 获取WorldLoreService并发送worldlore内容
@@ -469,6 +486,16 @@ async function createSession(ws: WebSocket, payload: any): Promise<void> {
       }
     } catch (loreError) {
       logger.warn(`Failed to send world lore for session ${session.id}:`, loreError as Error);
+    }
+    
+    // 如果有剧情大纲，发送相关信息
+    if (session.metadata?.hasStoryOutline && session.metadata?.storyContext) {
+      sendMessage(ws, 'story_outline_ready', {
+        sessionId: session.id,
+        currentPlotPoint: session.metadata.storyContext.currentPlotPoint,
+        availableStoryPaths: session.metadata.storyContext.availableStoryPaths,
+        playerObjectives: session.metadata.storyContext.playerObjectives
+      });
     }
     
     // Send initial game state (with world and character initialization)

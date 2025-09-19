@@ -207,6 +207,49 @@ CREATE TABLE IF NOT EXISTS dynamic_content_cache (
     UNIQUE(session_id, cache_key)
 );
 
+-- 剧情大纲生成表
+CREATE TABLE IF NOT EXISTS story_outlines_generated (
+    id VARCHAR(36) PRIMARY KEY,
+    session_id VARCHAR(36) REFERENCES game_sessions(id) ON DELETE CASCADE,
+    world_lore_ids TEXT[], -- 关联的世界背景ID列表
+    story_outline JSONB NOT NULL, -- 完整的故事大纲
+    core_elements JSONB NOT NULL, -- 核心元素（冲突、角色、地点等）
+    context_mapping JSONB NOT NULL, -- 上下文映射
+    validation_report JSONB NOT NULL, -- 验证报告
+    generation_params JSONB, -- 生成参数
+    is_active BOOLEAN DEFAULT true,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 初始场景包表
+CREATE TABLE IF NOT EXISTS initial_scene_packages (
+    id VARCHAR(36) PRIMARY KEY,
+    session_id VARCHAR(36) REFERENCES game_sessions(id) ON DELETE CASCADE,
+    story_outline_id VARCHAR(36) REFERENCES story_outlines_generated(id),
+    starting_location JSONB NOT NULL, -- 起始位置信息
+    nearby_characters JSONB NOT NULL, -- 附近角色列表
+    immersive_description TEXT NOT NULL, -- 沉浸式描述
+    player_guidance JSONB NOT NULL, -- 玩家指导信息
+    environment_details JSONB NOT NULL, -- 环境细节
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 导演指引记录表
+CREATE TABLE IF NOT EXISTS director_guidance_records (
+    id VARCHAR(36) PRIMARY KEY,
+    session_id VARCHAR(36) REFERENCES game_sessions(id) ON DELETE CASCADE,
+    story_outline_id VARCHAR(36) REFERENCES story_outlines_generated(id),
+    current_plot_point VARCHAR(100), -- 当前剧情点
+    guidance_type VARCHAR(50) NOT NULL, -- 引导类型
+    guidance_content TEXT NOT NULL, -- 引导内容
+    player_deviation_score NUMERIC(5,2) DEFAULT 0, -- 玩家偏离度
+    effectiveness_score NUMERIC(5,2), -- 效果评分
+    applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Create indexes for better query performance
 -- Ensure all tables are created before creating indexes
 CREATE INDEX IF NOT EXISTS idx_characters_session_id ON characters(session_id);
@@ -238,3 +281,12 @@ CREATE INDEX IF NOT EXISTS idx_intervention_records_applied_at ON intervention_r
 CREATE INDEX IF NOT EXISTS idx_director_controllers_session_id ON director_controllers(session_id);
 CREATE INDEX IF NOT EXISTS idx_dynamic_content_cache_session_id ON dynamic_content_cache(session_id);
 CREATE INDEX IF NOT EXISTS idx_dynamic_content_cache_content_type ON dynamic_content_cache(content_type);
+
+-- 新增表的索引
+CREATE INDEX IF NOT EXISTS idx_story_outlines_generated_session_id ON story_outlines_generated(session_id);
+CREATE INDEX IF NOT EXISTS idx_story_outlines_generated_created_at ON story_outlines_generated(created_at);
+CREATE INDEX IF NOT EXISTS idx_initial_scene_packages_session_id ON initial_scene_packages(session_id);
+CREATE INDEX IF NOT EXISTS idx_initial_scene_packages_story_outline_id ON initial_scene_packages(story_outline_id);
+CREATE INDEX IF NOT EXISTS idx_director_guidance_records_session_id ON director_guidance_records(session_id);
+CREATE INDEX IF NOT EXISTS idx_director_guidance_records_story_outline_id ON director_guidance_records(story_outline_id);
+CREATE INDEX IF NOT EXISTS idx_director_guidance_records_applied_at ON director_guidance_records(applied_at);
