@@ -9,6 +9,7 @@ import path from 'path';
 import { GameContextService } from '../services/game/GameContextService';
 import * as dotenv from 'dotenv';
 import { WorldLoreService } from '../services/world/WorldLoreService';
+import { DomainCoordinator } from '../domains/DomainCoordinator';
 
 // Load environment variables
 dotenv.config({ path: path.join(__dirname, '../../.env') });
@@ -382,7 +383,7 @@ async function handleDeleteSession(ws: WebSocket, payload: any): Promise<void> {
 }
 
 async function createSession(ws: WebSocket, payload: any): Promise<void> {
-  const { sessionName, inspiration } = payload;
+  const { sessionName, inspiration, description, worldStyle, difficulty } = payload;
   const client = clients.get(ws);
   
   if (!client?.userId) {
@@ -391,24 +392,27 @@ async function createSession(ws: WebSocket, payload: any): Promise<void> {
   }
   
   try {
-    // Create session in database for the user
+    // Create session in database for the user with all parameters
     const sessionResult = await databaseService.createSessionForUser(
       client.userId, 
       sessionName, 
-      inspiration ? {
+      {
         timeOfDay: 'afternoon',
         weather: 'sunny',
         atmosphere: 'peaceful',
         playerLevel: 1,
         completedQuests: [],
-        inspiration: inspiration
-      } : undefined  // 如果没有灵感，使用数据库中的默认值
+        inspiration: inspiration,
+        description: description,
+        worldStyle: worldStyle || 'fantasy',
+        difficulty: difficulty || 'normal'
+      }
     );
     
     // Create session through orchestrator (for world lore generation)
     const gameSession = await orchestrator.createSession(
       sessionResult.id, // Use the database session ID
-      inspiration
+      inspiration // Pass inspiration for world lore generation
     );
     
     const session: GameSession = {
@@ -428,10 +432,14 @@ async function createSession(ws: WebSocket, payload: any): Promise<void> {
     
     logger.info(`Created session ${session.id} ("${sessionResult.session_name}") for user ${client.username}`);
     
-    // Send session created message
+    // Send session created message with additional metadata
     sendMessage(ws, 'session_created', { 
       sessionId: session.id,
-      sessionName: sessionResult.session_name
+      sessionName: sessionResult.session_name,
+      description: description,
+      worldStyle: worldStyle || 'fantasy',
+      difficulty: difficulty || 'normal',
+      inspiration: inspiration
     });
     
     // 获取WorldLoreService并发送worldlore内容
@@ -463,8 +471,16 @@ async function createSession(ws: WebSocket, payload: any): Promise<void> {
       logger.warn(`Failed to send world lore for session ${session.id}:`, loreError as Error);
     }
     
-    // Send initial game state
+    // Send initial game state (with world and character initialization)
     await sendInitialState(ws, session.id);
+    
+    // Initialize world and characters for the new session
+    try {
+      await initializeSessionWorld(session.id, client.playerId);
+      logger.info(`World and characters initialized for session ${session.id}`);
+    } catch (initError) {
+      logger.warn(`Failed to initialize world for session ${session.id}:`, initError as Error);
+    }
   } catch (error) {
     logger.error('Error creating session:', error as Error);
     sendMessage(ws, 'error', { message: 'Failed to create session' });
@@ -839,6 +855,27 @@ function sendMessage(ws: WebSocket, type: string, payload: any): void {
       payload,
       timestamp: new Date()
     }));
+  }
+}
+
+// 为新会话初始化世界和角色
+async function initializeSessionWorld(sessionId: string, playerId: string): Promise<void> {
+  try {
+    // 通过DomainCoordinator初始化游戏世界
+    const domainCoordinator = container.resolve<DomainCoordinator>(SERVICE_IDENTIFIERS.DOMAIN_COORDINATOR);
+    await domainCoordinator.initializeGame();
+    
+    // 确保玩家在正确的起始位置
+    const gameContext = await gameContextService.getGameContext(sessionId, playerId);
+    
+    logger.info(`Session world initialized for ${sessionId}`, {
+      sessionId,
+      playerId,
+      currentLocation: gameContext.currentLocation?.name || 'unknown'
+    });
+  } catch (error) {
+    logger.error(`Failed to initialize session world for ${sessionId}:`, error as Error);
+    throw error;
   }
 }
 

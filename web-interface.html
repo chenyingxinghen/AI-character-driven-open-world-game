@@ -805,7 +805,7 @@
         </div>
 
         <!-- 游戏面板 -->
-        <div id="gamePanel" class="game-panel">
+        <div id="gamePanel" class="game-panel hidden">
             <div class="game-header">
                 <div class="game-title" id="gameTitle">游戏中...</div>
                 <div class="game-controls">
@@ -948,6 +948,9 @@
                     break;
                 case 'data_exported':
                     handleDataExported(message.payload);
+                    break;
+                case 'world_lore_update':
+                    handleWorldLoreUpdate(message.payload);
                     break;
                 case 'error':
                     showError(message.payload.message);
@@ -1171,6 +1174,16 @@
                 </div>
             `;
             
+            // 如果有灵感，显示灵感信息
+            if (payload.inspiration) {
+                addMessage({
+                    characterId: 'system',
+                    characterName: '系统',
+                    content: `你的世界灵感：${payload.inspiration}`,
+                    type: 'system'
+                });
+            }
+            
             // 更新本地会话列表 - 添加新创建的会话
             const newSession = {
                 id: payload.sessionId,
@@ -1383,7 +1396,7 @@
                 bulkSelectMode = false;
                 
                 document.getElementById('sessionPanel').classList.add('hidden');
-                document.getElementById('gamePanel').classList.remove('visible');
+                document.getElementById('gamePanel').classList.add('hidden');
                 document.getElementById('loginPanel').classList.remove('hidden');
                 document.getElementById('usernameInput').value = '';
             }
@@ -1555,6 +1568,27 @@
             }
         }
 
+        // 处理世界背景更新
+        function handleWorldLoreUpdate(payload) {
+            const { worldLore } = payload;
+            
+            // 显示世界背景信息
+            if (worldLore && worldLore.length > 0) {
+                // 将世界背景作为系统消息显示
+                const mainStory = worldLore.find(lore => lore.loreType === 'main_story');
+                if (mainStory) {
+                    addMessage({
+                        characterId: 'world_narrator',
+                        characterName: '世界叙述者',
+                        content: `世界背景：${mainStory.content.substring(0, 200)}...`,
+                        type: 'narration'
+                    });
+                }
+                
+                console.log('World lore received:', worldLore);
+            }
+        }
+        
         // 显示错误消息
         function showError(message) {
             alert('错误: ' + message);
@@ -1589,7 +1623,7 @@
             
             // 如果删除的是当前正在进行的会话，返回会话列表
             if (currentSession && currentSession.sessionId === payload.sessionId) {
-                document.getElementById('gamePanel').classList.remove('visible');
+                document.getElementById('gamePanel').classList.add('hidden');
                 document.getElementById('sessionPanel').classList.remove('hidden');
                 currentSession = null;
             }

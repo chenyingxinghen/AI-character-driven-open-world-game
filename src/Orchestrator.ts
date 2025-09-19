@@ -110,7 +110,12 @@ export class Orchestrator {
       // 生成世界背景故事
       try {
         this.logger.info(`Generating world lore for session ${sessionId}...`);
-        const loreOptions = inspiration ? { inspiration } : {};
+        const loreOptions = {
+          inspiration: inspiration,
+          setting: 'fantasy' as const, // 可以从额外参数获取
+          complexity: 'moderate' as const,
+          locale: 'zh' as const
+        };
         await this.worldLoreService.generateWorldLoreForSession(sessionId, loreOptions);
         this.logger.info(`World lore generated successfully for session ${sessionId}`);
       } catch (loreError) {
