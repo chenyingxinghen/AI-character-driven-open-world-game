@@ -7,15 +7,15 @@ import { Logger } from '../../services/Logger';
 import { LLMService } from '../../services/llm/LLMService';
 import { DatabaseService } from '../../services/database/DatabaseService';
 import { Character } from './entities';
-import { 
-  CharacterMemory, 
-  EmotionalState, 
+import {
+  CharacterMemory,
+  EmotionalState,
   CharacterRelationship,
   CharacterProfile,
   BehaviorOption,
-  BehaviorDecision 
+  BehaviorDecision
 } from './valueObjects';
-import { 
+import {
   MemoryAnalysisService,
   EmotionalSystemService,
   RelationshipManagementService,
@@ -33,7 +33,8 @@ export class CharacterManager {
   private behaviorService: BehaviorDecisionService;
   private characterRegistry: Map<string, Character> = new Map();
   private locationCharacterIndex: Map<string, Set<string>> = new Map();
-  
+  private profileCache: Map<string, string> = new Map(); // Cache for stringified static traits
+
   constructor(
     private llmService: LLMService,
     private logger: Logger,
@@ -50,10 +51,10 @@ export class CharacterManager {
    */
   createCharacter(profile: CharacterProfile, initialState?: EmotionalState, sessionId: string = 'default_session'): Character {
     const character = new Character(profile.id, profile, initialState);
-    
+
     // 注册角色到内存索引
     this.characterRegistry.set(profile.id, character);
-    
+
     // 如果有数据库服务，持久化角色数据
     if (this.databaseService) {
       this.persistCharacterToDatabase(character, sessionId).catch(error => {
@@ -63,12 +64,12 @@ export class CharacterManager {
         });
       });
     }
-    
+
     this.logger.info(`Created character: ${profile.name}`, {
       characterId: profile.id,
       component: 'CharacterManager'
     });
-    
+
     return character;
   }
 
@@ -81,7 +82,7 @@ export class CharacterManager {
       if (this.databaseService) {
         const sessionCharacters = await this.databaseService.getSessionCharacters(sessionId);
         const characters: Character[] = [];
-        
+
         for (const record of sessionCharacters) {
           let character = this.characterRegistry.get(record.id);
           if (!character) {
@@ -91,17 +92,17 @@ export class CharacterManager {
           }
           characters.push(character);
         }
-        
+
         return characters;
       }
-      
+
       // 备用方案：从内存注册表返回
       return Array.from(this.characterRegistry.values());
     } catch (error) {
       this.logger.error('Failed to get all characters', error as Error, {
         component: 'CharacterManager'
       });
-      
+
       // 如果数据库查询失败，返回内存中的角色
       return Array.from(this.characterRegistry.values());
     }
@@ -113,14 +114,14 @@ export class CharacterManager {
   async getCharactersInLocation(locationId: string, sessionId: string = 'default_session'): Promise<Character[]> {
     try {
       const characters: Character[] = [];
-      
+
       // 如果有数据库服务，查询数据库中的角色位置
       if (this.databaseService) {
         const allCharacters = await this.databaseService.getSessionCharacters(sessionId);
-        const locationCharacters = allCharacters.filter(record => 
+        const locationCharacters = allCharacters.filter(record =>
           record.current_location === locationId && record.is_active
         );
-        
+
         for (const record of locationCharacters) {
           let character = this.characterRegistry.get(record.id);
           if (!character) {
@@ -129,10 +130,10 @@ export class CharacterManager {
           }
           characters.push(character);
         }
-        
+
         return characters;
       }
-      
+
       // 备用方案：使用内存索引
       const characterIds = this.locationCharacterIndex.get(locationId) || new Set();
       for (const characterId of characterIds) {
@@ -141,14 +142,14 @@ export class CharacterManager {
           characters.push(character);
         }
       }
-      
+
       return characters;
     } catch (error) {
       this.logger.error('Failed to get characters in location', error as Error, {
         locationId,
         component: 'CharacterManager'
       });
-      
+
       return [];
     }
   }
@@ -166,7 +167,7 @@ export class CharacterManager {
         });
         return;
       }
-      
+
       // 从旧位置索引中移除
       for (const [locationId, characterSet] of this.locationCharacterIndex.entries()) {
         characterSet.delete(characterId);
@@ -174,13 +175,13 @@ export class CharacterManager {
           this.locationCharacterIndex.delete(locationId);
         }
       }
-      
+
       // 添加到新位置索引
       if (!this.locationCharacterIndex.has(newLocationId)) {
         this.locationCharacterIndex.set(newLocationId, new Set());
       }
       this.locationCharacterIndex.get(newLocationId)!.add(characterId);
-      
+
       // 更新数据库
       if (this.databaseService) {
         await this.databaseService.updateCharacter(characterId, sessionId, {
@@ -188,7 +189,7 @@ export class CharacterManager {
           updated_at: new Date()
         });
       }
-      
+
       this.logger.info('Updated character location', {
         characterId,
         newLocationId,
@@ -213,7 +214,7 @@ export class CharacterManager {
       if (character) {
         return character;
       }
-      
+
       // 如果内存中没有，尝试从数据库加载
       if (this.databaseService) {
         const record = await this.databaseService.getCharacter(characterId, sessionId);
@@ -223,7 +224,7 @@ export class CharacterManager {
           return character;
         }
       }
-      
+
       return null;
     } catch (error) {
       this.logger.error('Failed to get character', error as Error, {
@@ -251,25 +252,25 @@ export class CharacterManager {
 
     // 更新关系
     const sourceRelationship = this.relationshipService.updateRelationship(
-      sourceCharacter, 
-      targetCharacter.id, 
+      sourceCharacter,
+      targetCharacter.id,
       interaction
     );
     const targetRelationship = this.relationshipService.updateRelationship(
-      targetCharacter, 
-      sourceCharacter.id, 
+      targetCharacter,
+      sourceCharacter.id,
       { ...interaction, perspective: 'target' }
     );
 
     // 计算情绪影响
     const sourceEmotionalChange = this.emotionalSystemService.calculateEmotionalImpact(
-      interaction, 
-      sourceCharacter, 
+      interaction,
+      sourceCharacter,
       targetCharacter
     );
     const targetEmotionalChange = this.emotionalSystemService.calculateEmotionalImpact(
-      { ...interaction, perspective: 'target' }, 
-      targetCharacter, 
+      { ...interaction, perspective: 'target' },
+      targetCharacter,
       sourceCharacter
     );
 
@@ -304,15 +305,16 @@ export class CharacterManager {
   async generateCharacterResponse(character: Character, context: any): Promise<string> {
     const recentMemories = character.getRecentMemories(5);
     const currentEmotion = character.getEmotionalState();
-    
-    const prompt = this.buildResponsePrompt(character, context, recentMemories, currentEmotion);
-    
+
+    const optimizedContext = this.optimizeContext(context);
+    const prompt = this.buildResponsePrompt(character, optimizedContext, recentMemories, currentEmotion);
+
     try {
       const response = await this.llmService.generateText(prompt, {
         temperature: 0.8,
         maxTokens: 200
       });
-      
+
       return response || "I need a moment to think...";
     } catch (error) {
       this.logger.error('Error generating character response:', error as Error);
@@ -329,7 +331,7 @@ export class CharacterManager {
     emotionalPatterns: string[];
   } {
     const allMemories = character.getAllMemories();
-    
+
     // 找出重要记忆
     const importantMemories = allMemories
       .map(memory => ({
@@ -371,7 +373,7 @@ export class CharacterManager {
   processTimePassage(character: Character, timeElapsed: number): void {
     // 情绪恢复
     const emotionalRecovery = this.emotionalSystemService.processEmotionalRecovery(
-      character, 
+      character,
       timeElapsed
     );
     character.updateEmotionalState(emotionalRecovery);
@@ -381,21 +383,52 @@ export class CharacterManager {
   }
 
   /**
+   * 优化上下文窗口以控制Token消耗
+   */
+  private optimizeContext(context: any): any {
+    if (!context) return {};
+
+    const optimized = { ...context };
+    const MAX_EVENT_LENGTH = 100;
+    const MAX_EVENTS = 10;
+
+    // 裁剪最近事件
+    if (optimized.recentEvents && Array.isArray(optimized.recentEvents)) {
+      // 只保留最近的N个事件
+      if (optimized.recentEvents.length > MAX_EVENTS) {
+        optimized.recentEvents = optimized.recentEvents.slice(-MAX_EVENTS);
+      }
+
+      // 限制每个事件的内容长度
+      optimized.recentEvents = optimized.recentEvents.map((event: any) => {
+        if (event.content && typeof event.content === 'string' && event.content.length > MAX_EVENT_LENGTH) {
+          return {
+            ...event,
+            content: event.content.substring(0, MAX_EVENT_LENGTH) + '...'
+          };
+        }
+        return event;
+      });
+    }
+
+    return optimized;
+  }
+
+  /**
    * 构建响应提示
    */
   private buildResponsePrompt(
-    character: Character, 
-    context: any, 
-    recentMemories: CharacterMemory[], 
+    character: Character,
+    context: any,
+    recentMemories: CharacterMemory[],
     emotion: EmotionalState
   ): string {
     const personality = character.personality;
-    
+    const profileText = this.getCharacterProfileText(character);
+
     return `
 角色信息：
-- 姓名：${character.name}
-- 背景：${character.profile.background}
-- 个性特征：${JSON.stringify(personality.traits)}
+${profileText}
 - 当前情绪：${emotion.mood}（强度：${emotion.intensity}）
 
 最近记忆：
@@ -418,7 +451,7 @@ ${JSON.stringify(context)}
       `${character.name} 需要时间来理解情况。`,
       `${character.name} 静静地观察着。`
     ];
-    
+
     return responses[Math.floor(Math.random() * responses.length)];
   }
 
@@ -461,25 +494,25 @@ ${JSON.stringify(context)}
    */
   private analyzeEmotionalPatterns(memories: CharacterMemory[]): string[] {
     const patterns: string[] = [];
-    
+
     // 分析情绪权重模式
     const positiveMemories = memories.filter(m => m.emotionalWeight > 20).length;
     const negativeMemories = memories.filter(m => m.emotionalWeight < -20).length;
-    
+
     if (positiveMemories > negativeMemories * 2) {
       patterns.push('generally_optimistic');
     } else if (negativeMemories > positiveMemories * 2) {
       patterns.push('generally_pessimistic');
     }
-    
+
     // 分析记忆类型模式
     const dialogueMemories = memories.filter(m => m.memoryType === 'dialogue').length;
     const totalMemories = memories.length;
-    
+
     if (dialogueMemories / totalMemories > 0.7) {
       patterns.push('socially_oriented');
     }
-    
+
     return patterns;
   }
 
@@ -502,7 +535,7 @@ ${JSON.stringify(context)}
     try {
       // 确保会话存在
       await this.ensureSessionExists(sessionId);
-      
+
       const characterRecord = {
         id: character.id,
         session_id: sessionId,
@@ -534,8 +567,8 @@ ${JSON.stringify(context)}
       name: record.name,
       background: record.background,
       appearance: record.appearance,
-      personality: typeof record.personality === 'string' 
-        ? JSON.parse(record.personality) 
+      personality: typeof record.personality === 'string'
+        ? JSON.parse(record.personality)
         : record.personality
     };
 
@@ -544,7 +577,7 @@ ${JSON.stringify(context)}
       : record.emotional_state;
 
     const character = new Character(profile.id, profile, emotionalState);
-    
+
     // 更新位置索引
     if (record.current_location) {
       if (!this.locationCharacterIndex.has(record.current_location)) {
@@ -561,7 +594,7 @@ ${JSON.stringify(context)}
    */
   private async ensureSessionExists(sessionId: string): Promise<void> {
     if (!this.databaseService) return;
-    
+
     try {
       // 尝试获取会话，如果不存在则创建
       const session = await this.databaseService.getSession(sessionId);
@@ -631,5 +664,17 @@ ${JSON.stringify(context)}
     this.logger.info('Character manager cleanup completed', {
       component: 'CharacterManager'
     });
+  }
+  /**
+   * 获取并缓存角色静态特征文本
+   */
+  private getCharacterProfileText(character: Character): string {
+    if (this.profileCache.has(character.id)) {
+      return this.profileCache.get(character.id)!;
+    }
+
+    const profileText = `- 姓名：${character.name}\n- 背景：${character.profile.background}\n- 个性特征：${JSON.stringify(character.personality.traits)}`;
+    this.profileCache.set(character.id, profileText);
+    return profileText;
   }
 }

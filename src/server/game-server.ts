@@ -10,6 +10,8 @@ import { GameContextService } from '../services/game/GameContextService';
 import * as dotenv from 'dotenv';
 import { WorldLoreService } from '../services/world/WorldLoreService';
 import { DomainCoordinator } from '../domains/DomainCoordinator';
+import { GameAction } from '../engine/GameAction';
+import { LLMRequestController } from './LLMRequestController';
 
 // Load environment variables
 dotenv.config({ path: path.join(__dirname, '../../.env') });
@@ -53,16 +55,16 @@ async function initializeGameServer() {
     // Create service factory and register all services
     const factory = new DefaultServiceFactory();
     factory.registerAllServices();
-    
+
     // Initialize database service
     databaseService = container.resolve<DatabaseService>(SERVICE_IDENTIFIERS.DATABASE_SERVICE);
     await databaseService.connect();
     logger.info('Database service initialized successfully');
-    
+
     // Initialize game context service
     gameContextService = container.resolve<GameContextService>(SERVICE_IDENTIFIERS.GAME_CONTEXT_SERVICE);
     logger.info('Game context service initialized successfully');
-    
+
     orchestrator = new Orchestrator();
     await orchestrator.initializeGame();
     logger.info('Game orchestrator initialized successfully');
@@ -86,7 +88,7 @@ wss.on('connection', (ws: WebSocket) => {
     lastActivity: new Date()
   };
   clients.set(ws, client);
-  
+
   logger.info(`New client connected: ${clientId}`);
 
   // Send connection status
@@ -106,7 +108,7 @@ wss.on('connection', (ws: WebSocket) => {
   ws.on('close', () => {
     const client = clients.get(ws);
     logger.info(`Client disconnected: ${client?.playerId || 'unknown'}`);
-    
+
     // Clean up session if exists
     if (client?.sessionId) {
       const session = sessions.get(client.sessionId);
@@ -115,7 +117,7 @@ wss.on('connection', (ws: WebSocket) => {
         session.lastActivity = new Date();
       }
     }
-    
+
     clients.delete(ws);
   });
 
@@ -138,71 +140,71 @@ async function handleMessage(ws: WebSocket, message: WebSocketMessage): Promise<
       case 'login':
         await handleLogin(ws, message.payload);
         break;
-        
+
       case 'get_user_sessions':
         await handleGetUserSessions(ws, message.payload);
         break;
-        
+
       case 'create_session':
         await createSession(ws, message.payload);
         break;
-        
+
       case 'load_session':
         await handleLoadSession(ws, message.payload);
         break;
-        
+
       case 'rename_session':
         await handleRenameSession(ws, message.payload);
         break;
-        
+
       case 'delete_session':
         await handleDeleteSession(ws, message.payload);
         break;
-        
+
       case 'change_username':
         await handleChangeUsername(ws, message.payload);
         break;
-        
+
       case 'import_user_data':
         await handleImportUserData(ws, message.payload);
         break;
-        
+
       case 'export_user_data':
         await handleExportUserData(ws, message.payload);
         break;
-        
+
       case 'player_input':
         await handlePlayerInput(ws, message.payload);
         break;
-        
+
       case 'player_action':
         await handlePlayerAction(ws, message.payload);
         break;
-        
+
       case 'request_game_state':
         await sendGameState(ws, message.payload);
         break;
-        
+
       default:
         logger.warn(`Unknown message type: ${message.type}`);
         sendMessage(ws, 'error', { message: `Unknown message type: ${message.type}` });
     }
   } catch (error) {
     logger.error(`Error handling message ${message.type}:`, error as Error);
-    sendMessage(ws, 'error', { 
-      message: `Error processing ${message.type}: ${(error as Error).message}` 
+    sendMessage(ws, 'error', {
+      message: `Error processing ${message.type}: ${(error as Error).message}`
     });
   }
 }
 
 async function handleLogin(ws: WebSocket, payload: any): Promise<void> {
   const { username } = payload;
-  
+
   if (!username) {
     sendMessage(ws, 'error', { message: 'Username is required' });
     return;
   }
-  
+
   try {
     // Get or create user
     let user = await databaseService.getUserByUsername(username);
@@ -216,21 +218,21 @@ async function handleLogin(ws: WebSocket, payload: any): Promise<void> {
     } else {
       logger.info(`User logged in: ${username}`);
     }
-    
+
     // Update client info
     const client = clients.get(ws);
     if (client) {
       client.userId = user.id;
       client.username = user.username;
     }
-    
+
     // Send login success
     sendMessage(ws, 'login_success', {
       userId: user.id,
       username: user.username,
       preferences: user.preferences
     });
-    
+
   } catch (error) {
     logger.error('Error during login:', error as Error);
     sendMessage(ws, 'error', { message: 'Login failed' });
@@ -243,7 +245,7 @@ async function handleGetUserSessions(ws: WebSocket, payload: any): Promise<void>
     sendMessage(ws, 'error', { message: 'Not logged in' });
     return;
   }
-  
+
   try {
     const sessions = await databaseService.getUserSessions(client.userId);
     sendMessage(ws, 'user_sessions', { sessions });
@@ -257,49 +259,46 @@ async function handleGetUserSessions(ws: WebSocket, payload: any): Promise<void>
 async function handleLoadSession(ws: WebSocket, payload: any): Promise<void> {
   const { sessionId } = payload;
   const client = clients.get(ws);
-  
+
   if (!client?.userId) {
     sendMessage(ws, 'error', { message: 'Not logged in' });
     return;
   }
-  
+
   if (!sessionId) {
     sendMessage(ws, 'error', { message: 'Session ID is required' });
     return;
   }
-  
+
   try {
     const session = await databaseService.getSession(sessionId);
     if (!session) {
       sendMessage(ws, 'error', { message: 'Session not found' });
       return;
     }
-    
+
     // Verify session belongs to user
     if (session.user_id !== client.userId) {
       sendMessage(ws, 'error', { message: 'Access denied' });
       return;
     }
-    
+
     // Update session activity
     await databaseService.updateSessionActivity(sessionId);
-    
-    // Store session in memory
-    const gameSession: GameSession = {
-      id: session.id,
-      playerId: session.player_id,
-      createdAt: session.created_at,
-      lastActivity: new Date(),
-      isActive: true,
-      metadata: session.game_state || {}
-    };
-    
+
+    // Store session in memory via Orchestrator (this triggers deep sync)
+    const gameSession = await orchestrator.loadSession(sessionId);
+    if (!gameSession) {
+      sendMessage(ws, 'error', { message: 'Failed to initialize session in orchestrator' });
+      return;
+    }
+
     sessions.set(sessionId, gameSession);
-    
+
     // Update client info
     client.sessionId = sessionId;
     client.playerId = session.player_id;
-    
+
     // 获取历史对话
     let conversations: any[] = [];
     try {
@@ -307,19 +306,19 @@ async function handleLoadSession(ws: WebSocket, payload: any): Promise<void> {
     } catch (error) {
       logger.warn('Failed to get conversation history for session:', sessionId);
     }
-    
+
     logger.info(`Loaded session ${sessionId} for user ${client.username}`);
-    
+
     // Send session loaded message with conversation history
-    sendMessage(ws, 'session_loaded', { 
+    sendMessage(ws, 'session_loaded', {
       sessionId: sessionId,
       sessionName: session.session_name,
       conversations: conversations
     });
-    
+
     // Send initial game state
     await sendInitialState(ws, sessionId);
-    
+
   } catch (error) {
     logger.error('Error loading session:', error as Error);
     sendMessage(ws, 'error', { message: 'Failed to load session' });
@@ -329,17 +328,17 @@ async function handleLoadSession(ws: WebSocket, payload: any): Promise<void> {
 async function handleRenameSession(ws: WebSocket, payload: any): Promise<void> {
   const { sessionId, newName } = payload;
   const client = clients.get(ws);
-  
+
   if (!client?.userId) {
     sendMessage(ws, 'error', { message: 'Not logged in' });
     return;
   }
-  
+
   if (!sessionId || !newName) {
     sendMessage(ws, 'error', { message: 'Session ID and new name are required' });
     return;
   }
-  
+
   try {
     await databaseService.renameSession(sessionId, newName);
     sendMessage(ws, 'session_renamed', { sessionId, newName });
@@ -353,27 +352,27 @@ async function handleRenameSession(ws: WebSocket, payload: any): Promise<void> {
 async function handleDeleteSession(ws: WebSocket, payload: any): Promise<void> {
   const { sessionId } = payload;
   const client = clients.get(ws);
-  
+
   if (!client?.userId) {
     sendMessage(ws, 'error', { message: 'Not logged in' });
     return;
   }
-  
+
   if (!sessionId) {
     sendMessage(ws, 'error', { message: 'Session ID is required' });
     return;
   }
-  
+
   try {
     await databaseService.deleteSession(sessionId);
     sessions.delete(sessionId);
-    
+
     // If this is the current session, clear client info
     if (client.sessionId === sessionId) {
       client.sessionId = undefined;
       client.playerId = undefined;
     }
-    
+
     sendMessage(ws, 'session_deleted', { sessionId });
     logger.info(`Deleted session ${sessionId} for user ${client.username}`);
   } catch (error) {
@@ -385,20 +384,20 @@ async function handleDeleteSession(ws: WebSocket, payload: any): Promise<void> {
 async function createSession(ws: WebSocket, payload: any): Promise<void> {
   const { sessionName, inspiration, description, worldStyle, difficulty, gameMode } = payload;
   const client = clients.get(ws);
-  
+
   if (!client?.userId) {
     sendMessage(ws, 'error', { message: 'Not logged in' });
     return;
   }
-  
+
   try {
     // 确定游戏模式，默认为引导自由模式
     const selectedGameMode = gameMode || 'guided_free';
-    
+
     // Create session in database for the user with all parameters
     const sessionResult = await databaseService.createSessionForUser(
-      client.userId, 
-      sessionName, 
+      client.userId,
+      sessionName,
       {
         timeOfDay: 'afternoon',
         weather: 'sunny',
@@ -412,7 +411,7 @@ async function createSession(ws: WebSocket, payload: any): Promise<void> {
         gameMode: selectedGameMode
       }
     );
-    
+
     // 准备玩家偏好设置
     const playerPreferences = {
       startingLocationPreference: worldStyle === 'urban' ? 'city' : 'village',
@@ -421,15 +420,18 @@ async function createSession(ws: WebSocket, payload: any): Promise<void> {
       difficultyLevel: difficulty || 'normal',
       storyPacing: 'medium'
     };
-    
+
     // Create session through orchestrator with enhanced parameters
     const gameSession = await orchestrator.createSession(
       sessionResult.id, // Use the database session ID
       inspiration, // Pass inspiration for world lore generation
       selectedGameMode, // Pass game mode
-      playerPreferences // Pass player preferences
+      playerPreferences, // Pass player preferences
+      (step, message) => {
+        sendMessage(ws, 'setup_progress', { step, message });
+      }
     );
-    
+
     const session: GameSession = {
       id: sessionResult.id,
       playerId: gameSession.playerId,
@@ -438,17 +440,17 @@ async function createSession(ws: WebSocket, payload: any): Promise<void> {
       isActive: gameSession.isActive,
       metadata: gameSession.metadata
     };
-    
+
     sessions.set(session.id, session);
-    
+
     // Update client info
     client.sessionId = session.id;
     client.playerId = gameSession.playerId;
-    
+
     logger.info(`Created session ${session.id} ("${sessionResult.session_name}") for user ${client.username} with mode ${selectedGameMode}`);
-    
+
     // Send session created message with additional metadata
-    sendMessage(ws, 'session_created', { 
+    sendMessage(ws, 'session_created', {
       sessionId: session.id,
       sessionName: sessionResult.session_name,
       description: description,
@@ -458,12 +460,12 @@ async function createSession(ws: WebSocket, payload: any): Promise<void> {
       gameMode: selectedGameMode,
       hasStoryOutline: session.metadata?.hasStoryOutline || false
     });
-    
+
     // 获取WorldLoreService并发送worldlore内容
     try {
       const worldLoreService = container.resolve<WorldLoreService>(SERVICE_IDENTIFIERS.WORLD_LORE_SERVICE);
       const worldLore = await worldLoreService.getWorldLoreForSession(session.id);
-      
+
       // 发送worldlore内容给客户端
       if (worldLore && worldLore.length > 0) {
         // 发送主故事作为欢迎消息的一部分
@@ -477,7 +479,7 @@ async function createSession(ws: WebSocket, payload: any): Promise<void> {
             timestamp: new Date().toISOString()
           });
         }
-        
+
         // 发送所有worldlore内容
         sendMessage(ws, 'world_lore_update', {
           sessionId: session.id,
@@ -487,7 +489,7 @@ async function createSession(ws: WebSocket, payload: any): Promise<void> {
     } catch (loreError) {
       logger.warn(`Failed to send world lore for session ${session.id}:`, loreError as Error);
     }
-    
+
     // 如果有剧情大纲，发送相关信息
     if (session.metadata?.hasStoryOutline && session.metadata?.storyContext) {
       sendMessage(ws, 'story_outline_ready', {
@@ -497,10 +499,10 @@ async function createSession(ws: WebSocket, payload: any): Promise<void> {
         playerObjectives: session.metadata.storyContext.playerObjectives
       });
     }
-    
+
     // Send initial game state (with world and character initialization)
     await sendInitialState(ws, session.id);
-    
+
     // Initialize world and characters for the new session
     try {
       await initializeSessionWorld(session.id, client.playerId);
@@ -516,12 +518,14 @@ async function createSession(ws: WebSocket, payload: any): Promise<void> {
 
 async function handlePlayerInput(ws: WebSocket, payload: any): Promise<void> {
   const { sessionId, playerId, input } = payload;
-  
+  const client = clients.get(ws);
+  const effectivePlayerId = client?.playerId || playerId || 'player1';
+
   if (!sessionId || !input) {
     sendMessage(ws, 'error', { message: 'Missing sessionId or input' });
     return;
   }
-  
+
   // Update session activity
   const session = sessions.get(sessionId);
   if (session) {
@@ -530,18 +534,19 @@ async function handlePlayerInput(ws: WebSocket, payload: any): Promise<void> {
     sendMessage(ws, 'error', { message: 'Session not found' });
     return;
   }
-  
+
   try {
     logger.info(`Processing player input: "${input}" for session ${sessionId}`);
-    
-    // Process input through orchestrator
-    const result: OrchestratorResult = await orchestrator.runOnce(input, sessionId, playerId);
-    
+
+    // Process input through orchestrator - Use server-validated playerId
+    const result: OrchestratorResult = await orchestrator.runOnce(input, sessionId, effectivePlayerId);
+
     if (result.success && result.coordinationResult) {
       const coordination = result.coordinationResult;
-      
+
       // Send character responses
-      if (coordination.responses.characterResponses) {
+      let hasSentResponse = false;
+      if (coordination.responses.characterResponses && coordination.responses.characterResponses.length > 0) {
         for (const response of coordination.responses.characterResponses) {
           sendMessage(ws, 'character_response', {
             characterId: 'npc_1',
@@ -550,10 +555,12 @@ async function handlePlayerInput(ws: WebSocket, payload: any): Promise<void> {
             type: 'dialogue',
             timestamp: new Date().toISOString()
           });
+          hasSentResponse = true;
         }
       }
-      // 只有在没有角色响应或角色响应为空时，才发送叙述者响应
-      else if (coordination.responses.narrative) {
+
+      // If no character response was sent, send narrative
+      if (!hasSentResponse && coordination.responses.narrative) {
         sendMessage(ws, 'character_response', {
           characterId: 'narrator',
           characterName: '叙述者',
@@ -562,7 +569,7 @@ async function handlePlayerInput(ws: WebSocket, payload: any): Promise<void> {
           timestamp: new Date().toISOString()
         });
       }
-      
+
       // Send location description if changed
       if (coordination.responses.locationDescription) {
         // 发送位置变更开始消息
@@ -573,14 +580,14 @@ async function handlePlayerInput(ws: WebSocket, payload: any): Promise<void> {
             transitionType: 'movement',
             message: '正在前往新位置...'
           });
-          
+
           // 延迟发送场景更新，模拟移动过程
           setTimeout(() => {
             sendSceneUpdate(ws, {
               description: coordination.responses.locationDescription,
               location: coordination.stateChanges.locationChange
             });
-            
+
             // 发送位置变更完成消息
             sendMessage(ws, 'location_transition_complete', {
               newLocation: coordination.stateChanges.locationChange,
@@ -594,7 +601,7 @@ async function handlePlayerInput(ws: WebSocket, payload: any): Promise<void> {
           });
         }
       }
-      
+
       // Update game state
       if (coordination.stateChanges.locationChange) {
         // 如果有位置变更，立即更新游戏状态
@@ -603,7 +610,15 @@ async function handlePlayerInput(ws: WebSocket, payload: any): Promise<void> {
       } else {
         await sendGameState(ws, { sessionId });
       }
-      
+
+      // 发送流水线动作序列到客户端
+      if (coordination.actions && coordination.actions.length > 0) {
+        sendMessage(ws, 'pipeline_actions', {
+          sessionId,
+          actions: coordination.actions
+        });
+      }
+
     } else {
       // Send error response
       sendMessage(ws, 'character_response', {
@@ -614,10 +629,10 @@ async function handlePlayerInput(ws: WebSocket, payload: any): Promise<void> {
         timestamp: new Date().toISOString()
       });
     }
-    
+
     // Send updated action options
     await sendActionOptions(ws);
-    
+
   } catch (error) {
     logger.error('Error processing player input:', error as Error);
     sendMessage(ws, 'character_response', {
@@ -632,12 +647,12 @@ async function handlePlayerInput(ws: WebSocket, payload: any): Promise<void> {
 
 async function handlePlayerAction(ws: WebSocket, payload: any): Promise<void> {
   const { sessionId, playerId, action } = payload;
-  
+
   if (!sessionId || !action) {
     sendMessage(ws, 'error', { message: 'Missing sessionId or action' });
     return;
   }
-  
+
   // Update session activity
   const session = sessions.get(sessionId);
   if (session) {
@@ -646,10 +661,10 @@ async function handlePlayerAction(ws: WebSocket, payload: any): Promise<void> {
     sendMessage(ws, 'error', { message: 'Session not found' });
     return;
   }
-  
+
   try {
     logger.info(`Processing player action: ${action.actionId} for session ${sessionId}`);
-    
+
     // Convert action to input text for processing
     let inputText = '';
     switch (action.actionId) {
@@ -680,10 +695,10 @@ async function handlePlayerAction(ws: WebSocket, payload: any): Promise<void> {
       default:
         inputText = `执行操作：${action.actionId}`;
     }
-    
+
     // Process through orchestrator
     const result: OrchestratorResult = await orchestrator.runOnce(inputText, sessionId, playerId);
-    
+
     if (result.success) {
       // Send confirmation
       sendMessage(ws, 'action_confirmation', {
@@ -691,7 +706,7 @@ async function handlePlayerAction(ws: WebSocket, payload: any): Promise<void> {
         success: true,
         message: '操作执行成功'
       });
-      
+
       // Process any resulting responses similar to handlePlayerInput
       if (result.coordinationResult?.responses.narrative) {
         sendMessage(ws, 'character_response', {
@@ -709,7 +724,7 @@ async function handlePlayerAction(ws: WebSocket, payload: any): Promise<void> {
         message: result.error || '操作执行失败'
       });
     }
-    
+
   } catch (error) {
     logger.error('Error processing player action:', error as Error);
     sendMessage(ws, 'action_confirmation', {
@@ -722,12 +737,12 @@ async function handlePlayerAction(ws: WebSocket, payload: any): Promise<void> {
 
 async function sendGameState(ws: WebSocket, payload: any): Promise<void> {
   const { sessionId } = payload;
-  
+
   if (!sessionId) {
     sendMessage(ws, 'error', { message: 'Missing sessionId' });
     return;
   }
-  
+
   // Update session activity
   const session = sessions.get(sessionId);
   if (session) {
@@ -736,7 +751,7 @@ async function sendGameState(ws: WebSocket, payload: any): Promise<void> {
     sendMessage(ws, 'error', { message: 'Session not found' });
     return;
   }
-  
+
   try {
     // 使用动态上下文获取当前位置
     let currentLocation = '未知位置';
@@ -749,10 +764,10 @@ async function sendGameState(ws: WebSocket, payload: any): Promise<void> {
       logger.warn('Failed to get dynamic location from GameContextService, using fallback');
       currentLocation = '默认位置';
     }
-    
+
     // Get system status from orchestrator
     const systemStatus = await orchestrator.getSystemStatus();
-    
+
     sendMessage(ws, 'game_state_update', {
       status: 'playing',
       currentTime: new Date().toLocaleTimeString('zh-CN'),
@@ -773,14 +788,14 @@ async function sendInitialState(ws: WebSocket, sessionId: string): Promise<void>
   try {
     // Send initial game state
     await sendGameState(ws, { sessionId });
-    
+
     // 获取动态位置信息而非硬编码
     let locationInfo = {
       location: 'town_square',
       description: '你站在一个未知的地方，周围的景色模糊不清。',
       title: '神秘之地'
     };
-    
+
     try {
       const client = clients.get(ws);
       if (client?.playerId) {
@@ -794,13 +809,13 @@ async function sendInitialState(ws: WebSocket, sessionId: string): Promise<void>
     } catch (error) {
       logger.warn('Failed to get dynamic location info, using fallback');
     }
-    
+
     // Send initial scene
     await sendSceneUpdate(ws, locationInfo);
-    
+
     // Send initial action options
     await sendActionOptions(ws, sessionId);
-    
+
     // Send welcome message
     sendMessage(ws, 'character_response', {
       characterId: 'narrator',
@@ -809,7 +824,7 @@ async function sendInitialState(ws: WebSocket, sessionId: string): Promise<void>
       type: 'narration',
       timestamp: new Date().toISOString()
     });
-    
+
   } catch (error) {
     logger.error('Error sending initial state:', error as Error);
     sendMessage(ws, 'error', { message: 'Failed to send initial state' });
@@ -825,14 +840,14 @@ async function sendActionOptions(ws: WebSocket, sessionId?: string): Promise<voi
     { id: '5', label: '与附近的人交谈', type: 'dialogue' },
     { id: '6', label: '查看周围的信息', type: 'interaction' }
   ];
-  
+
   // 如果有sessionId，尝试获取动态选项
   if (sessionId) {
     try {
       const client = Array.from(clients.values()).find(c => c.sessionId === sessionId);
       if (client?.playerId) {
         const gameContext = await gameContextService.getGameContext(sessionId, client.playerId);
-        
+
         // 动态生成移动选项
         if (gameContext.availableLocations.length > 0) {
           options[1] = {
@@ -841,7 +856,7 @@ async function sendActionOptions(ws: WebSocket, sessionId?: string): Promise<voi
             type: 'movement'
           };
         }
-        
+
         // 动态生成对话选项
         if (gameContext.nearbyCharacters.length > 0) {
           options[4] = {
@@ -855,7 +870,7 @@ async function sendActionOptions(ws: WebSocket, sessionId?: string): Promise<voi
       logger.warn('Failed to get dynamic action options, using default options');
     }
   }
-  
+
   sendMessage(ws, 'action_options_update', { options });
 }
 
@@ -871,7 +886,7 @@ async function sendSceneUpdate(ws: WebSocket, sceneData: any): Promise<void> {
       { id: 'mystery_object', name: '神秘物品', description: '一个看起来很有趣的物品' }
     ]
   };
-  
+
   sendMessage(ws, 'scene_update', sceneInfo);
 }
 
@@ -891,10 +906,10 @@ async function initializeSessionWorld(sessionId: string, playerId: string): Prom
     // 通过DomainCoordinator初始化游戏世界
     const domainCoordinator = container.resolve<DomainCoordinator>(SERVICE_IDENTIFIERS.DOMAIN_COORDINATOR);
     await domainCoordinator.initializeGame();
-    
+
     // 确保玩家在正确的起始位置
     const gameContext = await gameContextService.getGameContext(sessionId, playerId);
-    
+
     logger.info(`Session world initialized for ${sessionId}`, {
       sessionId,
       playerId,
@@ -912,12 +927,12 @@ async function initializeSessionWorld(sessionId: string, playerId: string): Prom
 async function handleChangeUsername(ws: WebSocket, payload: any): Promise<void> {
   const { newUsername } = payload;
   const client = clients.get(ws);
-  
+
   if (!client || !client.userId) {
     sendMessage(ws, 'error', { message: '用户未登录' });
     return;
   }
-  
+
   try {
     // 检查用户名是否已存在
     const existingUser = await databaseService.getUserByUsername(newUsername);
@@ -925,16 +940,16 @@ async function handleChangeUsername(ws: WebSocket, payload: any): Promise<void> 
       sendMessage(ws, 'error', { message: '用户名已存在' });
       return;
     }
-    
+
     // 更新用户名
     await databaseService.query(
       'UPDATE users SET username = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
       [newUsername, client.userId]
     );
-    
+
     client.username = newUsername;
     sendMessage(ws, 'username_changed', { username: newUsername });
-    
+
   } catch (error) {
     logger.error('Failed to change username:', error as Error);
     sendMessage(ws, 'error', { message: '修改用户名失败' });
@@ -944,21 +959,21 @@ async function handleChangeUsername(ws: WebSocket, payload: any): Promise<void> 
 // 处理数据导入
 async function handleImportUserData(ws: WebSocket, payload: any): Promise<void> {
   const client = clients.get(ws);
-  
+
   if (!client || !client.userId) {
     sendMessage(ws, 'error', { message: '用户未登录' });
     return;
   }
-  
+
   try {
     const { user, sessions: importSessions, version } = payload;
-    
+
     // 简单的版本检查
     if (!version || version !== '1.0') {
       sendMessage(ws, 'error', { message: '不支持的数据版本' });
       return;
     }
-    
+
     // 导入新数据（简化实现）
     for (const sessionData of importSessions) {
       const newSessionId = uuidv4();
@@ -967,12 +982,12 @@ async function handleImportUserData(ws: WebSocket, payload: any): Promise<void> 
         [newSessionId, client.userId, sessionData.session_name + '_导入', sessionData.session_description, sessionData.world_style, sessionData.difficulty, sessionData.inspiration, new Date()]
       );
     }
-    
+
     sendMessage(ws, 'data_imported', { message: '数据导入成功' });
-    
+
     // 重新发送会话列表
     await handleGetUserSessions(ws, {});
-    
+
   } catch (error) {
     logger.error('Failed to import user data:', error as Error);
     sendMessage(ws, 'error', { message: '数据导入失败' });
@@ -982,25 +997,25 @@ async function handleImportUserData(ws: WebSocket, payload: any): Promise<void> 
 // 处理数据导出
 async function handleExportUserData(ws: WebSocket, payload: any): Promise<void> {
   const client = clients.get(ws);
-  
+
   if (!client || !client.userId) {
     sendMessage(ws, 'error', { message: '用户未登录' });
     return;
   }
-  
+
   try {
     const user = await databaseService.query('SELECT * FROM users WHERE id = $1', [client.userId]);
     const sessions = await databaseService.query('SELECT * FROM game_sessions WHERE user_id = $1', [client.userId]);
-    
+
     const exportData = {
       user: user[0],
       sessions,
       exportDate: new Date().toISOString(),
       version: '1.0'
     };
-    
+
     sendMessage(ws, 'data_exported', exportData);
-    
+
   } catch (error) {
     logger.error('Failed to export user data:', error as Error);
     sendMessage(ws, 'error', { message: '数据导出失败' });
@@ -1012,14 +1027,14 @@ setInterval(async () => {
   const now = new Date();
   const expiredSessions: string[] = [];
   const timeoutMinutes = parseInt(process.env.GAME_SESSION_TIMEOUT_MINUTES || '60');
-  
+
   sessions.forEach((session, sessionId) => {
     const minutesSinceActivity = (now.getTime() - session.lastActivity.getTime()) / (1000 * 60);
     if (minutesSinceActivity > timeoutMinutes) {
       expiredSessions.push(sessionId);
     }
   });
-  
+
   for (const sessionId of expiredSessions) {
     try {
       await orchestrator.closeSession(sessionId);
@@ -1029,7 +1044,7 @@ setInterval(async () => {
       logger.error(`Error cleaning up session ${sessionId}:`, error as Error);
     }
   }
-  
+
   // Clean up expired orchestrator sessions
   try {
     await orchestrator.cleanupExpiredSessions(timeoutMinutes);
@@ -1041,7 +1056,7 @@ setInterval(async () => {
 // Graceful shutdown
 process.on('SIGINT', async () => {
   logger.info('Shutting down game server...');
-  
+
   // Close all WebSocket connections
   clients.forEach((client, ws) => {
     if (ws.readyState === WebSocket.OPEN) {
@@ -1049,7 +1064,7 @@ process.on('SIGINT', async () => {
       ws.close();
     }
   });
-  
+
   // Close WebSocket server
   wss.close(() => {
     logger.info('WebSocket server closed');

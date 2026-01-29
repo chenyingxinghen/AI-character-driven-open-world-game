@@ -1,1689 +1,832 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI角色驱动开放世界游戏 - 新版本</title>
+    <title>AI-Driven Open World Game | Immersive Interface</title>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&family=Inter:wght@300;400;500&display=swap"
+        rel="stylesheet">
     <style>
-        body {
-            font-family: 'Microsoft YaHei', Arial, sans-serif;
+        :root {
+            --primary: #6366f1;
+            --primary-glow: rgba(99, 102, 241, 0.5);
+            --secondary: #a855f7;
+            --bg-dark: #0f172a;
+            --accent: #fbbf24;
+            --glass: rgba(15, 23, 42, 0.7);
+            --glass-border: rgba(255, 255, 255, 0.1);
+            --text-main: #f1f5f9;
+            --text-dim: #94a3b8;
+        }
+
+        * {
             margin: 0;
             padding: 0;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: #333;
-            min-height: 100vh;
+            box-sizing: border-box;
+            font-family: 'Inter', sans-serif;
         }
-        
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 20px;
-        }
-        
-        .header {
-            text-align: center;
-            margin-bottom: 30px;
-            background: rgba(255, 255, 255, 0.9);
-            padding: 20px;
-            border-radius: 15px;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
-        }
-        
-        .header h1 {
-            margin: 0;
-            color: #4a5568;
-            font-size: 2.5em;
-            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.1);
-        }
-        
-        .status {
-            margin: 10px 0;
-            padding: 10px;
-            border-radius: 8px;
-            font-weight: bold;
-        }
-        
-        .status.disconnected {
-            background-color: #fee;
-            color: #c53030;
-            border: 1px solid #fc8181;
-        }
-        
-        .status.connected {
-            background-color: #f0fff4;
-            color: #38a169;
-            border: 1px solid #68d391;
-        }
-        
-        /* 登录面板 */
-        .login-panel {
-            background: rgba(255, 255, 255, 0.95);
-            padding: 30px;
-            border-radius: 15px;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
-            text-align: center;
-        }
-        
-        .login-panel h2 {
-            color: #4a5568;
-            margin-bottom: 20px;
-        }
-        
-        .login-form {
+
+        body {
+            background-color: var(--bg-dark);
+            background-image: linear-gradient(rgba(15, 23, 42, 0.8), rgba(15, 23, 42, 0.8)), url('C:/Users/29454/.gemini/antigravity/brain/6950df7c-d47f-4a87-a174-3e18c1f84c3a/fantasy_landscape_background_1769507168202.png');
+            background-size: cover;
+            background-position: center;
+            background-attachment: fixed;
+            color: var(--text-main);
+            height: 100vh;
             display: flex;
             flex-direction: column;
-            gap: 15px;
-            max-width: 300px;
-            margin: 0 auto;
-        }
-        
-        .login-form input {
-            padding: 12px;
-            border: 2px solid #e2e8f0;
-            border-radius: 8px;
-            font-size: 16px;
-            transition: border-color 0.3s;
-        }
-        
-        .login-form input:focus {
-            outline: none;
-            border-color: #667eea;
-        }
-        
-        .login-form button {
-            padding: 12px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            border: none;
-            border-radius: 8px;
-            font-size: 16px;
-            font-weight: bold;
-            cursor: pointer;
-            transition: transform 0.2s;
-        }
-        
-        .login-form button:hover {
-            transform: translateY(-2px);
-        }
-        
-        /* 会话管理面板 */
-        .session-panel {
-            background: rgba(255, 255, 255, 0.95);
-            padding: 30px;
-            border-radius: 15px;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
-            margin-bottom: 20px;
-        }
-        
-        .session-list {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-            gap: 15px;
-            margin-bottom: 20px;
-        }
-        
-        .session-item {
-            background: #f7fafc;
-            border: 2px solid #e2e8f0;
-            border-radius: 10px;
-            padding: 15px;
-            cursor: pointer;
-            transition: all 0.3s;
-        }
-        
-        .session-item:hover {
-            border-color: #667eea;
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.3);
-        }
-        
-        .session-item h4 {
-            margin: 0 0 10px 0;
-            color: #2d3748;
-        }
-        
-        .session-item .session-info {
-            font-size: 14px;
-            color: #718096;
-            margin-bottom: 10px;
-        }
-        
-        .session-item .session-actions {
-            display: flex;
-            gap: 10px;
-        }
-        
-        .session-item button {
-            padding: 5px 10px;
-            border: none;
-            border-radius: 5px;
-            cursor: pointer;
-            font-size: 12px;
-        }
-        
-        .btn-load {
-            background: #4299e1;
-            color: white;
-        }
-        
-        .btn-rename {
-            background: #ed8936;
-            color: white;
-        }
-        
-        .btn-delete {
-            background: #e53e3e;
-            color: white;
-        }
-        
-        .create-session {
-            text-align: center;
-            padding: 20px;
-            border: 2px dashed #cbd5e0;
-            border-radius: 10px;
-            cursor: pointer;
-            transition: all 0.3s;
-        }
-        
-        .create-session:hover {
-            border-color: #667eea;
-            background: rgba(102, 126, 234, 0.1);
-        }
-        
-        /* 游戏面板 */
-        .game-panel {
-            background: rgba(255, 255, 255, 0.98);
-            border-radius: 15px;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
             overflow: hidden;
         }
-        
-        .game-header {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 15px 20px;
+
+        header {
+            height: 70px;
+            background: var(--glass);
+            backdrop-filter: blur(12px);
+            border-bottom: 1px solid var(--glass-border);
             display: flex;
-            justify-content: space-between;
             align-items: center;
+            padding: 0 40px;
+            justify-content: space-between;
+            z-index: 100;
         }
-        
-        .game-title {
-            font-size: 18px;
-            font-weight: bold;
+
+        .logo {
+            font-family: 'Outfit', sans-serif;
+            font-size: 1.5rem;
+            font-weight: 700;
+            background: linear-gradient(to right, var(--primary), var(--secondary));
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            letter-spacing: 1px;
         }
-        
-        .game-controls {
+
+        .nav-actions {
             display: flex;
-            gap: 10px;
+            gap: 20px;
         }
-        
-        .game-controls button {
-            padding: 8px 15px;
-            background: rgba(255, 255, 255, 0.2);
-            color: white;
-            border: none;
-            border-radius: 5px;
+
+        .nav-btn {
+            background: transparent;
+            border: 1px solid var(--glass-border);
+            color: var(--text-main);
+            padding: 8px 16px;
+            border-radius: 8px;
             cursor: pointer;
-            transition: background 0.3s;
+            transition: all 0.3s ease;
+            font-size: 0.9rem;
         }
-        
-        .game-controls button:hover {
-            background: rgba(255, 255, 255, 0.3);
+
+        .nav-btn:hover {
+            background: rgba(255, 255, 255, 0.05);
+            border-color: var(--primary);
+            box-shadow: 0 0 10px var(--primary-glow);
         }
-        
-        .game-content {
-            display: flex;
-            height: 600px;
+
+        main {
+            flex: 1;
+            display: grid;
+            grid-template-columns: 320px 1fr 300px;
+            gap: 20px;
+            padding: 20px;
+            overflow: hidden;
         }
-        
-        .game-display {
-            flex: 2;
+
+        .sidebar {
             display: flex;
             flex-direction: column;
-            border-right: 1px solid #e2e8f0;
-        }
-        
-        .scene-display {
-            flex: 1;
-            background: #2d3748;
-            color: white;
-            padding: 20px;
+            gap: 20px;
             overflow-y: auto;
         }
-        
-        .conversation-area {
-            flex: 1;
+
+        .panel {
+            background: var(--glass);
+            backdrop-filter: blur(16px);
+            border: 1px solid var(--glass-border);
+            border-radius: 20px;
             padding: 20px;
-            overflow-y: auto;
-            background: #f8f9fa;
         }
-        
-        .game-sidebar {
-            flex: 1;
-            display: flex;
-            flex-direction: column;
+
+        .panel-title {
+            font-family: 'Outfit', sans-serif;
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin-bottom: 15px;
+            color: var(--secondary);
+            text-transform: uppercase;
+            letter-spacing: 1px;
         }
-        
-        .action-buttons {
-            padding: 20px;
-            background: #f7fafc;
-            border-bottom: 1px solid #e2e8f0;
-        }
-        
-        .action-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 10px;
-        }
-        
-        .action-btn {
-            padding: 10px;
-            background: #4299e1;
-            color: white;
-            border: none;
-            border-radius: 8px;
-            cursor: pointer;
-            transition: background 0.3s;
-        }
-        
-        .action-btn:hover {
-            background: #3182ce;
-        }
-        
-        .input-area {
-            padding: 20px;
-            background: white;
-        }
-        
-        .input-box {
+
+        .char-portrait {
             width: 100%;
-            height: 100px;
-            padding: 10px;
-            border: 2px solid #e2e8f0;
-            border-radius: 8px;
-            resize: none;
-            font-family: inherit;
-        }
-        
-        .send-btn {
-            width: 100%;
-            padding: 12px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            border: none;
-            border-radius: 8px;
-            font-weight: bold;
-            cursor: pointer;
-            margin-top: 10px;
-        }
-        
-        .message {
-            margin: 10px 0;
-            padding: 10px;
-            border-radius: 8px;
-            max-width: 80%;
-        }
-        
-        .message.character {
-            background: #e6fffa;
-            border-left: 4px solid #38b2ac;
-        }
-        
-        .message.player {
-            background: #ebf4ff;
-            border-left: 4px solid #4299e1;
-            margin-left: auto;
-        }
-        
-        .message.narration {
-            background: #fefcbf;
-            border-left: 4px solid #d69e2e;
-            font-style: italic;
-        }
-        
-        .message.system {
-            background: #fed7d7;
-            border-left: 4px solid #e53e3e;
-            text-align: center;
-        }
-        
-        .hidden {
-            display: none !important;
-        }
-        
-        /* 对话框样式 */
-        .modal {
-            display: flex;
-            position: fixed;
-            z-index: 1000;
-            left: 0;
-            top: 0;
-            width: 100%;
-            height: 100%;
-            background-color: rgba(0, 0, 0, 0.5);
-            justify-content: center;
-            align-items: center;
-        }
-        
-        .modal-content {
-            background-color: white;
-            border-radius: 15px;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
-            width: 90%;
-            max-width: 500px;
-            max-height: 80vh;
-            overflow-y: auto;
-        }
-        
-        .modal-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 20px;
-            border-bottom: 1px solid #e2e8f0;
-        }
-        
-        .modal-header h3 {
-            margin: 0;
-            color: #2d3748;
-        }
-        
-        .close {
-            font-size: 28px;
-            font-weight: bold;
-            cursor: pointer;
-            color: #a0aec0;
-        }
-        
-        .close:hover {
-            color: #e53e3e;
-        }
-        
-        .modal-body {
-            padding: 20px;
-        }
-        
-        .form-group {
-            margin-bottom: 20px;
-        }
-        
-        .form-group label {
-            display: block;
-            margin-bottom: 8px;
-            font-weight: bold;
-            color: #2d3748;
-        }
-        
-        .form-group input[type="text"],
-        .form-group textarea {
-            width: 100%;
-            padding: 12px;
-            border: 2px solid #e2e8f0;
-            border-radius: 8px;
-            font-size: 14px;
-            box-sizing: border-box;
-        }
-        
-        .form-group input[type="text"]:focus,
-        .form-group textarea:focus {
-            outline: none;
-            border-color: #667eea;
-        }
-        
-        .form-group textarea {
-            height: 100px;
-            resize: vertical;
-        }
-        
-        .form-group input[type="checkbox"] {
-            width: auto;
-            margin-right: 8px;
-        }
-        
-        .form-hint {
-            font-size: 12px;
-            color: #718096;
-            margin-top: 5px;
-        }
-        
-        .modal-footer {
-            padding: 20px;
-            border-top: 1px solid #e2e8f0;
-            display: flex;
-            justify-content: flex-end;
-            gap: 10px;
-        }
-        
-        .btn-cancel {
-            padding: 10px 20px;
-            border: 2px solid #e2e8f0;
-            background: white;
-            color: #718096;
-            border-radius: 8px;
-            cursor: pointer;
-        }
-        
-        .btn-create {
-            padding: 10px 20px;
-            border: none;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            border-radius: 8px;
-            cursor: pointer;
-            font-weight: bold;
-        }
-        
-        /* 新增的用户页面样式 */
-        .login-help {
-            margin-top: 20px;
-            padding: 15px;
-            background: #f0f8ff;
-            border-radius: 8px;
-            border-left: 4px solid #4299e1;
-            font-size: 14px;
-        }
-        
-        .login-help p {
-            margin: 5px 0;
-        }
-        
-        .session-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 20px;
-            padding-bottom: 15px;
-            border-bottom: 2px solid #e2e8f0;
-        }
-        
-        .user-info {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            font-size: 14px;
-        }
-        
-        .btn-small {
-            padding: 5px 10px;
-            border: 1px solid #e2e8f0;
-            background: white;
-            border-radius: 5px;
-            cursor: pointer;
-            font-size: 12px;
-            transition: all 0.3s;
-        }
-        
-        .btn-small:hover {
-            background: #f7fafc;
-            border-color: #667eea;
-        }
-        
-        .session-stats {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-            gap: 15px;
-            margin-bottom: 20px;
-            padding: 15px;
-            background: #f8f9fa;
-            border-radius: 10px;
-        }
-        
-        .stat-item {
-            text-align: center;
-        }
-        
-        .stat-label {
-            display: block;
-            font-size: 12px;
-            color: #718096;
-            margin-bottom: 5px;
-        }
-        
-        .stat-value {
-            display: block;
-            font-size: 18px;
-            font-weight: bold;
-            color: #2d3748;
-        }
-        
-        .session-filter {
-            display: flex;
-            gap: 10px;
-            margin-bottom: 20px;
-        }
-        
-        .session-filter input,
-        .session-filter select {
-            padding: 8px 12px;
-            border: 2px solid #e2e8f0;
-            border-radius: 6px;
-            font-size: 14px;
-        }
-        
-        .session-filter input {
-            flex: 1;
-        }
-        
-        .session-filter select {
-            min-width: 120px;
-        }
-        
-        .session-actions {
-            display: flex;
-            justify-content: center;
-            gap: 15px;
-            margin-top: 30px;
-            padding-top: 20px;
-            border-top: 1px solid #e2e8f0;
-        }
-        
-        .btn-import {
-            background: #38a169;
-            color: white;
-            padding: 10px 20px;
-            border: none;
-            border-radius: 8px;
-            cursor: pointer;
-            font-weight: bold;
-        }
-        
-        .btn-bulk-delete {
-            background: #e53e3e;
-            color: white;
-            padding: 10px 20px;
-            border: none;
-            border-radius: 8px;
-            cursor: pointer;
-            font-weight: bold;
-        }
-        
-        .btn-logout {
-            background: #718096;
-            color: white;
-            padding: 10px 20px;
-            border: none;
-            border-radius: 8px;
-            cursor: pointer;
-            font-weight: bold;
-        }
-        
-        .session-item {
-            background: #f7fafc;
-            border: 2px solid #e2e8f0;
-            border-radius: 10px;
-            padding: 15px;
-            cursor: pointer;
-            transition: all 0.3s;
+            height: 200px;
+            background: #1e293b;
+            border-radius: 12px;
+            margin-bottom: 15px;
+            overflow: hidden;
             position: relative;
         }
-        
-        .session-item.selected {
-            border-color: #667eea;
-            background: #ebf4ff;
+
+        .char-portrait img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
         }
-        
-        .session-item .session-header-item {
+
+        .stat-item {
+            margin-bottom: 12px;
+        }
+
+        .stat-label {
+            font-size: 0.8rem;
+            color: var(--text-dim);
+            margin-bottom: 5px;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .stat-bar {
+            height: 6px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 3px;
+            overflow: hidden;
+        }
+
+        .stat-fill {
+            height: 100%;
+            background: linear-gradient(to right, var(--primary), var(--secondary));
+            width: 0%;
+            transition: width 1s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .content-area {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            overflow: hidden;
+        }
+
+        .narrative-feed {
+            flex: 1;
+            background: var(--glass);
+            backdrop-filter: blur(16px);
+            border: 1px solid var(--glass-border);
+            border-radius: 24px;
+            padding: 30px;
+            overflow-y: auto;
+            scroll-behavior: smooth;
+            display: flex;
+            flex-direction: column;
+            gap: 25px;
+        }
+
+        .message {
+            max-width: 85%;
+            animation: fadeIn 0.5s ease forwards;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .message-player {
+            align-self: flex-end;
+            text-align: right;
+        }
+
+        .message-ai {
+            align-self: flex-start;
+        }
+
+        .message-bubble {
+            padding: 16px 20px;
+            border-radius: 18px;
+            line-height: 1.6;
+            font-size: 1rem;
+        }
+
+        .message-player .message-bubble {
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            color: white;
+            border-bottom-right-radius: 4px;
+            box-shadow: 0 8px 16px rgba(99, 102, 241, 0.2);
+        }
+
+        .message-ai .message-bubble {
+            background: rgba(255, 255, 255, 0.05);
+            border-bottom-left-radius: 4px;
+            border: 1px solid var(--glass-border);
+        }
+
+        .message-label {
+            font-size: 0.75rem;
+            color: var(--text-dim);
+            margin-bottom: 6px;
+            font-weight: 500;
+        }
+
+        .input-container {
+            height: 80px;
+            background: var(--glass);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--glass-border);
+            border-radius: 20px;
+            display: flex;
+            align-items: center;
+            padding: 0 10px 0 25px;
+            transition: border-color 0.3s ease;
+        }
+
+        .input-container:focus-within {
+            border-color: var(--primary);
+        }
+
+        input {
+            flex: 1;
+            background: transparent;
+            border: none;
+            color: var(--text-main);
+            font-size: 1rem;
+            outline: none;
+        }
+
+        .send-btn {
+            width: 60px;
+            height: 60px;
+            background: var(--primary);
+            border: none;
+            border-radius: 16px;
+            color: white;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: transform 0.2s ease, box-shadow 0.3s ease;
+        }
+
+        .send-btn:hover {
+            transform: scale(1.05);
+            box-shadow: 0 0 20px var(--primary-glow);
+        }
+
+        .pipeline-status {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .step {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-size: 0.85rem;
+            color: var(--text-dim);
+        }
+
+        .step-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #334155;
+            transition: all 0.3s ease;
+        }
+
+        .step-active .step-dot {
+            background: var(--primary);
+            box-shadow: 0 0 8px var(--primary);
+        }
+
+        .step-active .step-label {
+            color: var(--text-main);
+            font-weight: 500;
+        }
+
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 3px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+
+        .world-view {
+            height: 180px;
+            border-radius: 15px;
+            margin-bottom: 15px;
+            background: linear-gradient(45deg, #1e293b, #0f172a);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: 1px solid var(--glass-border);
+            overflow: hidden;
+        }
+
+        .tension-meter {
+            height: 40px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .session-list {
+            max-height: 200px;
+            overflow-y: auto;
+            margin-bottom: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            text-align: left;
+        }
+
+        .session-item {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--glass-border);
+            border-radius: 10px;
+            padding: 12px;
+            cursor: pointer;
+            transition: all 0.2s ease;
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 10px;
         }
-        
-        .session-item .session-description {
-            font-size: 13px;
-            color: #718096;
-            margin: 8px 0;
-            font-style: italic;
+
+        .session-item:hover {
+            border-color: var(--primary);
+            background: rgba(99, 102, 241, 0.1);
         }
-        
-        .session-item .session-tags {
+
+        .session-info {
+            flex: 1;
+        }
+
+        .session-name {
+            font-weight: 600;
+            font-size: 0.9rem;
+            color: var(--text-main);
+            display: block;
+        }
+
+        .session-date {
+            font-size: 0.75rem;
+            color: var(--text-dim);
+        }
+
+        .load-btn {
+            background: var(--primary);
+            color: white;
+            border: none;
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-size: 0.8rem;
+            cursor: pointer;
+        }
+
+        .delete-btn {
+            background: rgba(239, 68, 68, 0.1);
+            color: #ef4444;
+            border: 1px solid rgba(239, 68, 68, 0.2);
+            padding: 4px 8px;
+            border-radius: 6px;
+            font-size: 0.75rem;
+            cursor: pointer;
+            margin-left: 8px;
+            transition: all 0.2s ease;
+        }
+
+        .delete-btn:hover {
+            background: #ef4444;
+            color: white;
+        }
+
+        .session-actions {
             display: flex;
-            gap: 5px;
-            margin: 8px 0;
-        }
-        
-        .session-tag {
-            background: #e2e8f0;
-            color: #4a5568;
-            padding: 2px 8px;
-            border-radius: 12px;
-            font-size: 11px;
-        }
-        
-        .bulk-select {
-            position: absolute;
-            top: 10px;
-            right: 10px;
-            transform: scale(1.2);
+            align-items: center;
         }
     </style>
 </head>
+
 <body>
-    <div class="container">
-        <div class="header">
-            <h1>🎮 AI角色驱动开放世界游戏</h1>
-            <div id="connectionStatus" class="status disconnected">
-                🔴 未连接到服务器
-            </div>
-        </div>
 
-        <!-- 登录面板 -->
-        <div id="loginPanel" class="login-panel">
-            <h2>🚀 开始你的冒险</h2>
-            <p>请输入你的用户名来开始游戏。如果是新用户，系统会自动为你创建账号。</p>
-            <div class="login-form">
-                <input type="text" id="usernameInput" placeholder="请输入用户名" maxlength="50">
-                <div class="form-group">
-                    <label>
-                        <input type="checkbox" id="rememberUsernameCheckbox">
-                        记住用户名
-                    </label>
-                    <p class="form-hint">下次访问时自动填充用户名</p>
-                </div>
-                <button onclick="login()">登录游戏</button>
-                <div class="login-help">
-                    <p><strong>快速开始：</strong></p>
-                    <p>• 首次登录会自动创建账号</p>
-                    <p>• 支持中文用户名</p>
-                    <p>• 可管理多个游戏存档</p>
-                </div>
+    <!-- 登录/会话初始化覆盖层 -->
+    <div id="setup-overlay"
+        style="position: fixed; inset: 0; background: var(--bg-dark); z-index: 200; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(20px);">
+        <div class="panel" style="width: 400px; text-align: center;">
+            <div class="logo" style="font-size: 2rem; margin-bottom: 30px;">AETHER NEXUS</div>
+            <div id="login-step">
+                <p style="margin-bottom: 20px; color: var(--text-dim);">请输入您的冒险者 ID 以太：</p>
+                <input type="text" id="usernameInput" placeholder="用户名..."
+                    style="width: 100%; padding: 12px; margin-bottom: 20px; border-radius: 10px; background: rgba(255,255,255,0.05); border: 1px solid var(--glass-border); color: white; display: block;"
+                    value="Adventurer">
+                <button class="nav-btn" id="loginBtn"
+                    style="width: 100%; padding: 12px; background: var(--primary);">进入世界</button>
             </div>
-        </div>
+            <div id="session-step" style="display: none;">
+                <p style="margin-bottom: 20px; color: var(--text-dim);">创建一个新会话或加载既存记录：</p>
 
-        <!-- 会话管理面板 -->
-        <div id="sessionPanel" class="session-panel hidden">
-            <div class="session-header">
-                <h2>📚 我的游戏存档</h2>
-                <div class="user-info">
-                    <span id="currentUsername">用户：</span>
-                    <button onclick="changeUsername()" class="btn-small">修改用户名</button>
-                    <button onclick="exportUserData()" class="btn-small">导出数据</button>
+                <div id="session-list" class="session-list" style="display: none;">
+                    <!-- 动态加载会话列表 -->
                 </div>
-            </div>
-            
-            <div class="session-stats">
-                <div class="stat-item">
-                    <span class="stat-label">总存档数：</span>
-                    <span id="totalSessions" class="stat-value">0</span>
-                </div>
-                <div class="stat-item">
-                    <span class="stat-label">游戏时长：</span>
-                    <span id="totalPlayTime" class="stat-value">0小时</span>
-                </div>
-                <div class="stat-item">
-                    <span class="stat-label">最后活动：</span>
-                    <span id="lastActivity" class="stat-value">--</span>
-                </div>
-            </div>
-            
-            <div class="session-filter">
-                <input type="text" id="sessionSearchInput" placeholder="搜索存档..." onkeyup="filterSessions()">
-                <select id="sessionSortSelect" onchange="sortSessions()">
-                    <option value="recent">按最近活动</option>
-                    <option value="name">按名称</option>
-                    <option value="created">按创建时间</option>
-                </select>
-            </div>
-            
-            <div id="sessionList" class="session-list">
-                <!-- 会话列表将在这里动态生成 -->
-            </div>
-            
-            <div class="create-session" onclick="showCreateSessionDialog()">
-                <h3>➕ 创建新的冒险</h3>
-                <p>开始一个全新的故事</p>
-            </div>
-            
-            <div class="session-actions">
-                <button onclick="importUserData()" class="btn-import">导入数据</button>
-                <button onclick="bulkDeleteSessions()" class="btn-bulk-delete">批量删除</button>
-                <button onclick="logout()" class="btn-logout">退出登录</button>
-            </div>
-        </div>
 
-        <!-- 创建会话对话框 -->
-        <div id="createSessionModal" class="modal hidden">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h3>🎮 创建新的冒险</h3>
-                    <span class="close" onclick="hideCreateSessionDialog()">&times;</span>
-                </div>
-                <div class="modal-body">
-                    <div class="form-group">
-                        <label for="sessionNameInput">存档名称：</label>
-                        <input type="text" id="sessionNameInput" placeholder="我的冒险旅程" maxlength="100">
-                    </div>
-                    
-                    <div class="form-group">
-                        <label for="sessionDescriptionInput">存档描述（可选）：</label>
-                        <textarea id="sessionDescriptionInput" placeholder="简单描述这个存档的内容..." maxlength="200" rows="3"></textarea>
-                    </div>
-                    
-                    <div class="form-group">
-                        <label>
-                            <input type="checkbox" id="useInspirationCheckbox" onchange="toggleInspirationInput()">
-                            根据我的灵感生成世界背景
-                        </label>
-                        <p class="form-hint">勾选此选项可以根据你的想法创建独特的世界设定</p>
-                    </div>
-                    
-                    <div class="form-group" id="inspirationGroup" style="display: none;">
-                        <label for="inspirationInput">你的世界灵感：</label>
-                        <textarea id="inspirationInput" placeholder="例如：一个被古老魔法笼罩的神秘森林王国，传说中有龙族守护着失落的宝藏..." maxlength="800" rows="4"></textarea>
-                        <p class="form-hint">描述你想要的世界类型、主题或特殊元素</p>
-                    </div>
-                    
-                    <div class="form-group">
-                        <label for="worldStyleSelect">世界风格：</label>
-                        <select id="worldStyleSelect">
-                            <option value="fantasy">奇幻</option>
-                            <option value="medieval">中世纪</option>
-                            <option value="modern">现代</option>
-                            <option value="scifi">科幻</option>
-                            <option value="historical">历史</option>
-                            <option value="mystery">悬疑</option>
-                            <option value="adventure">冒险</option>
-                            <option value="custom">自定义</option>
-                        </select>
-                    </div>
-                    
-                    <div class="form-group">
-                        <label for="difficultySelect">游戏难度：</label>
-                        <select id="difficultySelect">
-                            <option value="easy">简单 - 更多指引，轻松体验</option>
-                            <option value="normal" selected>普通 - 平衡的挑战</option>
-                            <option value="hard">困难 - 更多挑战，更少提示</option>
-                            <option value="expert">专家 - 完全自由探索</option>
-                        </select>
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button onclick="hideCreateSessionDialog()" class="btn-cancel">取消</button>
-                    <button onclick="createNewSession()" class="btn-create">创建冒险</button>
+                <div style="border-top: 1px solid var(--glass-border); padding-top: 15px; margin-top: 10px;">
+                    <p style="font-size: 0.8rem; color: var(--text-dim); margin-bottom: 10px;">或者开启一个新冒险：</p>
+                    <input type="text" id="sessionNameInput" placeholder="会话名称 (例如: 密林探险)..."
+                        style="width: 100%; padding: 12px; margin-bottom: 15px; border-radius: 10px; background: rgba(255,255,255,0.05); border: 1px solid var(--glass-border); color: white; display: block;"
+                        value="幽光密林之行">
+                    <button class="nav-btn" id="startBtn"
+                        style="width: 100%; padding: 12px; background: var(--secondary);">开启全新征程</button>
                 </div>
             </div>
-        </div>
-
-        <!-- 游戏面板 -->
-        <div id="gamePanel" class="game-panel hidden">
-            <div class="game-header">
-                <div class="game-title" id="gameTitle">游戏中...</div>
-                <div class="game-controls">
-                    <button onclick="saveGame()">💾 保存</button>
-                    <button onclick="exitGame()">🚪 退出</button>
-                </div>
-            </div>
-            
-            <div class="game-content">
-                <div class="game-display">
-                    <div class="scene-display">
-                        <h3>🌍 场景描述</h3>
-                        <div id="sceneDescription">
-                            正在加载场景...
-                        </div>
-                    </div>
-                    
-                    <div class="conversation-area" id="conversationArea">
-                        <div class="message system">
-                            欢迎来到AI驱动的开放世界！在这里，你可以与AI角色对话，探索动态生成的世界。
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="game-sidebar">
-                    <div class="action-buttons">
-                        <h4>🎯 快捷操作</h4>
-                        <div class="action-grid" id="actionGrid">
-                            <button class="action-btn" onclick="quickAction('look')">👀 观察周围</button>
-                            <button class="action-btn" onclick="quickAction('talk')">💬 与人交谈</button>
-                            <button class="action-btn" onclick="quickAction('move')">🚶 四处走动</button>
-                            <button class="action-btn" onclick="quickAction('inventory')">🎒 查看背包</button>
-                        </div>
-                    </div>
-                    
-                    <div class="input-area">
-                        <h4>✍️ 自由输入</h4>
-                        <textarea id="playerInput" class="input-box" placeholder="描述你想要做的事情...例如：'我想去探索附近的森林'"></textarea>
-                        <button class="send-btn" onclick="sendInput()">发送</button>
-                    </div>
-                </div>
-            </div>
+            <p id="setup-status" style="margin-top: 20px; font-size: 0.8rem; color: var(--primary);"></p>
         </div>
     </div>
 
+    <header>
+        <div class="logo">AETHER NEXUS</div>
+        <div class="nav-actions">
+            <button class="nav-btn">角色大纲</button>
+            <button class="nav-btn">世界记录</button>
+            <button class="nav-btn">系统设置</button>
+        </div>
+    </header>
+
+    <main id="game-main" style="visibility: hidden;">
+        <!-- 左侧：角色信息 -->
+        <div class="sidebar">
+            <div class="panel">
+                <div class="panel-title">当前目标角色</div>
+                <div class="char-portrait">
+                    <img src="https://images.unsplash.com/photo-1519067736912-42cc95716e48?auto=format&fit=crop&q=80&w=400"
+                        alt="Character">
+                </div>
+                <h3 id="target-char-name">艾琳娜·晨晖 (Elara)</h3>
+                <p id="target-char-desc" style="font-size: 0.85rem; color: var(--text-dim); margin: 8px 0 20px;">
+                    银翼骑士团的见习向导</p>
+
+                <div class="stat-item">
+                    <div class="stat-label"><span>好感度 (Affinity)</span><span id="affinity-val">0%</span></div>
+                    <div class="stat-bar">
+                        <div class="stat-fill" id="affinity-bar" style="width: 0%;"></div>
+                    </div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label"><span>情绪值 (Mood)</span><span id="mood-val">未知</span></div>
+                    <div class="stat-bar">
+                        <div class="stat-fill" id="mood-bar" style="width: 0%; background: var(--primary);"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="panel">
+                <div class="panel-title">系统处理流水线 (实时)</div>
+                <div class="pipeline-status">
+                    <div class="step" id="step-intent">
+                        <div class="step-dot"></div>
+                        <div class="step-label">1. 意图分类 (JSON Schema)</div>
+                    </div>
+                    <div class="step" id="step-director">
+                        <div class="step-dot"></div>
+                        <div class="step-label">2. 导演冲突/张力评估</div>
+                    </div>
+                    <div class="step" id="step-domain">
+                        <div class="step-dot"></div>
+                        <div class="step-label">3. 领域逻辑 (Actions) 执行</div>
+                    </div>
+                    <div class="step" id="step-narrative">
+                        <div class="step-dot"></div>
+                        <div class="step-label">4. 叙事全量合成渲染</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="content-area">
+            <div class="narrative-feed" id="feed"></div>
+            <div class="input-container">
+                <input type="text" id="userInput" placeholder="输入你想说的话或动作..." autocomplete="off">
+                <button class="send-btn" id="sendBtn">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="22" y1="2" x2="11" y2="13"></line>
+                        <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                    </svg>
+                </button>
+            </div>
+        </div>
+
+        <div class="sidebar">
+            <div class="panel">
+                <div class="panel-title">当前位置</div>
+                <div class="world-view" id="location-title">[ 加载中... ]</div>
+                <p id="location-desc" style="font-size: 0.85rem; line-height: 1.5;">世界数据正在从以太中同步...</p>
+            </div>
+
+            <div class="panel">
+                <div class="panel-title">叙事张力 (Director Control)</div>
+                <div class="tension-meter">
+                    <div
+                        style="flex: 1; height: 10px; background: rgba(255,255,255,0.05); border-radius: 5px; position: relative; overflow: hidden;">
+                        <div id="tension-bar"
+                            style="height: 100%; background: #ef4444; width: 0%; transition: width 0.5s ease;"></div>
+                    </div>
+                    <span style="font-size: 0.8rem; font-weight: 600; color: #ef4444;" id="tension-val">0%</span>
+                </div>
+                <p id="conflict-desc" style="font-size: 0.8rem; color: var(--text-dim); margin-top: 10px;">
+                    导演系统正在评估当前叙事曲线。</p>
+            </div>
+        </div>
+    </main>
+
     <script>
-        let ws = null;
-        let currentUser = null;
-        let currentSession = null;
-        let sessions = [];
-        let selectedSessions = new Set(); // 用于批量选择
-        let bulkSelectMode = false; // 批量选择模式
+        const setupOverlay = document.getElementById('setup-overlay');
+        const gameMain = document.getElementById('game-main');
+        const setupStatus = document.getElementById('setup-status');
+        const feed = document.getElementById('feed');
+        const userInput = document.getElementById('userInput');
+        const sendBtn = document.getElementById('sendBtn');
 
-        // 连接到游戏服务器
-        function connectToServer() {
-            const wsUrl = 'ws://localhost:8080';
-            ws = new WebSocket(wsUrl);
-            
-            ws.onopen = function() {
-                updateConnectionStatus(true);
-                console.log('Connected to game server');
+        let socket;
+        let sessionId = null;
+        let playerId = null;
+        let username = null;
+
+        const pipelineSteps = ['step-intent', 'step-director', 'step-domain', 'step-narrative'];
+
+        function initWebSocket() {
+            setupStatus.innerText = "正在连接以太节点...";
+            socket = new WebSocket('ws://localhost:8080');
+
+            socket.onopen = () => {
+                setupStatus.innerText = "连接成功。";
             };
-            
-            ws.onmessage = function(event) {
-                handleServerMessage(JSON.parse(event.data));
+
+            socket.onmessage = (event) => {
+                const msg = JSON.parse(event.data);
+                handleServerMessage(msg);
             };
-            
-            ws.onclose = function() {
-                updateConnectionStatus(false);
-                console.log('Disconnected from game server');
-                // 尝试重连
-                setTimeout(connectToServer, 3000);
+
+            socket.onclose = () => {
+                setupStatus.innerText = "连接已断开，请刷新重试。";
+                setupStatus.style.color = "#ef4444";
             };
-            
-            ws.onerror = function(error) {
-                console.error('WebSocket error:', error);
-                updateConnectionStatus(false);
+
+            socket.onerror = (err) => {
+                console.error("WS Error:", err);
+                setupStatus.innerText = "连接错误。";
             };
         }
 
-        // 更新连接状态
-        function updateConnectionStatus(connected) {
-            const statusElement = document.getElementById('connectionStatus');
-            if (connected) {
-                statusElement.className = 'status connected';
-                statusElement.textContent = '🟢 已连接到服务器';
-            } else {
-                statusElement.className = 'status disconnected';
-                statusElement.textContent = '🔴 未连接到服务器';
-            }
-        }
+        function handleServerMessage(msg) {
+            console.log("RX:", msg.type, msg.payload);
+            const { type, payload } = msg;
 
-        // 发送消息到服务器
-        function sendMessage(type, payload) {
-            if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({
-                    type: type,
-                    payload: payload,
-                    timestamp: new Date()
-                }));
-            } else {
-                console.error('WebSocket is not connected');
-            }
-        }
-
-        // 处理服务器消息
-        function handleServerMessage(message) {
-            console.log('Received message:', message);
-            
-            switch (message.type) {
+            switch (type) {
                 case 'login_success':
-                    handleLoginSuccess(message.payload);
+                    username = payload.username;
+                    document.getElementById('login-step').style.display = 'none';
+                    document.getElementById('session-step').style.display = 'block';
+                    setupStatus.innerText = `欢迎，${username}。正在检索您的冒险记录...`;
+                    // 自动拉取会话列表
+                    socket.send(JSON.stringify({ type: 'get_user_sessions', payload: {} }));
                     break;
+
                 case 'user_sessions':
-                    handleUserSessions(message.payload);
+                    renderSessionList(payload.sessions);
                     break;
-                case 'session_created':
-                    handleSessionCreated(message.payload);
-                    break;
-                case 'session_loaded':
-                    handleSessionLoaded(message.payload);
-                    break;
-                case 'session_renamed':
-                    handleSessionRenamed(message.payload);
-                    break;
+
                 case 'session_deleted':
-                    handleSessionDeleted(message.payload);
+                    setupStatus.innerText = "记录已成功抹除。";
+                    // 重新获取列表
+                    socket.send(JSON.stringify({ type: 'get_user_sessions', payload: {} }));
                     break;
+
+                case 'setup_progress':
+                    setupStatus.innerText = payload.message || "进行中...";
+                    if (payload.step === 'lore') setupStatus.style.color = "#818cf8";
+                    if (payload.step === 'outline') setupStatus.style.color = "#a78bfa";
+                    if (payload.step === 'scene') setupStatus.style.color = "#f472b6";
+                    break;
+
+                case 'session_created':
+                case 'session_loaded':
+                    sessionId = payload.sessionId;
+                    playerId = payload.playerId || 'player1'; // 修正默认值
+                    setupOverlay.style.display = 'none';
+                    gameMain.style.visibility = 'visible';
+
+                    // 如果存在历史对话，清空当前 feed 并重新渲染
+                    if (payload.conversations && payload.conversations.length > 0) {
+                        feed.innerHTML = '';
+                        payload.conversations.forEach(conv => {
+                            const type = conv.message_type === 'player_input' ? 'player' : 'ai';
+                            addMessage(conv.content, type, conv.character_id === 'system' ? 'SYSTEM' : (conv.character_id === 'narrator' ? 'NARRATOR' : conv.character_id), true);
+                        });
+                        addMessage("--- 记忆已从深度以太中同步 ---", "ai");
+                    } else {
+                        addMessage("叙事引擎已加载，欢迎进入新世界。", "ai");
+                    }
+                    break;
+
                 case 'character_response':
-                    addMessage(message.payload);
+                    addMessage(payload.content, payload.characterId === 'narrator' ? 'ai' : 'ai', payload.characterName);
+                    // 恢复输入
+                    userInput.disabled = false;
+                    sendBtn.disabled = false;
+                    userInput.focus();
                     break;
+
                 case 'scene_update':
-                    updateScene(message.payload);
+                    document.getElementById('location-title').innerText = `[ ${payload.title || '未知'} ]`;
+                    document.getElementById('location-desc').innerText = payload.description;
                     break;
-                case 'username_changed':
-                    handleUsernameChanged(message.payload);
+
+                case 'game_state_update':
+                    document.getElementById('location-title').innerText = `[ ${payload.currentLocation} ]`;
                     break;
-                case 'data_imported':
-                    handleDataImported(message.payload);
+
+                case 'pipeline_actions':
+                    visualizePipeline(payload.actions);
                     break;
-                case 'data_exported':
-                    handleDataExported(message.payload);
-                    break;
-                case 'world_lore_update':
-                    handleWorldLoreUpdate(message.payload);
-                    break;
+
                 case 'error':
-                    showError(message.payload.message);
+                    addMessage(`[错误] ${payload.message}`, 'ai');
+                    // 恢复所有按钮
+                    userInput.disabled = false;
+                    sendBtn.disabled = false;
+                    document.getElementById('loginBtn').disabled = false;
+                    document.getElementById('loginBtn').innerText = "进入世界";
+                    document.getElementById('startBtn').disabled = false;
+                    document.getElementById('startBtn').innerText = "开启征程";
                     break;
-                default:
-                    console.log('Unhandled message type:', message.type);
             }
         }
 
-        // 登录
-        function login() {
-            const username = document.getElementById('usernameInput').value.trim();
-            const rememberUsername = document.getElementById('rememberUsernameCheckbox').checked;
-            
-            if (!username) {
-                alert('请输入用户名');
-                return;
+        async function visualizePipeline(actions) {
+            // 通过解析 GameActions 来模拟流水线步进
+            for (const stepId of pipelineSteps) {
+                const el = document.getElementById(stepId);
+                el.classList.add('step-active');
+                el.querySelector('.step-dot').style.transform = 'scale(1.5)';
+                await new Promise(r => setTimeout(r, 400));
             }
-            
-            // 保存用户名到本地存储
-            if (rememberUsername) {
-                localStorage.setItem('rememberedUsername', username);
-            } else {
-                localStorage.removeItem('rememberedUsername');
-            }
-            
-            sendMessage('login', { username: username });
-        }
 
-        // 处理登录成功
-        function handleLoginSuccess(payload) {
-            currentUser = payload;
-            document.getElementById('loginPanel').classList.add('hidden');
-            document.getElementById('sessionPanel').classList.remove('hidden');
-            
-            // 更新用户信息显示
-            document.getElementById('currentUsername').textContent = `用户：${currentUser.username}`;
-            
-            // 获取用户的会话列表
-            sendMessage('get_user_sessions', {});
-            
-            // 启动自动刷新
-            startAutoRefresh();
-        }
-
-        // 处理用户会话列表
-        function handleUserSessions(payload) {
-            sessions = payload.sessions;
-            updateSessionStats();
-            renderSessionList();
-        }
-        
-        // 更新会话统计信息
-        function updateSessionStats() {
-            document.getElementById('totalSessions').textContent = sessions.length;
-            
-            // 计算总游戏时长（模拟）
-            const totalHours = sessions.length * 2.5; // 假设每个存档平均 2.5 小时
-            document.getElementById('totalPlayTime').textContent = `${totalHours.toFixed(1)}小时`;
-            
-            // 最后活动时间
-            if (sessions.length > 0) {
-                const latestActivity = sessions.reduce((latest, session) => {
-                    return new Date(session.last_activity) > new Date(latest.last_activity) ? session : latest;
-                });
-                document.getElementById('lastActivity').textContent = new Date(latestActivity.last_activity).toLocaleString('zh-CN');
-            } else {
-                document.getElementById('lastActivity').textContent = '--';
-            }
-        }
-
-        // 渲染会话列表
-        function renderSessionList() {
-            const sessionList = document.getElementById('sessionList');
-            sessionList.innerHTML = '';
-            
-            // 应用搜索和排序筛选
-            let filteredSessions = [...sessions];
-            const searchTerm = document.getElementById('sessionSearchInput')?.value.toLowerCase() || '';
-            const sortBy = document.getElementById('sessionSortSelect')?.value || 'recent';
-            
-            // 搜索筛选
-            if (searchTerm) {
-                filteredSessions = filteredSessions.filter(session => 
-                    session.session_name.toLowerCase().includes(searchTerm) ||
-                    (session.description && session.description.toLowerCase().includes(searchTerm))
-                );
-            }
-            
-            // 排序
-            filteredSessions.sort((a, b) => {
-                switch (sortBy) {
-                    case 'name':
-                        return a.session_name.localeCompare(b.session_name);
-                    case 'created':
-                        return new Date(b.created_at) - new Date(a.created_at);
-                    case 'recent':
-                    default:
-                        return new Date(b.last_activity) - new Date(a.last_activity);
+            // 简单模拟基于动作的属性变化
+            actions.forEach(action => {
+                if (action.type === 'STORY_EVENT') {
+                    const tensionValEl = document.getElementById('tension-val');
+                    const currentTension = parseInt(tensionValEl.innerText) || 0;
+                    const tension = Math.min(100, currentTension + 15);
+                    document.getElementById('tension-bar').style.width = tension + '%';
+                    tensionValEl.innerText = tension + '%';
                 }
             });
-            
-            filteredSessions.forEach(session => {
-                const sessionItem = document.createElement('div');
-                sessionItem.className = 'session-item';
-                if (selectedSessions.has(session.id)) {
-                    sessionItem.classList.add('selected');
-                }
-                
-                // 计算游戏时长（模拟）
-                const daysSinceCreated = Math.floor((new Date() - new Date(session.created_at)) / (1000 * 60 * 60 * 24));
-                const estimatedPlayTime = Math.max(0.5, daysSinceCreated * 0.3);
-                
-                // 生成标签
-                const tags = [];
-                if (session.inspiration) tags.push('原创世界');
-                if (session.world_style) tags.push(getWorldStyleName(session.world_style));
-                if (session.difficulty) tags.push(getDifficultyName(session.difficulty));
-                
-                sessionItem.innerHTML = `
-                    ${bulkSelectMode ? `<input type="checkbox" class="bulk-select" ${selectedSessions.has(session.id) ? 'checked' : ''} onchange="toggleSessionSelection('${session.id}')">` : ''}
-                    <div class="session-header-item">
-                        <h4>${session.session_name}</h4>
-                        <span class="session-play-time">${estimatedPlayTime.toFixed(1)}h</span>
-                    </div>
-                    ${session.description ? `<div class="session-description">${session.description}</div>` : ''}
+
+            // 重置点
+            setTimeout(() => {
+                pipelineSteps.forEach(id => {
+                    const el = document.getElementById(id);
+                    el.classList.remove('step-active');
+                    el.querySelector('.step-dot').style.transform = 'scale(1)';
+                });
+            }, 2000);
+        }
+
+        function renderSessionList(sessions) {
+            const listContainer = document.getElementById('session-list');
+            if (!sessions || sessions.length === 0) {
+                listContainer.style.display = 'none';
+                setupStatus.innerText = "未发现既存记录。";
+                return;
+            }
+
+            listContainer.style.display = 'flex';
+            listContainer.innerHTML = '';
+            setupStatus.innerText = "发现既存记录。";
+
+            sessions.forEach(s => {
+                const item = document.createElement('div');
+                item.className = 'session-item';
+                const dateStr = s.created_at ? new Date(s.created_at).toLocaleString() : '未知时间';
+
+                item.innerHTML = `
                     <div class="session-info">
-                        创建时间: ${new Date(session.created_at).toLocaleString('zh-CN')}<br>
-                        最后活动: ${new Date(session.last_activity).toLocaleString('zh-CN')}
+                        <span class="session-name">${s.session_name || '未命名历险'}</span>
+                        <span class="session-date">${dateStr}</span>
                     </div>
-                    ${tags.length > 0 ? `<div class="session-tags">${tags.map(tag => `<span class="session-tag">${tag}</span>`).join('')}</div>` : ''}
                     <div class="session-actions">
-                        <button class="btn-load" onclick="loadSession('${session.id}')">加载</button>
-                        <button class="btn-rename" onclick="renameSession('${session.id}')">重命名</button>
-                        <button class="btn-delete" onclick="deleteSession('${session.id}')">删除</button>
+                        <button class="load-btn">继续冒险</button>
+                        <button class="delete-btn">删除</button>
                     </div>
                 `;
-                sessionList.appendChild(sessionItem);
-            });
-            
-            if (filteredSessions.length === 0) {
-                sessionList.innerHTML = '<div style="text-align: center; padding: 40px; color: #718096;">没有找到匹配的存档</div>';
-            }
-        }
 
-        // 创建新会话
-        function showCreateSessionDialog() {
-            // 设置默认值
-            document.getElementById('sessionNameInput').value = `冒险 ${new Date().toLocaleString('zh-CN')}`;
-            document.getElementById('sessionDescriptionInput').value = '';
-            document.getElementById('useInspirationCheckbox').checked = false;
-            document.getElementById('inspirationInput').value = '';
-            document.getElementById('inspirationGroup').style.display = 'none';
-            document.getElementById('worldStyleSelect').value = 'fantasy';
-            document.getElementById('difficultySelect').value = 'normal';
-            
-            // 显示对话框
-            document.getElementById('createSessionModal').classList.remove('hidden');
-        }
-        
-        function hideCreateSessionDialog() {
-            document.getElementById('createSessionModal').classList.add('hidden');
-        }
-        
-        function toggleInspirationInput() {
-            const checkbox = document.getElementById('useInspirationCheckbox');
-            const inspirationGroup = document.getElementById('inspirationGroup');
-            
-            if (checkbox.checked) {
-                inspirationGroup.style.display = 'block';
-            } else {
-                inspirationGroup.style.display = 'none';
-                document.getElementById('inspirationInput').value = '';
-            }
-        }
-        
-        function createNewSession() {
-            const sessionName = document.getElementById('sessionNameInput').value.trim();
-            const sessionDescription = document.getElementById('sessionDescriptionInput').value.trim();
-            const useInspiration = document.getElementById('useInspirationCheckbox').checked;
-            const inspiration = document.getElementById('inspirationInput').value.trim();
-            const worldStyle = document.getElementById('worldStyleSelect').value;
-            const difficulty = document.getElementById('difficultySelect').value;
-            
-            if (!sessionName) {
-                alert('请输入存档名称');
-                return;
-            }
-            
-            if (useInspiration && !inspiration) {
-                alert('请输入你的世界灵感，或取消勾选灵感选项');
-                return;
-            }
-            
-            const payload = { 
-                sessionName,
-                description: sessionDescription,
-                worldStyle,
-                difficulty
-            };
-            
-            if (useInspiration && inspiration) {
-                payload.inspiration = inspiration;
-            }
-            
-            sendMessage('create_session', payload);
-            hideCreateSessionDialog();
-        }
+                item.querySelector('.load-btn').onclick = (e) => {
+                    e.stopPropagation();
+                    const btn = item.querySelector('.load-btn');
+                    btn.innerText = "载入中...";
+                    btn.disabled = true;
+                    socket.send(JSON.stringify({
+                        type: 'load_session',
+                        payload: { sessionId: s.id }
+                    }));
+                };
 
-        // 处理会话创建成功
-        function handleSessionCreated(payload) {
-            currentSession = payload;
-            document.getElementById('gameTitle').textContent = payload.sessionName;
-            document.getElementById('sessionPanel').classList.add('hidden');
-            document.getElementById('gamePanel').classList.remove('hidden');
-            
-            // 清空对话区域
-            document.getElementById('conversationArea').innerHTML = `
-                <div class="message system">
-                    欢迎来到新的冒险：${payload.sessionName}
-                </div>
-            `;
-            
-            // 如果有灵感，显示灵感信息
-            if (payload.inspiration) {
-                addMessage({
-                    characterId: 'system',
-                    characterName: '系统',
-                    content: `你的世界灵感：${payload.inspiration}`,
-                    type: 'system'
-                });
-            }
-            
-            // 更新本地会话列表 - 添加新创建的会话
-            const newSession = {
-                id: payload.sessionId,
-                session_name: payload.sessionName,
-                description: payload.description || '',
-                world_style: payload.worldStyle || 'fantasy',
-                difficulty: payload.difficulty || 'normal',
-                inspiration: payload.inspiration || null,
-                created_at: new Date().toISOString(),
-                last_activity: new Date().toISOString()
-            };
-            sessions.unshift(newSession); // 添加到列表开头
-            updateSessionStats(); // 更新统计信息
-        }
-
-        // 加载会话
-        function loadSession(sessionId) {
-            sendMessage('load_session', { sessionId: sessionId });
-        }
-
-        // 处理会话加载成功
-        function handleSessionLoaded(payload) {
-            currentSession = payload;
-            document.getElementById('gameTitle').textContent = payload.sessionName;
-            document.getElementById('sessionPanel').classList.add('hidden');
-            document.getElementById('gamePanel').classList.remove('hidden');
-            
-            // 清空对话区域
-            document.getElementById('conversationArea').innerHTML = `
-                <div class="message system">
-                    已加载存档：${payload.sessionName}
-                </div>
-            `;
-            
-            // 如果有历史对话，显示历史对话
-            if (payload.conversations && payload.conversations.length > 0) {
-                payload.conversations.forEach(conversation => {
-                    addMessage({
-                        characterId: conversation.character_id || 'character',
-                        characterName: conversation.character_name || '角色',
-                        content: conversation.content,
-                        type: conversation.message_type || 'character'
-                    });
-                });
-            }
-            
-            // 更新场景描述
-            if (payload.currentScene) {
-                updateScene(payload.currentScene);
-            }
-            
-            // 更新本地会话的最后活动时间
-            const sessionIndex = sessions.findIndex(s => s.id === payload.sessionId);
-            if (sessionIndex !== -1) {
-                sessions[sessionIndex].last_activity = new Date().toISOString();
-                updateSessionStats();
-            }
-        }
-
-        // 重命名会话
-        function renameSession(sessionId) {
-            const newName = prompt('请输入新的存档名称:');
-            if (newName && newName.trim()) {
-                sendMessage('rename_session', { sessionId: sessionId, newName: newName.trim() });
-                
-                // 立即更新本地数据
-                const sessionIndex = sessions.findIndex(s => s.id === sessionId);
-                if (sessionIndex !== -1) {
-                    sessions[sessionIndex].session_name = newName.trim();
-                    renderSessionList();
-                }
-                
-                // 重新获取会话列表以确保数据同步
-                setTimeout(() => sendMessage('get_user_sessions', {}), 300);
-            }
-        }
-
-        // 删除会话
-        function deleteSession(sessionId) {
-            if (confirm('确定要删除这个存档吗？此操作无法撤销。')) {
-                sendMessage('delete_session', { sessionId: sessionId });
-                
-                // 立即从本地数据中移除
-                const sessionIndex = sessions.findIndex(s => s.id === sessionId);
-                if (sessionIndex !== -1) {
-                    sessions.splice(sessionIndex, 1);
-                    updateSessionStats();
-                    renderSessionList();
-                }
-                
-                // 重新获取会话列表以确保数据同步
-                setTimeout(() => sendMessage('get_user_sessions', {}), 300);
-            }
-        }
-
-        // 发送玩家输入
-        function sendInput() {
-            const input = document.getElementById('playerInput').value.trim();
-            if (!input) return;
-            
-            // 添加玩家消息到对话区域
-            addMessage({
-                characterId: 'player',
-                characterName: '你',
-                content: input,
-                type: 'player_input'
-            });
-            
-            // 发送到服务器
-            sendMessage('player_input', {
-                sessionId: currentSession.sessionId,
-                playerId: currentUser.userId,
-                input: input
-            });
-            
-            // 清空输入框
-            document.getElementById('playerInput').value = '';
-        }
-
-        // 快捷操作
-        function quickAction(action) {
-            let input = '';
-            switch (action) {
-                case 'look':
-                    input = '我想仔细观察一下周围的环境';
-                    break;
-                case 'talk':
-                    input = '我想和附近的人交谈';
-                    break;
-                case 'move':
-                    input = '我想四处走动，探索这个地方';
-                    break;
-                case 'inventory':
-                    input = '我想查看一下我的背包里有什么';
-                    break;
-            }
-            
-            if (input) {
-                document.getElementById('playerInput').value = input;
-                sendInput();
-            }
-        }
-
-        // 添加消息到对话区域
-        function addMessage(message) {
-            const conversationArea = document.getElementById('conversationArea');
-            const messageDiv = document.createElement('div');
-            
-            let messageClass = 'message ';
-            if (message.characterId === 'player') {
-                messageClass += 'player';
-            } else if (message.type === 'narration') {
-                messageClass += 'narration';
-            } else if (message.characterId === 'narrator') {
-                messageClass += 'narration';
-            } else {
-                messageClass += 'character';
-            }
-            
-            messageDiv.className = messageClass;
-            messageDiv.innerHTML = `
-                <strong>${message.characterName}:</strong> ${message.content}
-            `;
-            
-            conversationArea.appendChild(messageDiv);
-            conversationArea.scrollTop = conversationArea.scrollHeight;
-        }
-
-        // 更新场景描述
-        function updateScene(sceneData) {
-            document.getElementById('sceneDescription').innerHTML = `
-                <h4>${sceneData.title || '当前位置'}</h4>
-                <p>${sceneData.description}</p>
-            `;
-        }
-
-        // 保存游戏
-        function saveGame() {
-            // 游戏会自动保存，显示提示
-            addMessage({
-                characterId: 'system',
-                characterName: '系统',
-                content: '游戏已自动保存。',
-                type: 'system'
-            });
-        }
-
-        // 退出游戏
-        function exitGame() {
-            if (confirm('确定要退出当前游戏回到存档列表吗？')) {
-                document.getElementById('gamePanel').classList.add('hidden');
-                document.getElementById('sessionPanel').classList.remove('hidden');
-                currentSession = null;
-                
-                // 重新获取会话列表以刷新数据
-                sendMessage('get_user_sessions', {});
-            }
-        }
-
-        // 退出登录
-        function logout() {
-            if (confirm('确定要退出登录吗？')) {
-                // 停止自动刷新
-                stopAutoRefresh();
-                
-                currentUser = null;
-                currentSession = null;
-                sessions = [];
-                selectedSessions.clear();
-                bulkSelectMode = false;
-                
-                document.getElementById('sessionPanel').classList.add('hidden');
-                document.getElementById('gamePanel').classList.add('hidden');
-                document.getElementById('loginPanel').classList.remove('hidden');
-                document.getElementById('usernameInput').value = '';
-            }
-        }
-        
-        // 新增的功能函数
-        
-        // 修改用户名
-        function changeUsername() {
-            const newUsername = prompt('请输入新的用户名：', currentUser.username);
-            if (newUsername && newUsername.trim() !== currentUser.username) {
-                sendMessage('change_username', { newUsername: newUsername.trim() });
-            }
-        }
-        
-        // 搜索和排序功能
-        function filterSessions() {
-            renderSessionList();
-        }
-        
-        function sortSessions() {
-            renderSessionList();
-        }
-        
-        // 批量删除功能
-        function bulkDeleteSessions() {
-            if (!bulkSelectMode) {
-                // 进入批量选择模式
-                bulkSelectMode = true;
-                selectedSessions.clear();
-                renderSessionList();
-                
-                const button = event.target;
-                button.textContent = '确认删除';
-                button.style.background = '#e53e3e';
-            } else {
-                // 执行批量删除
-                if (selectedSessions.size === 0) {
-                    alert('请选择要删除的存档');
-                    return;
-                }
-                
-                if (confirm(`确定要删除选中的 ${selectedSessions.size} 个存档吗？此操作无法撤销。`)) {
-                    // 从本地数据中移除选中的会话
-                    const sessionsToDelete = Array.from(selectedSessions);
-                    sessions = sessions.filter(session => !selectedSessions.has(session.id));
-                    
-                    // 发送删除请求到服务器
-                    for (const sessionId of sessionsToDelete) {
-                        sendMessage('delete_session', { sessionId });
+                item.querySelector('.delete-btn').onclick = (e) => {
+                    e.stopPropagation();
+                    if (confirm(`确定要永久删除“${s.session_name}”吗？此操作无法撤销。`)) {
+                        const btn = item.querySelector('.delete-btn');
+                        btn.innerText = "正在删除...";
+                        btn.disabled = true;
+                        socket.send(JSON.stringify({
+                            type: 'delete_session',
+                            payload: { sessionId: s.id }
+                        }));
                     }
-                    
-                    selectedSessions.clear();
-                    bulkSelectMode = false;
-                    
-                    const button = event.target;
-                    button.textContent = '批量删除';
-                    button.style.background = '#e53e3e';
-                    
-                    // 更新UI
-                    renderSessionList();
-                    updateSessionStats();
-                    
-                    // 重新获取会话列表以确保数据同步
-                    setTimeout(() => sendMessage('get_user_sessions', {}), 300);
-                }
-            }
-        }
-        
-        // 切换会话选择状态
-        function toggleSessionSelection(sessionId) {
-            if (selectedSessions.has(sessionId)) {
-                selectedSessions.delete(sessionId);
-            } else {
-                selectedSessions.add(sessionId);
-            }
-            renderSessionList();
-        }
-        
-        // 导出用户数据
-        function exportUserData() {
-            const userData = {
-                user: currentUser,
-                sessions: sessions,
-                exportDate: new Date().toISOString(),
-                version: '1.0'
-            };
-            
-            const dataStr = JSON.stringify(userData, null, 2);
-            const dataBlob = new Blob([dataStr], { type: 'application/json' });
-            
-            const link = document.createElement('a');
-            link.href = URL.createObjectURL(dataBlob);
-            link.download = `game_data_${currentUser.username}_${new Date().toISOString().split('T')[0]}.json`;
-            link.click();
-        }
-        
-        // 导入用户数据
-        function importUserData() {
-            const input = document.createElement('input');
-            input.type = 'file';
-            input.accept = '.json';
-            input.onchange = function(event) {
-                const file = event.target.files[0];
-                if (file) {
-                    const reader = new FileReader();
-                    reader.onload = function(e) {
-                        try {
-                            const userData = JSON.parse(e.target.result);
-                            if (confirm(`确定要导入 ${userData.user.username} 的游戏数据吗？这将会覆盖当前数据。`)) {
-                                sendMessage('import_user_data', userData);
-                            }
-                        } catch (error) {
-                            alert('数据格式错误，请选择正确的导出文件。');
-                        }
-                    };
-                    reader.readAsText(file);
-                }
-            };
-            input.click();
-        }
-        
-        // 获取世界风格名称
-        function getWorldStyleName(style) {
-            const styles = {
-                'fantasy': '奇幻',
-                'medieval': '中世纪',
-                'modern': '现代',
-                'scifi': '科幻',
-                'historical': '历史',
-                'mystery': '悬疑',
-                'adventure': '冒险',
-                'custom': '自定义'
-            };
-            return styles[style] || style;
-        }
-        
-        // 获取难度名称
-        function getDifficultyName(difficulty) {
-            const difficulties = {
-                'easy': '简单',
-                'normal': '普通',
-                'hard': '困难',
-                'expert': '专家'
-            };
-            return difficulties[difficulty] || difficulty;
-        }
-        
-        // 添加一个自动刷新机制，用于定期同步数据
-        let autoRefreshInterval = null;
-        
-        function startAutoRefresh() {
-            // 每30秒刷新一次会话列表（仅在会话管理页面）
-            if (autoRefreshInterval) {
-                clearInterval(autoRefreshInterval);
-            }
-            
-            autoRefreshInterval = setInterval(() => {
-                if (currentUser && !document.getElementById('sessionPanel').classList.contains('hidden')) {
-                    sendMessage('get_user_sessions', {});
-                }
-            }, 30000); // 30秒
-        }
-        
-        function stopAutoRefresh() {
-            if (autoRefreshInterval) {
-                clearInterval(autoRefreshInterval);
-                autoRefreshInterval = null;
-            }
-        }
+                };
 
-        // 处理世界背景更新
-        function handleWorldLoreUpdate(payload) {
-            const { worldLore } = payload;
-            
-            // 显示世界背景信息
-            if (worldLore && worldLore.length > 0) {
-                // 将世界背景作为系统消息显示
-                const mainStory = worldLore.find(lore => lore.loreType === 'main_story');
-                if (mainStory) {
-                    addMessage({
-                        characterId: 'world_narrator',
-                        characterName: '世界叙述者',
-                        content: `世界背景：${mainStory.content.substring(0, 200)}...`,
-                        type: 'narration'
-                    });
-                }
-                
-                console.log('World lore received:', worldLore);
-            }
-        }
-        
-        // 显示错误消息
-        function showError(message) {
-            alert('错误: ' + message);
-        }
-        
-        // 新增的消息处理函数
-        
-        // 处理会话重命名成功
-        function handleSessionRenamed(payload) {
-            const sessionIndex = sessions.findIndex(s => s.id === payload.sessionId);
-            if (sessionIndex !== -1) {
-                sessions[sessionIndex].session_name = payload.newName;
-                sessions[sessionIndex].last_activity = new Date().toISOString();
-                renderSessionList();
-                updateSessionStats();
-            }
-            
-            // 如果当前正在这个会话中，更新游戏标题
-            if (currentSession && currentSession.sessionId === payload.sessionId) {
-                document.getElementById('gameTitle').textContent = payload.newName;
-            }
-        }
-        
-        // 处理会话删除成功
-        function handleSessionDeleted(payload) {
-            const sessionIndex = sessions.findIndex(s => s.id === payload.sessionId);
-            if (sessionIndex !== -1) {
-                sessions.splice(sessionIndex, 1);
-                renderSessionList();
-                updateSessionStats();
-            }
-            
-            // 如果删除的是当前正在进行的会话，返回会话列表
-            if (currentSession && currentSession.sessionId === payload.sessionId) {
-                document.getElementById('gamePanel').classList.add('hidden');
-                document.getElementById('sessionPanel').classList.remove('hidden');
-                currentSession = null;
-            }
-        }
-        
-        // 处理用户名修改成功
-        function handleUsernameChanged(payload) {
-            currentUser.username = payload.username;
-            document.getElementById('currentUsername').textContent = `用户：${payload.username}`;
-            alert('用户名修改成功！');
-        }
-        
-        // 处理数据导入成功
-        function handleDataImported(payload) {
-            alert(payload.message);
-        }
-        
-        // 处理数据导出成功
-        function handleDataExported(payload) {
-            // 直接使用服务器返回的数据创建下载
-            const dataStr = JSON.stringify(payload, null, 2);
-            const dataBlob = new Blob([dataStr], { type: 'application/json' });
-            
-            const link = document.createElement('a');
-            link.href = URL.createObjectURL(dataBlob);
-            link.download = `game_data_${currentUser.username}_${new Date().toISOString().split('T')[0]}.json`;
-            link.click();
-        }
-
-        // 页面加载完成后连接服务器
-        window.addEventListener('load', function() {
-            connectToServer();
-            
-            // 加载记住的用户名
-            const rememberedUsername = localStorage.getItem('rememberedUsername');
-            if (rememberedUsername) {
-                document.getElementById('usernameInput').value = rememberedUsername;
-                document.getElementById('rememberUsernameCheckbox').checked = true;
-            }
-            
-            // 点击对话框外部关闭对话框
-            document.getElementById('createSessionModal').addEventListener('click', function(e) {
-                if (e.target === this) {
-                    hideCreateSessionDialog();
-                }
+                listContainer.appendChild(item);
             });
-        });
+        }
 
-        // Enter键发送消息
-        document.addEventListener('keydown', function(e) {
-            if (e.key === 'Enter' && e.ctrlKey) {
-                sendInput();
-            } else if (e.key === 'Enter' && document.activeElement.id === 'usernameInput') {
-                login();
-            } else if (e.key === 'Enter' && document.activeElement.id === 'sessionNameInput') {
-                createNewSession();
-            } else if (e.key === 'Escape' && !document.getElementById('createSessionModal').classList.contains('hidden')) {
-                hideCreateSessionDialog();
+        function addMessage(content, type, sender = "NARRATOR", instant = false) {
+            const msgDiv = document.createElement('div');
+            msgDiv.className = `message message-${type === 'player' ? 'player' : 'ai'}`;
+            msgDiv.innerHTML = `<div class="message-label">${type === 'player' ? 'YOU' : sender}</div><div class="message-bubble"></div>`;
+            feed.appendChild(msgDiv);
+            feed.scrollTop = feed.scrollHeight;
+
+            const bubble = msgDiv.querySelector('.message-bubble');
+            if (type === 'player' || instant) {
+                bubble.innerText = content;
+            } else {
+                let i = 0;
+                function typeWriter() {
+                    if (i < content.length) {
+                        bubble.innerHTML += content.charAt(i++);
+                        feed.scrollTop = feed.scrollHeight;
+                        setTimeout(typeWriter, 20);
+                    }
+                }
+                typeWriter();
             }
-        });
+        }
+
+        function handleSend() {
+            const input = userInput.value.trim();
+            if (!input || !sessionId || userInput.disabled) return;
+
+            addMessage(input, 'player');
+            userInput.value = '';
+            userInput.disabled = true;
+            sendBtn.disabled = true;
+
+            socket.send(JSON.stringify({
+                type: 'player_input',
+                payload: { sessionId, playerId, input }
+            }));
+        }
+
+        // Logic Bindings
+        document.getElementById('loginBtn').onclick = function () {
+            const user = document.getElementById('usernameInput').value || 'Guest';
+            this.disabled = true;
+            this.innerText = "通过以太验证中...";
+            socket.send(JSON.stringify({ type: 'login', payload: { username: user } }));
+        };
+
+        document.getElementById('startBtn').onclick = function () {
+            const sName = document.getElementById('sessionNameInput').value || 'New Adventure';
+            this.disabled = true;
+            this.innerText = "正在构建世界大纲...";
+            setupStatus.innerText = "正在初始化时空维度与大纲缓存...";
+            socket.send(JSON.stringify({
+                type: 'create_session',
+                payload: { sessionName: sName, worldStyle: 'fantasy', difficulty: 'normal' }
+            }));
+        };
+
+        sendBtn.onclick = handleSend;
+        userInput.onkeypress = (e) => { if (e.key === 'Enter') handleSend(); };
+
+        window.onload = initWebSocket;
     </script>
 </body>
+
 </html>

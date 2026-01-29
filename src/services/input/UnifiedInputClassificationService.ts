@@ -4,13 +4,15 @@
  * 集成GameContextService，避免硬编码上下文
  */
 
-import { LLMService } from '../llm/LLMService';
+import { LLMService, LLMProvider } from '../llm/LLMService';
 import { FormattedTextGenerator } from '../llm/FormattedTextResponse';
 import { FormattedTextExtractorService, InputClassificationResult } from '../llm/FormattedTextExtractorService';
 import { GameContextService } from '../game/GameContextService';
 import { Logger } from '../Logger';
 import { PatternRecognitionUtil, ErrorHandlerUtil, CacheUtil } from '../../utils/CommonUtils';
 import { IntentType, UrgencyLevel, EmotionalTone, InputType, InputClassification as DomainInputClassification } from '../../domains/input/valueObjects';
+import { JsonUtils } from '../../utils/JsonUtils';
+import { v4 as uuidv4 } from 'uuid';
 
 export interface InputClassification extends Omit<DomainInputClassification, 'complexity' | 'contextualHints'> {
   // 复合动作支持
@@ -60,7 +62,6 @@ export interface EnhancedInputClassification extends InputClassification {
 }
 
 export class UnifiedInputClassificationService {
-  private extractor: FormattedTextExtractorService;
   private logger: Logger;
 
   constructor(
@@ -68,8 +69,7 @@ export class UnifiedInputClassificationService {
     private gameContextService: GameContextService,
     logger?: Logger
   ) {
-    this.logger = logger || console as any;
-    this.extractor = new FormattedTextExtractorService(this.logger);
+    this.logger = logger || (console as any);
   }
 
   /**
@@ -83,7 +83,7 @@ export class UnifiedInputClassificationService {
     try {
       // 获取动态游戏上下文（避免硬编码）
       const gameContext = await this.gameContextService.getInputClassificationContext(sessionId, playerId);
-      
+
       this.logger.debug('Using dynamic game context for input classification', {
         sessionId,
         playerId,
@@ -95,7 +95,7 @@ export class UnifiedInputClassificationService {
       return await this.performClassificationWithContext(input, gameContext);
     } catch (error) {
       this.logger.error('Failed to get game context, using fallback classification', error as Error);
-      
+
       // 备用分类（不依赖GameContextService）
       return await this.performFallbackClassification(input);
     }
@@ -141,7 +141,7 @@ export class UnifiedInputClassificationService {
     try {
       // 首先尝试使用LLM进行分类
       const llmResult = await this.performLLMClassification(input, gameContext);
-      
+
       // 如果LLM分类成功且置信度足够高，直接返回结果
       if (llmResult && llmResult.confidence >= 70) {
         // 如果检测为复合动作，进行进一步分析
@@ -154,23 +154,47 @@ export class UnifiedInputClassificationService {
             actionSequence: compoundResult.actionSequence
           };
         }
-        
+
         return llmResult;
       }
-      
+
       // LLM分类失败或置信度低，使用基础分类作为备选
       this.logger.warn('LLM classification failed or low confidence, falling back to basic classification');
       return this.performBasicClassification(input);
     } catch (error) {
       this.logger.error('Input classification failed:', error as Error);
-      
+
       // 如果所有分类方法都失败，返回默认分类
       return this.getDefaultClassification(input);
     }
   }
 
   /**
-   * 使用LLM进行分类（增强版，集成GameContextService）
+   * 输入分类的 JSON Schema
+   */
+  private readonly CLASSIFICATION_SCHEMA = {
+    type: "object",
+    properties: {
+      type: { type: "string", enum: Object.values(InputType) },
+      intent: { type: "string", enum: Object.values(IntentType) },
+      confidence: { type: "number", minimum: 0, maximum: 100 },
+      targetCharacter: { type: "string" },
+      targetLocation: { type: "string" },
+      isDirectSpeech: { type: "boolean" },
+      isActionDescription: { type: "boolean" },
+      isSystemQuery: { type: "boolean" },
+      isCompoundAction: { type: "boolean" },
+      extractedAction: { type: "string" },
+      extractedSpeech: { type: "string" },
+      urgency: { type: "string", enum: Object.values(UrgencyLevel) },
+      emotionalTone: { type: "string", enum: Object.values(EmotionalTone) },
+      contextualHints: { type: "array", items: { type: "string" } }
+    },
+    required: ["type", "intent", "confidence", "isCompoundAction"]
+  };
+
+  /**
+   * 使用LLM进行分类（增强版，集成 JSON Schema）
    */
   private async performLLMClassification(
     input: string,
@@ -181,59 +205,35 @@ export class UnifiedInputClassificationService {
       recentConversation: string[];
     }
   ): Promise<InputClassification | null> {
-    const cacheKey = `llm_classification_${input.substring(0, 50)}`;
-    
-    // 尝试从缓存获取结果
+    const cacheKey = `llm_classification_v2_${input.substring(0, 50)}`;
+
     const cachedResult = CacheUtil.get<InputClassification>('llm_classification', cacheKey);
     if (cachedResult) {
-      this.logger.info('Using cached LLM classification result');
       return cachedResult;
     }
 
     const result = await ErrorHandlerUtil.safeExecute(
       async () => {
-        // 生成格式化文本提示词（使用动态上下文）
-        const prompt = FormattedTextGenerator.generateInputClassificationPrompt(input, {
-          sessionId: gameContext.sessionId,
-          currentLocation: gameContext.currentLocation,
-          nearbyCharacters: gameContext.nearbyCharacters,
-          recentConversation: gameContext.recentConversation
-        });
+        const prompt = `Analyze the following player input in an AI-driven open world game.
+Input: "${input}"
+Current Location: ${gameContext.currentLocation}
+Nearby Characters: ${gameContext.nearbyCharacters.join(', ')}
+Recent Conversation: ${gameContext.recentConversation.slice(-3).join(' | ')}
 
-        // 调用LLM生成响应
-        const response = await this.llmService.generateText(prompt, {
-          maxTokens: 400,
-          temperature: 0.3
-        });
-        
-        // 使用格式化文本提取器解析响应
-        const extractResult = this.extractor.extractInputClassification(response);
-        
-        // 转换为InputClassification格式
-        const classification: InputClassification = {
-          type: extractResult.type,
-          intent: extractResult.intent,
-          confidence: extractResult.confidence,
-          targetCharacter: extractResult.targetCharacter,
-          targetLocation: extractResult.targetLocation,
-          isDirectSpeech: extractResult.isDirectSpeech,
-          isActionDescription: extractResult.isActionDescription,
-          isSystemQuery: extractResult.isSystemQuery,
-          isCompoundAction: extractResult.isCompoundAction,
-          extractedAction: extractResult.extractedAction,
-          extractedSpeech: extractResult.extractedSpeech,
-          contextualHints: extractResult.contextualHints,
-          urgency: extractResult.urgency,
-          emotionalTone: extractResult.emotionalTone
-        };
+Determine the user's intent, type of input, and extract relevant entities.`;
 
-        // 缓存结果
-        CacheUtil.set('llm_classification', cacheKey, classification, 300000); // 5分钟缓存
-        
-        return classification;
+        // 使用 LLM 服务的结构化输出功能
+        const classification = await this.llmService.generateStructuredResponse(
+          prompt,
+          this.CLASSIFICATION_SCHEMA,
+          { temperature: 0.1 }
+        );
+
+        CacheUtil.set('llm_classification', cacheKey, classification, 300000);
+        return classification as InputClassification;
       },
       this.logger,
-      'LLM Input Classification'
+      'LLM Input Classification Structured'
     );
 
     return result.success ? result.data! : null;
@@ -265,19 +265,19 @@ export class UnifiedInputClassificationService {
   }
 
   // 其他方法将在下一个文件中继续...
-  
+
   /**
    * 基础分类（当LLM不可用时的备选方案）
    */
   private performBasicClassification(input: string): InputClassification {
     const trimmedInput = input.trim().toLowerCase();
-    
+
     // 检查问题模式
     const questionPatterns = [
       /[?？]$/, // 以问号结尾
       /^(what|when|where|who|why|how|什么|何时|哪里|谁|为什么|如何|怎么样)/i
     ];
-    
+
     const isQuestion = questionPatterns.some(pattern => pattern.test(trimmedInput));
     if (isQuestion) {
       return {
@@ -293,12 +293,12 @@ export class UnifiedInputClassificationService {
         emotionalTone: EmotionalTone.NEUTRAL
       };
     }
-    
+
     // 检查动作模式
     const actionPatterns = [
       /(走|去|前往|移动|看|观察|检查|说|告诉|问)/i
     ];
-    
+
     const isAction = actionPatterns.some(pattern => pattern.test(trimmedInput));
     if (isAction) {
       return {
@@ -314,7 +314,7 @@ export class UnifiedInputClassificationService {
         emotionalTone: EmotionalTone.NEUTRAL
       };
     }
-    
+
     // 默认为对话
     return {
       type: InputType.SPEECH,
@@ -333,44 +333,69 @@ export class UnifiedInputClassificationService {
   /**
    * 分析复合动作
    */
-  async analyzeCompoundAction(input: string, context: any): Promise<{
+  private async analyzeCompoundAction(
+    input: string,
+    gameContext: any
+  ): Promise<{
     isCompound: boolean;
     subActions: SubAction[];
     actionSequence: 'sequential' | 'simultaneous';
   }> {
     try {
-      // 生成格式化文本提示词
-      const prompt = FormattedTextGenerator.generateCompoundActionPrompt(input);
+      const prompt = `分析玩家的复合动作输入："${input}"
+当前位置：${gameContext.currentLocation}
+附近角色：${gameContext.nearbyCharacters.join(', ')}
 
-      // 调用LLM生成响应
+请将此输入分解为一系列子动作（subActions）。
+每个子动作应包含：
+- type: movement | observation | dialogue | interaction
+- intent: 动作的具体意图
+- description: 动作的详细描述
+- target: 动作的目标（如果有）
+
+请以 JSON 格式返回：
+{
+  "isCompound": true,
+  "actionSequence": "sequential",
+  "subActions": [
+    {
+      "type": "interaction",
+      "intent": "dialogue",
+      "description": "与某人交谈",
+      "target": "某人"
+    }
+  ]
+}
+直接返回 JSON。`;
+
       const response = await this.llmService.generateText(prompt, {
-        maxTokens: 400,
-        temperature: 0.4
+        temperature: 0.1,
+        maxTokens: 1000,
+        jsonMode: true
       });
-      
-      // 使用格式化文本提取器解析响应
-      const result = this.extractor.extractCompoundAction(response);
-      
+
+      const result = JsonUtils.extractJson<any>(response || '{}');
+
       // 智能转换子动作格式
-      const subActions: SubAction[] = result.subActions.map((action, index) => {
+      const subActions: SubAction[] = (result.subActions || []).map((action: any, index: number) => {
         return {
-          type: 'interaction',
-          intent: 'dialogue',
-          description: action,
+          type: action.type || 'interaction',
+          intent: action.intent || 'dialogue',
+          description: action.description || '',
+          target: action.target,
           priority: 5,
           executionOrder: index + 1,
           contextualHints: ['compound_action']
         };
       });
-      
+
       return {
-        isCompound: result.isCompound,
+        isCompound: result.isCompound ?? (subActions.length > 1),
         subActions: subActions,
-        actionSequence: result.actionSequence
+        actionSequence: result.actionSequence || 'sequential'
       };
     } catch (error) {
       this.logger.error('Compound action analysis failed:', error as Error);
-      
       return {
         isCompound: false,
         subActions: [],
@@ -394,17 +419,17 @@ export class UnifiedInputClassificationService {
   ): Promise<EnhancedInputClassification> {
     // 基础分类
     const basicClassification = await this.classifyInput(input, sessionId, playerId);
-    
+
     // 获取完整游戏上下文用于增强分析
     const gameContext = await this.gameContextService.getGameContext(sessionId, playerId);
-    
+
     // 分析上下文相关性
     const contextualRelevance = this.calculateContextualRelevance(
-      input, 
+      input,
       gameContext.recentConversation.map(c => c.content),
       [] // 如果需要pendingActions，需要从gameContext中获取
     );
-    
+
     let result: EnhancedInputClassification = {
       ...basicClassification,
       contextualRelevance
@@ -414,18 +439,18 @@ export class UnifiedInputClassificationService {
     if (options?.includeSuggestions) {
       result.suggestedFollowUp = this.generateSuggestedFollowUp(basicClassification, gameContext);
     }
-    
+
     if (options?.includeMemoryTriggers) {
       result.memoryTriggers = this.detectMemoryTriggers(
-        input, 
+        input,
         gameContext.recentConversation.map(c => c.content)
       );
     }
-    
+
     if (options?.includeSemanticAnalysis) {
       result.semanticComplexity = this.analyzeSemanticComplexity(input);
     }
-    
+
     return result;
   }
 
@@ -437,18 +462,18 @@ export class UnifiedInputClassificationService {
     pendingActions: ActionState[]
   ): number {
     let relevance = 0.5; // 基础相关性
-    
+
     // 检查与最近对话的相关性
     const inputWords = input.toLowerCase().split(/\s+/);
     const recentWords = recentConversation.slice(-3)
       .join(' ').toLowerCase().split(/\s+/);
-    
-    const commonWords = inputWords.filter(word => 
+
+    const commonWords = inputWords.filter(word =>
       recentWords.includes(word) && word.length > 2
     );
-    
+
     relevance += Math.min(0.3, commonWords.length * 0.1);
-    
+
     return Math.min(1.0, relevance);
   }
 
@@ -457,7 +482,7 @@ export class UnifiedInputClassificationService {
     context: any
   ): string[] {
     const suggestions: string[] = [];
-    
+
     switch (classification.type) {
       case 'action':
         if (classification.intent === 'movement') {
@@ -468,7 +493,7 @@ export class UnifiedInputClassificationService {
         suggestions.push('继续对话', '问更多问题');
         break;
     }
-    
+
     return suggestions;
   }
 
@@ -477,13 +502,13 @@ export class UnifiedInputClassificationService {
     playerHistory: string[]
   ): string[] {
     const triggers: string[] = [];
-    
+
     // 检查关键词触发器
     const emotionalTriggers = ['记得', '以前', '上次', 'remember', 'before', 'last time'];
     if (emotionalTriggers.some(trigger => input.toLowerCase().includes(trigger))) {
       triggers.push('memory_recall');
     }
-    
+
     return triggers;
   }
 
@@ -495,14 +520,14 @@ export class UnifiedInputClassificationService {
     const text = input.toLowerCase();
     let complexityScore = 0;
     const linguisticFeatures: string[] = [];
-    
+
     // 检查句子长度
     const wordCount = text.split(/\s+/).length;
     if (wordCount > 15) {
       complexityScore += 20;
       linguisticFeatures.push('long_sentence');
     }
-    
+
     // 确定处理建议
     let processingRecommendation: 'simple' | 'standard' | 'complex';
     if (complexityScore <= 20) {
@@ -512,7 +537,7 @@ export class UnifiedInputClassificationService {
     } else {
       processingRecommendation = 'complex';
     }
-    
+
     return {
       complexityScore: Math.min(100, complexityScore),
       linguisticFeatures,

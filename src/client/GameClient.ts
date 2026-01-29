@@ -183,7 +183,7 @@ export class GameClient {
     this.wsManager.subscribe('world_lore_update', (data: any) => {
       console.log('Received world lore update:', data);
       // 调用worldlore更新处理器
-      this.onWorldLoreUpdateHandlers.forEach(handler => handler(data.worldLore));
+      this.onWorldLoreUpdateHandlers.forEach(handler => handler(data.worldLore || []));
     });
   }
 

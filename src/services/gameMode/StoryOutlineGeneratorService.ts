@@ -9,6 +9,7 @@ import { WorldLoreService, WorldLore } from '../world/WorldLoreService';
 import { DatabaseService } from '../database/DatabaseService';
 import { FormattedTextExtractorService } from '../llm/FormattedTextExtractorService';
 import { v4 as uuidv4 } from 'uuid';
+import { JsonUtils } from '../../utils/JsonUtils';
 
 // 剧情大纲接口
 export interface StoryOutline {
@@ -112,7 +113,7 @@ export interface StoryOutlineResult {
 }
 
 export class StoryOutlineGeneratorService {
-  private textExtractor: FormattedTextExtractorService;
+  private plotPointCache: Map<string, PlotPoint[]> = new Map(); // sessionId -> active plot points
 
   constructor(
     private llmService: LLMService,
@@ -120,7 +121,6 @@ export class StoryOutlineGeneratorService {
     private databaseService: DatabaseService,
     private logger: Logger
   ) {
-    this.textExtractor = new FormattedTextExtractorService(logger);
   }
 
   /**
@@ -135,27 +135,27 @@ export class StoryOutlineGeneratorService {
     try {
       // 1. 分析世界背景，提取核心元素
       const worldAnalysis = await this.analyzeWorldLore(params.worldLore);
-      
+
       // 2. 生成主要故事框架
       const storyFramework = await this.generateStoryFramework(worldAnalysis, params);
-      
+
       // 3. 创建详细的剧情点
       const plotPoints = await this.generatePlotPoints(storyFramework, params);
-      
+
       // 4. 生成导演指导信息
       const directorGuidance = await this.generateDirectorGuidance(plotPoints, worldAnalysis);
-      
+
       // 5. 构建完整的剧情大纲
       const storyOutline = await this.constructStoryOutline(
-        storyFramework, 
-        plotPoints, 
-        directorGuidance, 
+        storyFramework,
+        plotPoints,
+        directorGuidance,
         params
       );
-      
+
       // 6. 验证和评估
       const validationReport = await this.validateStoryOutline(storyOutline, params);
-      
+
       // 7. 准备结果
       const result: StoryOutlineResult = {
         outline: storyOutline,
@@ -173,7 +173,10 @@ export class StoryOutlineGeneratorService {
         validationReport
       };
 
-      // 8. 保存到数据库
+      // 8. 更新缓存
+      this.plotPointCache.set(params.sessionId, storyOutline.plotPoints);
+
+      // 9. 保存到数据库
       await this.saveStoryOutline(result);
 
       this.logger.info('Story outline generated successfully', {
@@ -203,40 +206,34 @@ export class StoryOutlineGeneratorService {
     locations: string[];
     tone: string;
   }> {
-    const combinedLore = worldLore.map(lore => 
+    const combinedLore = worldLore.map(lore =>
       `[${lore.loreType}] ${lore.title}: ${lore.content}`
     ).join('\n\n');
 
-    const analysisPrompt = `
-分析以下世界背景故事，提取关键要素用于剧情大纲生成：
+    const analysisPrompt = `分析以下世界背景故事，提取关键要素用于剧情大纲生成。
+请以 JSON 格式返回分析结果：
 
 ${combinedLore}
 
-请分析并提取关键信息，按以下格式返回：
-
-=== WORLD_ANALYSIS ===
-KEY_ELEMENTS: 元素1, 元素2, 元素3
-THEMES: 主题1, 主题2, 主题3
-CONFLICTS: 冲突1, 冲突2, 冲突3
-CHARACTERS: 角色/势力1, 角色/势力2, 角色/势力3
-LOCATIONS: 地点1, 地点2, 地点3
-TONE: 整体基调描述
-=== END_ANALYSIS ===
-
-要求：
-- 每个类别提取3-5个最重要的元素
-- 使用逗号分隔列表项
-- 基调描述要简洁准确
-- 严格按照格式输出
-`;
+返回 JSON 格式要求：
+{
+  "keyElements": ["元素1", "元素2", "元素3"],
+  "themes": ["主题1", "主题2", "主题3"],
+  "conflicts": ["冲突1", "冲突2", "冲突3"],
+  "characters": ["角色/势力1", "角色/势力2", "角色/势力3"],
+  "locations": ["地点1", "地点2", "地点3"],
+  "tone": "整体基调描述"
+}
+请直接返回 JSON，要求简洁准确。`;
 
     try {
       const response = await this.llmService.generateText(analysisPrompt, {
         temperature: 0.3,
-        maxTokens: 800
+        maxTokens: 800,
+        jsonMode: true
       });
 
-      return this.extractWorldAnalysis(response || '');
+      return JsonUtils.extractJson<any>(response || '{}');
     } catch (error) {
       this.logger.warn('Failed to analyze world lore, using defaults', error as Error);
       return {
@@ -250,93 +247,12 @@ TONE: 整体基调描述
     }
   }
 
-  /**
-   * 提取世界分析结果
-   */
-  private extractWorldAnalysis(formattedText: string): {
-    keyElements: string[];
-    themes: string[];
-    conflicts: string[];
-    characters: string[];
-    locations: string[];
-    tone: string;
-  } {
-    try {
-      // 使用自定义解析方法，而不是直接访问私有方法
-      const section = this.extractSectionBetweenMarkers(
-        formattedText, 
-        '=== WORLD_ANALYSIS ===', 
-        '=== END_ANALYSIS ==='
-      );
-      
-      if (!section) {
-        throw new Error('World analysis section not found');
-      }
-
-      const lines = section.split('\n').filter(line => line.trim());
-      const fields: Record<string, string> = {};
-      
-      for (const line of lines) {
-        const colonIndex = line.indexOf(':');
-        if (colonIndex > 0) {
-          const key = line.substring(0, colonIndex).trim();
-          const value = line.substring(colonIndex + 1).trim();
-          fields[key] = value;
-        }
-      }
-
-      return {
-        keyElements: this.parseCommaSeparatedList(fields.KEY_ELEMENTS || ''),
-        themes: this.parseCommaSeparatedList(fields.THEMES || ''),
-        conflicts: this.parseCommaSeparatedList(fields.CONFLICTS || ''),
-        characters: this.parseCommaSeparatedList(fields.CHARACTERS || ''),
-        locations: this.parseCommaSeparatedList(fields.LOCATIONS || ''),
-        tone: fields.TONE || 'adventure'
-      };
-    } catch (error) {
-      this.logger.warn('Failed to extract world analysis, using defaults', error as Error);
-      return {
-        keyElements: ['magic', 'adventure', 'discovery'],
-        themes: ['exploration', 'growth', 'friendship'],
-        conflicts: ['external threat', 'personal challenge'],
-        characters: ['local_guide', 'wise_mentor'],
-        locations: ['starting_town', 'mysterious_forest'],
-        tone: 'adventure'
-      };
-    }
-  }
-
-  /**
-   * 在标记之间提取文本段
-   */
-  private extractSectionBetweenMarkers(text: string, startMarker: string, endMarker: string): string | null {
-    const startIndex = text.indexOf(startMarker);
-    if (startIndex === -1) return null;
-    
-    const contentStart = startIndex + startMarker.length;
-    const endIndex = text.indexOf(endMarker, contentStart);
-    if (endIndex === -1) return null;
-    
-    return text.substring(contentStart, endIndex).trim();
-  }
-
-  /**
-   * 解析逗号分隔的列表
-   */
-  private parseCommaSeparatedList(text: string): string[] {
-    if (!text || !text.trim()) return [];
-    
-    return text
-      .split(',')
-      .map(item => item.trim())
-      .filter(item => item.length > 0);
-  }
 
   /**
    * 生成故事框架
    */
   private async generateStoryFramework(
-    worldAnalysis: any, 
+    worldAnalysis: any,
     params: StoryOutlineGenerationParams
   ): Promise<{
     mainConflict: string;
@@ -344,272 +260,260 @@ TONE: 整体基调描述
     characterArcs: string[];
     acts: StoryAct[];
   }> {
-    const frameworkPrompt = `
-基于世界分析结果，创建一个适合${params.gameMode === 'script' ? '剧本模式' : '引导自由模式'}的故事框架：
+    const frameworkPrompt = `基于世界分析结果，创建一个适合${params.gameMode === 'script' ? '剧本模式' : '引导自由模式'}的故事框架。
+玩家偏好：${params.playerPreferences?.preferredGenre || '冒险'}，目标时长：${params.playerPreferences?.targetDuration || 90}分钟。
 
-世界关键元素：${worldAnalysis.keyElements.join(', ')}
-主要主题：${worldAnalysis.themes.join(', ')}
-潜在冲突：${worldAnalysis.conflicts.join(', ')}
-整体基调：${worldAnalysis.tone}
+世界关键信息：
+- 元素：${worldAnalysis.keyElements.join(', ')}
+- 基调：${worldAnalysis.tone}
 
-玩家偏好：
-- 类型偏好：${params.playerPreferences?.preferredGenre || '冒险'}
-- 目标时长：${params.playerPreferences?.targetDuration || 90}分钟
-- 复杂度：${params.playerPreferences?.complexity || 'moderate'}
-
-创建包含3-4个章节的故事框架，按以下格式返回：
-
-=== STORY_FRAMEWORK ===
-MAIN_CONFLICT: 主要冲突描述
-TURNING_POINTS: 转折点1, 转折点2, 转折点3, 转折点4
-CHARACTER_ARCS: 角色弧线1, 角色弧线2, 角色弧线3
-ACT_COUNT: 3
-ACT_1_TITLE: 第一章标题
-ACT_1_SUMMARY: 第一章概要
-ACT_1_EVENTS: 事件1, 事件2, 事件3
-ACT_1_OUTCOMES: 结果1, 结果2
-ACT_2_TITLE: 第二章标题
-ACT_2_SUMMARY: 第二章概要
-ACT_2_EVENTS: 事件1, 事件2, 事件3
-ACT_2_OUTCOMES: 结果1, 结果2
-ACT_3_TITLE: 第三章标题
-ACT_3_SUMMARY: 第三章概要
-ACT_3_EVENTS: 事件1, 事件2, 事件3
-ACT_3_OUTCOMES: 结果1, 结果2
-=== END_FRAMEWORK ===
-
-要求：
-- 每个章节有明确的目标和挑战
-- 为玩家提供有意义的选择
-- 推进整体叙事
-- 适合${params.gameMode === 'script' ? '结构化引导' : '灵活引导'}
-- 使用逗号分隔列表项
-`;
+请以 JSON 格式返回故事框架：
+{
+  "mainConflict": "核心对立和张力描述",
+  "turningPoints": ["转折点1", "转折点2"],
+  "characterArcs": ["角色弧线1", "角色弧线2"],
+  "acts": [
+    {
+      "title": "章节标题",
+      "summary": "章节概要",
+      "keyEvents": ["事件1", "事件2"],
+      "expectedOutcomes": ["结果1", "结果2"]
+    }
+  ]
+}
+要求简洁、逻辑连贯。直接返回 JSON。`;
 
     try {
       const response = await this.llmService.generateText(frameworkPrompt, {
         temperature: 0.7,
-        maxTokens: 1200
+        maxTokens: 1500,
+        jsonMode: true
       });
 
-      return this.extractStoryFramework(response || '', params);
+      const data = JsonUtils.extractJson<any>(response || '{}');
+
+      // 为 acts 补齐必要信息（如 ID 和预估时长）
+      const acts = (data.acts || []).map((act: any, index: number) => ({
+        ...act,
+        id: `act_${index + 1}_${uuidv4()}`,
+        actNumber: index + 1,
+        estimatedDuration: Math.floor((params.playerPreferences?.targetDuration || 90) / (data.acts?.length || 3))
+      }));
+
+      return {
+        mainConflict: data.mainConflict || '探索未知的挑战',
+        turningPoints: data.turningPoints || [],
+        characterArcs: data.characterArcs || [],
+        acts
+      };
     } catch (error) {
       this.logger.warn('Failed to generate story framework, using fallback', error as Error);
       return this.generateFallbackFramework(params);
     }
   }
 
-  /**
-   * 提取故事框架结果
-   */
-  private extractStoryFramework(
-    formattedText: string, 
-    params: StoryOutlineGenerationParams
-  ): {
-    mainConflict: string;
-    turningPoints: string[];
-    characterArcs: string[];
-    acts: StoryAct[];
-  } {
-    try {
-      const section = this.extractSectionBetweenMarkers(
-        formattedText,
-        '=== STORY_FRAMEWORK ===',
-        '=== END_FRAMEWORK ==='
-      );
-      
-      if (!section) {
-        throw new Error('Story framework section not found');
-      }
-
-      const lines = section.split('\n').filter(line => line.trim());
-      const fields: Record<string, string> = {};
-      
-      for (const line of lines) {
-        const colonIndex = line.indexOf(':');
-        if (colonIndex > 0) {
-          const key = line.substring(0, colonIndex).trim();
-          const value = line.substring(colonIndex + 1).trim();
-          fields[key] = value;
-        }
-      }
-
-      // 解析章节信息
-      const actCount = parseInt(fields.ACT_COUNT || '3');
-      const acts: StoryAct[] = [];
-      
-      for (let i = 1; i <= actCount; i++) {
-        const act: StoryAct = {
-          id: `act_${i}_${uuidv4()}`,
-          actNumber: i,
-          title: fields[`ACT_${i}_TITLE`] || `第${i}章`,
-          summary: fields[`ACT_${i}_SUMMARY`] || `第${i}章概要`,
-          keyEvents: this.parseCommaSeparatedList(fields[`ACT_${i}_EVENTS`] || ''),
-          expectedOutcomes: this.parseCommaSeparatedList(fields[`ACT_${i}_OUTCOMES`] || ''),
-          estimatedDuration: Math.floor((params.playerPreferences?.targetDuration || 90) / actCount)
-        };
-        acts.push(act);
-      }
-
-      return {
-        mainConflict: fields.MAIN_CONFLICT || '探索未知的挑战',
-        turningPoints: this.parseCommaSeparatedList(fields.TURNING_POINTS || ''),
-        characterArcs: this.parseCommaSeparatedList(fields.CHARACTER_ARCS || ''),
-        acts
-      };
-    } catch (error) {
-      this.logger.warn('Failed to extract story framework, using fallback', error as Error);
-      return this.generateFallbackFramework(params);
-    }
-  }
 
   /**
    * 生成详细剧情点
    */
   private async generatePlotPoints(
-    framework: any, 
+    framework: any,
     params: StoryOutlineGenerationParams
   ): Promise<PlotPoint[]> {
-    const plotPoints: PlotPoint[] = [];
+    const actsInfo = framework.acts.map((act: StoryAct, index: number) =>
+      `ACT ${index + 1}: ${act.title} - ${act.summary}\nKEY EVENTS: ${act.keyEvents.join(', ')}`
+    ).join('\n\n');
 
-    for (let actIndex = 0; actIndex < framework.acts.length; actIndex++) {
-      const act = framework.acts[actIndex];
-      const actPlotPoints = await this.generateActPlotPoints(act, actIndex + 1, params);
-      plotPoints.push(...actPlotPoints);
+    const systemPrompt = `You are a master screenwriter. Your task is to generate detailed plot points for a structured narrative.
+You MUST respond with a valid JSON object matching this structure:
+{
+  "allPlotPoints": [
+    {
+      "actNumber": 1,
+      "points": [
+        {
+          "title": "Plot Point Title",
+          "description": "Detailed description",
+          "type": "introduction|conflict|climax|resolution|transition",
+          "expectedPlayerActions": ["action 1", "action 2"],
+          "possibleOutcomes": ["outcome 1", "outcome 2"],
+          "directorNotes": "Guidance for the director"
+        }
+      ]
     }
+  ]
+}`;
 
-    return plotPoints;
+    const prompt = `Based on the following acts, generate 4-6 detailed plot points for EACH act:
+${actsInfo}
+
+Ensure narrative flow, creativity, and logic. Directly return the JSON.`;
+
+    try {
+      const response = await this.llmService.generateText(prompt, {
+        temperature: 0.6,
+        maxTokens: 4000,
+        jsonMode: true,
+        systemPrompt
+      });
+
+      const data = JsonUtils.extractJson<any>(response || '{}');
+      const allPoints: PlotPoint[] = [];
+
+      for (const actGroup of (data.allPlotPoints || [])) {
+        const actIndex = actGroup.actNumber - 1;
+        const act = framework.acts[actIndex];
+        if (!act) continue;
+
+        const points = (actGroup.points || []).map((pp: any, index: number) => ({
+          ...pp,
+          id: `pp_${actGroup.actNumber}_${index + 1}_${uuidv4()}`,
+          actId: act.id,
+          sequence: index + 1
+        }));
+        allPoints.push(...points);
+      }
+
+      // 兜底逻辑：如果某些Act缺失，单独补齐（极少发生）
+      if (allPoints.length === 0) {
+        throw new Error("No plot points generated in batch mode");
+      }
+
+      return allPoints;
+    } catch (error) {
+      this.logger.warn(`Batch plot point generation failed, using individual fallback`, error as Error);
+      // 回滚到原始的逐个生成逻辑（作为鲁棒性兜底）
+      const fallbackPoints: PlotPoint[] = [];
+      for (let i = 0; i < framework.acts.length; i++) {
+        const actPoints = await this.generateActPlotPoints(framework.acts[i], i + 1, params);
+        fallbackPoints.push(...actPoints);
+      }
+      return fallbackPoints;
+    }
   }
 
   /**
-   * 为单个章节生成剧情点
+   * 为单个章节生成剧情点 (作为批量失败后的兜底)
    */
   private async generateActPlotPoints(
-    act: StoryAct, 
-    actNumber: number, 
+    act: StoryAct,
+    actNumber: number,
     params: StoryOutlineGenerationParams
   ): Promise<PlotPoint[]> {
-    const plotPointPrompt = `
-为第${actNumber}章"${act.title}"生成详细的剧情点：
+    const plotPointPrompt = `为章节 "${act.title}" 生成 4-6 个详细剧情点。
+章节任务：${act.summary}
+关键点：${act.keyEvents.join(', ')}
 
-章节概要：${act.summary}
-关键事件：${act.keyEvents.join(', ')}
-预期结果：${act.expectedOutcomes.join(', ')}
-章节时长：${act.estimatedDuration}分钟
-游戏模式：${params.gameMode === 'script' ? '剧本模式' : '引导自由模式'}
-
-请生成4-6个剧情点，确保：
-1. 每个剧情点都有明确的目标和挑战
-2. 提供多样化的玩家行动选项
-3. 包含可能的结果分支
-4. 适合${params.gameMode === 'script' ? '结构化引导' : '灵活引导'}
-
-按以下格式返回：
-
-=== ACT_PLOT_POINTS ===
-PLOT_COUNT: 剧情点数量
-PLOT_1_TITLE: 剧情点1标题
-PLOT_1_DESC: 剧情点1详细描述
-PLOT_1_TYPE: introduction|conflict|climax|resolution|transition
-PLOT_1_ACTIONS: 预期行动1, 预期行动2, 预期行动3
-PLOT_1_OUTCOMES: 可能结果1, 可能结果2, 可能结果3
-PLOT_1_NOTES: 导演指导注释
-PLOT_2_TITLE: 剧情点2标题
-PLOT_2_DESC: 剧情点2详细描述
-PLOT_2_TYPE: introduction|conflict|climax|resolution|transition
-PLOT_2_ACTIONS: 预期行动1, 预期行动2, 预期行动3
-PLOT_2_OUTCOMES: 可能结果1, 可能结果2, 可能结果3
-PLOT_2_NOTES: 导演指导注释
-[继续其他剧情点...]
-=== END_PLOT_POINTS ===
-
-要求：
-- 使用逗号分隔列表项
-- 确保剧情点之间的逻辑连贯性
-- 为玩家提供有意义的选择
-- 严格按照格式输出
-`;
+请以 JSON 格式返回列表：
+{
+  "plotPoints": [
+    {
+      "title": "剧情点标题",
+      "description": "详细描述",
+      "type": "introduction|conflict|climax|resolution|transition",
+      "expectedPlayerActions": ["行动1", "行动2"],
+      "possibleOutcomes": ["结果1", "结果2"],
+      "directorNotes": "给导演的引导建议"
+    }
+  ]
+}
+直接返回 JSON。`;
 
     try {
       const response = await this.llmService.generateText(plotPointPrompt, {
         temperature: 0.6,
-        maxTokens: 1500
+        maxTokens: 1500,
+        jsonMode: true
       });
 
-      return this.extractActPlotPoints(response || '', act, actNumber);
+      const data = JsonUtils.extractJson<any>(response || '{}');
+      return (data.plotPoints || []).map((pp: any, index: number) => ({
+        ...pp,
+        id: `pp_${actNumber}_${index + 1}_${uuidv4()}`,
+        actId: act.id,
+        sequence: index + 1
+      }));
     } catch (error) {
-      this.logger.warn(`Failed to generate plot points for act ${actNumber}, using fallback`, error as Error);
       return this.generateFallbackPlotPoints(act, actNumber);
     }
   }
 
   /**
-   * 生成导演指导
+   * 生成导演指导 (批量模式)
    */
   private async generateDirectorGuidance(
-    plotPoints: PlotPoint[], 
+    plotPoints: PlotPoint[],
     worldAnalysis: any
   ): Promise<DirectorGuidancePoint[]> {
-    const guidance: DirectorGuidancePoint[] = [];
+    const pointsInfo = plotPoints.map(p =>
+      `[${p.id}] "${p.title}": ${p.description} (Type: ${p.type})`
+    ).join('\n');
 
-    for (const plotPoint of plotPoints) {
-      const guidancePoint = await this.generatePlotPointGuidance(plotPoint, worldAnalysis);
-      guidance.push(guidancePoint);
+    const systemPrompt = `You are a specialized game director assistant. Provide detailed guidance for plot points.
+Response MUST be a JSON object:
+{
+  "guidanceList": [
+    {
+      "plotPointId": "id from input",
+      "guidance": "Core principle",
+      "interventionTriggers": ["trigger 1", "trigger 2"],
+      "suggestedApproaches": ["approach 1", "approach 2"],
+      "backupPlans": ["backup 1", "backup 2"]
     }
+  ]
+}`;
 
-    return guidance;
+    const prompt = `Provide director guidance for the following plot points in the context of the world analysis:
+WORLD ANALYSIS: ${JSON.stringify(worldAnalysis).substring(0, 1000)}...
+
+PLOT POINTS:
+${pointsInfo}
+
+Return detailed guidance for EACH point. JSON only.`;
+
+    try {
+      const response = await this.llmService.generateText(prompt, {
+        temperature: 0.4,
+        maxTokens: 4000,
+        jsonMode: true,
+        systemPrompt
+      });
+
+      const data = JsonUtils.extractJson<any>(response || '{}');
+      return (data.guidanceList || []).map((item: any) => ({
+        ...item,
+        id: uuidv4()
+      }));
+    } catch (error) {
+      this.logger.error('Batch director guidance failed, using individual fallback:', error as Error);
+      const guidance: DirectorGuidancePoint[] = [];
+      for (const plotPoint of plotPoints) {
+        guidance.push(await this.generatePlotPointGuidance(plotPoint, worldAnalysis));
+      }
+      return guidance;
+    }
   }
 
   /**
-   * 为单个剧情点生成指导
+   * 为单个剧情点生成指导 (作为批量失败后的兜底)
    */
   private async generatePlotPointGuidance(
-    plotPoint: PlotPoint, 
+    plotPoint: PlotPoint,
     worldAnalysis: any
   ): Promise<DirectorGuidancePoint> {
-    const guidancePrompt = `
-为剧情点"${plotPoint.title}"生成导演指导：
-
-剧情描述：${plotPoint.description}
-剧情类型：${plotPoint.type}
-预期玩家行动：${plotPoint.expectedPlayerActions.join(', ')}
-可能结果：${plotPoint.possibleOutcomes.join(', ')}
-导演注释：${plotPoint.directorNotes}
-
-世界背景考虑：
-- 整体基调：${worldAnalysis.tone}
-- 主要主题：${worldAnalysis.themes.join(', ')}
-- 潜在冲突：${worldAnalysis.conflicts.join(', ')}
-
-请提供详细的导演指导信息，按以下格式返回：
-
-=== DIRECTOR_GUIDANCE ===
-CORE_GUIDANCE: 核心指导原则的详细描述
-INTERVENTION_TRIGGERS: 触发条件1, 触发条件2, 触发条件3
-SUGGESTED_APPROACHES: 引导方法1, 引导方法2, 引导方法3
-BACKUP_PLANS: 备用计划1, 备用计划2, 备用计划3
-ADAPTATION_NOTES: 适应性调整的具体建议
-TIMING_CONSIDERATIONS: 时机把控的重要提醒
-=== END_GUIDANCE ===
-
-要求：
-- 核心指导要具体可操作
-- 干预触发条件要明确具体
-- 引导方法要多样化且实用
-- 备用计划要切实可行
-- 使用逗号分隔列表项
-- 严格按照格式输出
-`;
-
+    const guidancePrompt = `为剧情点 "${plotPoint.title}" 提供导演指导 JSON。`;
     try {
-      const response = await this.llmService.generateText(guidancePrompt, {
-        temperature: 0.4,
-        maxTokens: 800
-      });
-
-      return this.extractDirectorGuidance(response || '', plotPoint);
+      const response = await this.llmService.generateText(guidancePrompt, { jsonMode: true });
+      const data = JsonUtils.extractJson<any>(response || '{}');
+      return {
+        id: uuidv4(),
+        plotPointId: plotPoint.id,
+        guidance: data.guidance || '保持叙事连贯',
+        interventionTriggers: data.interventionTriggers || [],
+        suggestedApproaches: data.suggestedApproaches || [],
+        backupPlans: data.backupPlans || []
+      };
     } catch (error) {
-      this.logger.warn(`Failed to generate guidance for plot point ${plotPoint.id}`, error as Error);
       return this.generateFallbackGuidance(plotPoint);
     }
   }
@@ -626,7 +530,7 @@ TIMING_CONSIDERATIONS: 时机把控的重要提醒
     // 直接使用框架中的数据，如果缺少则使用默认值
     const title = framework.title || `${framework.mainConflict}的冒险`;
     const summary = framework.summary || `在这个故事中，玩家将面对${framework.mainConflict}，经历多个重要转折点，最终实现成长和目标。`;
-    
+
     return {
       id: `story_outline_${uuidv4()}`,
       sessionId: params.sessionId,
@@ -647,119 +551,38 @@ TIMING_CONSIDERATIONS: 时机把控的重要提醒
    * 验证剧情大纲
    */
   private async validateStoryOutline(
-    outline: StoryOutline, 
+    outline: StoryOutline,
     params: StoryOutlineGenerationParams
   ): Promise<StoryOutlineResult['validationReport']> {
-    const validationPrompt = `
-对以下剧情大纲进行全面验证评估：
+    const validationPrompt = `对剧情大纲进行评估：
+- 标题：${outline.title} - ${outline.genre}
+- 结构：${outline.acts.length}章节, ${outline.plotPoints.length}剧情点
 
-故事标题：${outline.title}
-故事类型：${outline.genre}
-总时长：${outline.estimatedDuration}分钟
-章节数量：${outline.acts.length}
-剧情点数量：${outline.plotPoints.length}
-角色数量：${outline.characters.length}
-地点数量：${outline.locations.length}
-主要主题：${outline.themes.join(', ')}
-
-章节概览：
-${outline.acts.map((act, index) => `第${index + 1}章: ${act.title} - ${act.summary} (${act.estimatedDuration}分钟)`).join('\n')}
-
-游戏模式：${params.gameMode === 'script' ? '剧本模式' : '引导自由模式'}
-玩家偏好：${JSON.stringify(params.playerPreferences || {})}
-
-请从以下维度进行评估（0-100分）：
-1. 故事连贯性 - 情节是否逻辑清晰、前后一致
-2. 世界一致性 - 是否与世界背景设定保持一致
-3. 玩家参与度 - 是否提供足够的选择和互动机会
-4. 适应性 - 是否能灵活应对玩家的不同选择
-
-按以下格式返回评估结果：
-
-=== VALIDATION_REPORT ===
-COHERENCE_SCORE: 连贯性分数 (0-100)
-WORLD_CONSISTENCY: 世界一致性分数 (0-100)
-PLAYER_ENGAGEMENT: 玩家参与度分数 (0-100)
-ADAPTABILITY_SCORE: 适应性分数 (0-100)
-ISSUES: 问题1, 问题2, 问题3 (如果存在)
-RECOMMENDANIONS: 建议1, 建议2, 建议3
-OVERALL_ASSESSMENT: 总体评估描述
-=== END_VALIDATION ===
-
-要求：
-- 客观评估每个维度
-- 指出具体问题和改进建议
-- 分数要有依据
-- 使用逗号分隔列表项
-- 严格按照格式输出
-`;
+请以 JSON 格式返回验证结果：
+{
+  "coherenceScore": 80,
+  "worldConsistency": 85,
+  "playerEngagement": 75,
+  "adaptabilityScore": 70,
+  "issues": ["例：章节逻辑断层"],
+  "recommendations": ["例：补充过渡剧情"]
+}
+直接返回 JSON。`;
 
     try {
       const response = await this.llmService.generateText(validationPrompt, {
         temperature: 0.3,
-        maxTokens: 600
+        maxTokens: 1000,
+        jsonMode: true
       });
 
-      return this.extractValidationReport(response || '', outline, params);
+      return JsonUtils.extractJson<any>(response || '{}');
     } catch (error) {
       this.logger.warn('Failed to validate story outline, using basic validation', error as Error);
       return this.generateBasicValidationReport(outline, params);
     }
   }
 
-  /**
-   * 提取验证报告
-   */
-  private extractValidationReport(
-    formattedText: string,
-    outline: StoryOutline,
-    params: StoryOutlineGenerationParams
-  ): StoryOutlineResult['validationReport'] {
-    try {
-      const section = this.extractSectionBetweenMarkers(
-        formattedText,
-        '=== VALIDATION_REPORT ===',
-        '=== END_VALIDATION ==='
-      );
-      
-      if (!section) {
-        throw new Error('Validation report section not found');
-      }
-
-      // 使用已存在的方法解析字段
-      const lines = section.split('\n').filter(line => line.trim());
-      const fields: Record<string, string> = {};
-      
-      for (const line of lines) {
-        const colonIndex = line.indexOf(':');
-        if (colonIndex > 0) {
-          const key = line.substring(0, colonIndex).trim();
-          const value = line.substring(colonIndex + 1).trim();
-          fields[key] = value;
-        }
-      }
-      
-      const coherenceScore = parseInt(fields['COHERENCE_SCORE']) || 70;
-      const worldConsistency = parseInt(fields['WORLD_CONSISTENCY']) || 75;
-      const playerEngagement = parseInt(fields['PLAYER_ENGAGEMENT']) || 80;
-      const adaptabilityScore = parseInt(fields['ADAPTABILITY_SCORE']) || 75;
-      
-      const issues = this.parseCommaSeparatedList(fields['ISSUES'] || '');
-      const recommendations = this.parseCommaSeparatedList(fields['RECOMMENDATIONS'] || '');
-      
-      return {
-        coherenceScore: Math.max(0, Math.min(100, coherenceScore)),
-        worldConsistency: Math.max(0, Math.min(100, worldConsistency)),
-        playerEngagement: Math.max(0, Math.min(100, playerEngagement)),
-        adaptabilityScore: Math.max(0, Math.min(100, adaptabilityScore)),
-        issues: issues.length > 0 ? issues : [],
-        recommendations: recommendations.length > 0 ? recommendations : []
-      };
-    } catch (error) {
-      this.logger.warn('Failed to extract validation report', error as Error);
-      return this.generateBasicValidationReport(outline, params);
-    }
-  }
 
   /**
    * 生成基础验证报告
@@ -772,10 +595,10 @@ OVERALL_ASSESSMENT: 总体评估描述
     let worldConsistency = 75;
     let playerEngagement = 70;
     let adaptabilityScore = 70;
-    
+
     const issues: string[] = [];
     const recommendations: string[] = [];
-    
+
     // 基于实际内容计算分数
     if (outline.acts.length >= 3) {
       coherenceScore += 10;
@@ -783,33 +606,33 @@ OVERALL_ASSESSMENT: 总体评估描述
       issues.push('章节数量偏少，可能影响故事发展');
       recommendations.push('考虑增加更多章节以丰富故事内容');
     }
-    
+
     if (outline.plotPoints.length >= outline.acts.length * 3) {
       playerEngagement += 10;
     } else {
       issues.push('剧情点密度偏低');
       recommendations.push('为每个章节增加更多剧情点');
     }
-    
+
     if (outline.characters.length >= 3) {
       worldConsistency += 10;
     } else {
       issues.push('角色数量偏少');
       recommendations.push('增加更多有趣的角色以丰富故事');
     }
-    
+
     if (outline.directorGuidance.length > 0) {
       adaptabilityScore += 15;
     } else {
       issues.push('缺乏导演指导');
       recommendations.push('为关键剧情点添加导演指导');
     }
-    
+
     if (outline.themes.length > 0) {
       coherenceScore += 5;
       worldConsistency += 5;
     }
-    
+
     return {
       coherenceScore: Math.min(100, coherenceScore),
       worldConsistency: Math.min(100, worldConsistency),
@@ -818,6 +641,27 @@ OVERALL_ASSESSMENT: 总体评估描述
       issues,
       recommendations
     };
+  }
+
+  /**
+   * 匹配剧情点 (由管道层调用)
+   */
+  async matchPlotPoint(sessionId: string, currentContext: any): Promise<PlotPoint | null> {
+    const activePoints = this.plotPointCache.get(sessionId);
+    if (!activePoints || activePoints.length === 0) return null;
+
+    // 这里通常会调用 LLM 来判断当前上下文是否命中了某个剧情点
+    this.logger.debug(`Matching context against ${activePoints.length} plot points`);
+
+    // 实际生产中应使用 LLM 做语义匹配，这里暂回首个点作为占位
+    return activePoints[0];
+  }
+
+  /**
+   * 清理缓存
+   */
+  cleanupCache(sessionId: string): void {
+    this.plotPointCache.delete(sessionId);
   }
 
   /**
@@ -906,113 +750,6 @@ OVERALL_ASSESSMENT: 总体评估描述
     };
   }
 
-  /**
-   * 从格式化文本中提取章节的剧情点
-   */
-  private extractActPlotPoints(
-    formattedText: string,
-    act: StoryAct,
-    actNumber: number
-  ): PlotPoint[] {
-    try {
-      const section = this.extractSectionBetweenMarkers(
-        formattedText,
-        '=== ACT_PLOT_POINTS ===',
-        '=== END_PLOT_POINTS ==='
-      );
-      
-      if (!section) {
-        throw new Error('Act plot points section not found');
-      }
-
-      const lines = section.split('\n').filter(line => line.trim());
-      const fields: Record<string, string> = {};
-      
-      for (const line of lines) {
-        const colonIndex = line.indexOf(':');
-        if (colonIndex > 0) {
-          const key = line.substring(0, colonIndex).trim();
-          const value = line.substring(colonIndex + 1).trim();
-          fields[key] = value;
-        }
-      }
-
-      const plotCount = parseInt(fields.PLOT_COUNT || '4');
-      const plotPoints: PlotPoint[] = [];
-      
-      for (let i = 1; i <= plotCount; i++) {
-        const plotPoint: PlotPoint = {
-          id: `plot_${actNumber}_${i}_${uuidv4()}`,
-          actId: act.id,
-          sequence: i,
-          title: fields[`PLOT_${i}_TITLE`] || `${act.title} - 剧情点${i}`,
-          description: fields[`PLOT_${i}_DESC`] || `第${i}个剧情点`,
-          type: this.validatePlotPointType(fields[`PLOT_${i}_TYPE`]) || this.determinePlotPointType(i - 1, plotCount),
-          expectedPlayerActions: this.parseCommaSeparatedList(fields[`PLOT_${i}_ACTIONS`] || ''),
-          possibleOutcomes: this.parseCommaSeparatedList(fields[`PLOT_${i}_OUTCOMES`] || ''),
-          directorNotes: fields[`PLOT_${i}_NOTES`] || '引导玩家完成目标'
-        };
-        plotPoints.push(plotPoint);
-      }
-
-      return plotPoints;
-    } catch (error) {
-      this.logger.warn(`Failed to extract plot points for act ${actNumber}, using fallback`, error as Error);
-      return this.generateFallbackPlotPoints(act, actNumber);
-    }
-  }
-
-  /**
-   * 验证剧情点类型
-   */
-  private validatePlotPointType(type: string): PlotPoint['type'] | null {
-    const validTypes: PlotPoint['type'][] = ['introduction', 'conflict', 'climax', 'resolution', 'transition'];
-    return validTypes.includes(type as PlotPoint['type']) ? type as PlotPoint['type'] : null;
-  }
-
-  /**
-   * 从格式化文本中提取导演指导
-   */
-  private extractDirectorGuidance(
-    formattedText: string,
-    plotPoint: PlotPoint
-  ): DirectorGuidancePoint {
-    try {
-      const section = this.extractSectionBetweenMarkers(
-        formattedText,
-        '=== DIRECTOR_GUIDANCE ===',
-        '=== END_GUIDANCE ==='
-      );
-      
-      if (!section) {
-        throw new Error('Director guidance section not found');
-      }
-
-      const lines = section.split('\n').filter(line => line.trim());
-      const fields: Record<string, string> = {};
-      
-      for (const line of lines) {
-        const colonIndex = line.indexOf(':');
-        if (colonIndex > 0) {
-          const key = line.substring(0, colonIndex).trim();
-          const value = line.substring(colonIndex + 1).trim();
-          fields[key] = value;
-        }
-      }
-
-      return {
-        id: `guidance_${plotPoint.id}`,
-        plotPointId: plotPoint.id,
-        guidance: fields.CORE_GUIDANCE || '根据情况灵活引导',
-        interventionTriggers: this.parseCommaSeparatedList(fields.INTERVENTION_TRIGGERS || ''),
-        suggestedApproaches: this.parseCommaSeparatedList(fields.SUGGESTED_APPROACHES || ''),
-        backupPlans: this.parseCommaSeparatedList(fields.BACKUP_PLANS || '')
-      };
-    } catch (error) {
-      this.logger.warn(`Failed to extract guidance for plot point ${plotPoint.id}`, error as Error);
-      return this.generateFallbackGuidance(plotPoint);
-    }
-  }
 
   /**
    * 生成回退的导演指导
@@ -1052,7 +789,7 @@ OVERALL_ASSESSMENT: 总体评估描述
     };
 
     const guidance = typeBasedGuidance[plotPoint.type] || typeBasedGuidance['transition'];
-    
+
     return {
       id: `guidance_${plotPoint.id}`,
       plotPointId: plotPoint.id,

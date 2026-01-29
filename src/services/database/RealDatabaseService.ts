@@ -1,7 +1,7 @@
 import { Pool, PoolClient, QueryResult } from 'pg';
 import { createClient, RedisClientType } from 'redis';
 import { v4 as uuidv4 } from 'uuid';
-import { 
+import {
   DatabaseService,
   DatabaseConfig,
   QueryOptions,
@@ -20,7 +20,7 @@ export class RealDatabaseService implements DatabaseService {
   private isInitialized = false;
   private schemaInitialized = false;
 
-  constructor(private config: DatabaseConfig) {}
+  constructor(private config: DatabaseConfig) { }
 
   async connect(): Promise<void> {
     try {
@@ -63,7 +63,7 @@ export class RealDatabaseService implements DatabaseService {
 
           await this.redisClient.connect();
           await this.redisClient.ping();
-          
+
           this.redisEnabled = true;
           console.log('Redis connection established successfully');
         } catch (redisError) {
@@ -92,29 +92,29 @@ export class RealDatabaseService implements DatabaseService {
   isConnected(): boolean {
     return this.isInitialized && !!this.postgresPool;
   }
-  
+
   async healthCheck(): Promise<boolean> {
     if (!this.isConnected()) {
       return false;
     }
-    
+
     try {
       const client = await this.postgresPool!.connect();
       await client.query('SELECT 1');
       client.release();
-      
+
       // Also check Redis if enabled
       if (this.redisEnabled && this.redisClient) {
         await this.redisClient.ping();
       }
-      
+
       return true;
     } catch (error) {
       console.error('Health check failed:', error);
       return false;
     }
   }
-  
+
   async disconnect(): Promise<void> {
     try {
       console.log('Shutting down database connections...');
@@ -169,7 +169,7 @@ export class RealDatabaseService implements DatabaseService {
 
     throw lastError;
   }
-  
+
   async executeTransaction<T>(queries: Array<{ sql: string; params?: any[] }>): Promise<T[]> {
     if (!this.isInitialized || !this.postgresPool) {
       throw new Error('Database not initialized');
@@ -179,12 +179,12 @@ export class RealDatabaseService implements DatabaseService {
     try {
       await client.query('BEGIN');
       const results: T[] = [];
-      
+
       for (const query of queries) {
         const result = await client.query(query.sql, query.params);
         results.push(...(result.rows as T[]));
       }
-      
+
       await client.query('COMMIT');
       return results;
     } catch (error) {
@@ -220,17 +220,17 @@ export class RealDatabaseService implements DatabaseService {
       WHERE id = $1 AND session_id = $2
       LIMIT 1
     `;
-    
+
     const client = await this.postgresPool.connect();
     try {
       const result = await client.query<CharacterRecord>(sql, [id, sessionId]);
       const character = result.rows.length > 0 ? result.rows[0] : null;
-      
+
       // Cache the result for 5 minutes
       if (character && this.redisEnabled) {
         await this.cacheSet(cacheKey, JSON.stringify(character), 300);
       }
-      
+
       return character;
     } finally {
       client.release();
@@ -263,17 +263,17 @@ export class RealDatabaseService implements DatabaseService {
       ORDER BY created_at DESC
       LIMIT $3
     `;
-    
+
     const client = await this.postgresPool.connect();
     try {
       const result = await client.query<CharacterMemoryRecord>(sql, [characterId, sessionId, limit]);
       const memories = result.rows;
-      
+
       // Cache the result for 2 minutes
       if (memories.length > 0 && this.redisEnabled) {
         await this.cacheSet(cacheKey, JSON.stringify(memories), 120);
       }
-      
+
       return memories;
     } finally {
       client.release();
@@ -306,17 +306,17 @@ export class RealDatabaseService implements DatabaseService {
       ORDER BY created_at DESC
       LIMIT $3
     `;
-    
+
     const client = await this.postgresPool.connect();
     try {
       const result = await client.query<ConversationRecord>(sql, [characterId, sessionId, limit]);
       const conversations = result.rows;
-      
+
       // Cache the result for 2 minutes
       if (conversations.length > 0 && this.redisEnabled) {
         await this.cacheSet(cacheKey, JSON.stringify(conversations), 120);
       }
-      
+
       return conversations;
     } finally {
       client.release();
@@ -347,17 +347,17 @@ export class RealDatabaseService implements DatabaseService {
       SELECT * FROM character_relationships 
       WHERE character_id = $1 AND session_id = $2
     `;
-    
+
     const client = await this.postgresPool.connect();
     try {
       const result = await client.query<CharacterRelationshipRecord>(sql, [characterId, sessionId]);
       const relationships = result.rows;
-      
+
       // Cache the result for 5 minutes
       if (relationships.length > 0 && this.redisEnabled) {
         await this.cacheSet(cacheKey, JSON.stringify(relationships), 300);
       }
-      
+
       return relationships;
     } finally {
       client.release();
@@ -388,17 +388,17 @@ export class RealDatabaseService implements DatabaseService {
       SELECT * FROM characters 
       WHERE session_id = $1 AND is_active = true
     `;
-    
+
     const client = await this.postgresPool.connect();
     try {
       const result = await client.query<CharacterRecord>(sql, [sessionId]);
       const characters = result.rows;
-      
+
       // Cache the result for 5 minutes
       if (characters.length > 0 && this.redisEnabled) {
         await this.cacheSet(cacheKey, JSON.stringify(characters), 300);
       }
-      
+
       return characters;
     } finally {
       client.release();
@@ -416,7 +416,7 @@ export class RealDatabaseService implements DatabaseService {
         associated_characters, tags, memory_type, significance, created_at, updated_at
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
     `;
-    
+
     const params = [
       memory.id,
       memory.character_id,
@@ -430,11 +430,11 @@ export class RealDatabaseService implements DatabaseService {
       memory.created_at,
       memory.updated_at
     ];
-    
+
     const client = await this.postgresPool.connect();
     try {
       await client.query(sql, params);
-      
+
       // Invalidate related cache entries
       if (this.redisEnabled) {
         await this.cacheDel(`character_memories:${memory.character_id}:${memory.session_id}:*`);
@@ -453,7 +453,7 @@ export class RealDatabaseService implements DatabaseService {
     const updateFields = [];
     const params = [];
     let paramIndex = 1;
-    
+
     for (const [key, value] of Object.entries(updates)) {
       // 确保不会重复添加updated_at字段
       if (key !== 'id' && key !== 'created_at' && key !== 'updated_at') {
@@ -462,26 +462,26 @@ export class RealDatabaseService implements DatabaseService {
         paramIndex++;
       }
     }
-    
+
     if (updateFields.length === 0) {
       return; // 没有需要更新的字段
     }
-    
+
     // 总是更新updated_at字段，但只添加一次
     updateFields.push(`updated_at = NOW()`);
-    
+
     params.push(characterId, sessionId); // 添加WHERE条件参数
-    
+
     const sql = `
       UPDATE characters 
       SET ${updateFields.join(', ')}
       WHERE id = $${paramIndex} AND session_id = $${paramIndex + 1}
     `;
-    
+
     const client = await this.postgresPool.connect();
     try {
       await client.query(sql, params);
-      
+
       // Invalidate related cache entries
       if (this.redisEnabled) {
         await this.cacheDel(`character:${characterId}:${sessionId}`);
@@ -508,9 +508,9 @@ export class RealDatabaseService implements DatabaseService {
         game_state = EXCLUDED.game_state,
         updated_at = NOW()
     `;
-    
+
     const params = [sessionId, playerId, gameState];
-    
+
     const client = await this.postgresPool.connect();
     try {
       await client.query(sql, params);
@@ -530,7 +530,7 @@ export class RealDatabaseService implements DatabaseService {
       WHERE id = $1
       LIMIT 1
     `;
-    
+
     const client = await this.postgresPool.connect();
     try {
       const result = await client.query(sql, [sessionId]);
@@ -551,7 +551,7 @@ export class RealDatabaseService implements DatabaseService {
         id, session_id, character_id, message_type, content, context, created_at, updated_at
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
     `;
-    
+
     const params = [
       conversation.id,
       conversation.session_id,
@@ -562,11 +562,11 @@ export class RealDatabaseService implements DatabaseService {
       conversation.created_at,
       conversation.updated_at
     ];
-    
+
     const client = await this.postgresPool.connect();
     try {
       await client.query(sql, params);
-      
+
       // Invalidate related cache entries
       if (this.redisEnabled) {
         await this.cacheDel(`character_conversations:${conversation.character_id}:${conversation.session_id}:*`);
@@ -592,7 +592,7 @@ export class RealDatabaseService implements DatabaseService {
         relationship_data = EXCLUDED.relationship_data,
         updated_at = NOW()
     `;
-    
+
     const params = [
       relationship.id,
       relationship.character_id,
@@ -604,11 +604,11 @@ export class RealDatabaseService implements DatabaseService {
       relationship.created_at,
       relationship.updated_at
     ];
-    
+
     const client = await this.postgresPool.connect();
     try {
       await client.query(sql, params);
-      
+
       // Invalidate related cache entries
       if (this.redisEnabled) {
         await this.cacheDel(`character_relationships:${relationship.character_id}:${relationship.session_id}`);
@@ -630,7 +630,7 @@ export class RealDatabaseService implements DatabaseService {
         involved_characters, impact_level, story_data, created_at, updated_at
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
     `;
-    
+
     const params = [
       event.id,
       event.session_id,
@@ -643,7 +643,7 @@ export class RealDatabaseService implements DatabaseService {
       event.created_at,
       event.updated_at
     ];
-    
+
     const client = await this.postgresPool.connect();
     try {
       await client.query(sql, params);
@@ -679,17 +679,17 @@ export class RealDatabaseService implements DatabaseService {
       ORDER BY created_at DESC
       LIMIT $2
     `;
-    
+
     const client = await this.postgresPool.connect();
     try {
       const result = await client.query<StoryEventRecord>(sql, [sessionId, limit]);
       const events = result.rows;
-      
+
       // Cache the result for 2 minutes
       if (events.length > 0 && this.redisEnabled) {
         await this.cacheSet(cacheKey, JSON.stringify(events), 120);
       }
-      
+
       return events;
     } finally {
       client.release();
@@ -745,7 +745,7 @@ export class RealDatabaseService implements DatabaseService {
       console.warn('Redis cache delete failed:', error);
     }
   }
-  
+
   // 新增：批量删除缓存
   async cacheDelPattern(pattern: string): Promise<void> {
     if (!this.redisClient || !this.redisEnabled) {
@@ -787,17 +787,17 @@ export class RealDatabaseService implements DatabaseService {
       WHERE id = $1
       LIMIT 1
     `;
-    
+
     const client = await this.postgresPool.connect();
     try {
       const result = await client.query(sql, [sessionId]);
       const gameState = result.rows.length > 0 ? result.rows[0].game_state : null;
-      
+
       // 缓存结果5分钟
       if (gameState && this.redisEnabled) {
         await this.cacheSet(cacheKey, JSON.stringify(gameState), 300);
       }
-      
+
       return gameState;
     } finally {
       client.release();
@@ -830,25 +830,25 @@ export class RealDatabaseService implements DatabaseService {
       WHERE player_id = $1
       LIMIT 1
     `;
-    
+
     const client = await this.postgresPool.connect();
     try {
       const result = await client.query(sql, [playerId]);
       const preferences = result.rows.length > 0 ? result.rows[0].preferences : null;
-      
+
       // 缓存结果15分钟
       if (preferences && this.redisEnabled) {
         await this.cacheSet(cacheKey, JSON.stringify(preferences), 900);
       }
-      
+
       return preferences;
     } finally {
       client.release();
     }
   }
-  
 
-  
+
+
   async getPlayerSessions(playerId: string): Promise<any[]> {
     if (!this.isInitialized || !this.postgresPool) {
       throw new Error('Database not initialized');
@@ -859,7 +859,7 @@ export class RealDatabaseService implements DatabaseService {
       WHERE player_id = $1
       ORDER BY updated_at DESC
     `;
-    
+
     const client = await this.postgresPool.connect();
     try {
       const result = await client.query(sql, [playerId]);
@@ -868,7 +868,7 @@ export class RealDatabaseService implements DatabaseService {
       client.release();
     }
   }
-  
+
   async getAllActiveSessions(): Promise<any[]> {
     if (!this.isInitialized || !this.postgresPool) {
       throw new Error('Database not initialized');
@@ -879,7 +879,7 @@ export class RealDatabaseService implements DatabaseService {
       WHERE is_active = true
       ORDER BY updated_at DESC
     `;
-    
+
     const client = await this.postgresPool.connect();
     try {
       const result = await client.query(sql);
@@ -888,7 +888,7 @@ export class RealDatabaseService implements DatabaseService {
       client.release();
     }
   }
-  
+
   // Character management methods
   async createCharacter(character: Omit<CharacterRecord, 'created_at' | 'updated_at'>): Promise<CharacterRecord> {
     if (!this.isInitialized || !this.postgresPool) {
@@ -902,7 +902,7 @@ export class RealDatabaseService implements DatabaseService {
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
       RETURNING *
     `;
-    
+
     const params = [
       character.id,
       character.name,
@@ -914,23 +914,23 @@ export class RealDatabaseService implements DatabaseService {
       character.character_data,
       character.session_id
     ];
-    
+
     const client = await this.postgresPool.connect();
     try {
       const result = await client.query<CharacterRecord>(sql, params);
       const createdCharacter = result.rows[0];
-      
+
       // Clear related cache
       if (this.redisEnabled) {
         await this.cacheDel(`session_characters:${character.session_id}`);
       }
-      
+
       return createdCharacter;
     } finally {
       client.release();
     }
   }
-  
+
   async deleteCharacter(characterId: string, sessionId: string): Promise<void> {
     if (!this.isInitialized || !this.postgresPool) {
       throw new Error('Database not initialized');
@@ -951,7 +951,7 @@ export class RealDatabaseService implements DatabaseService {
       await this.cacheDel(`session_characters:${sessionId}`);
     }
   }
-  
+
   // Memory management methods
   async searchMemories(characterId: string, sessionId: string, query: string, limit: number = 50): Promise<CharacterMemoryRecord[]> {
     if (!this.isInitialized || !this.postgresPool) {
@@ -965,7 +965,7 @@ export class RealDatabaseService implements DatabaseService {
       ORDER BY significance DESC, created_at DESC
       LIMIT $4
     `;
-    
+
     const client = await this.postgresPool.connect();
     try {
       const result = await client.query<CharacterMemoryRecord>(sql, [characterId, sessionId, `%${query}%`, limit]);
@@ -974,14 +974,14 @@ export class RealDatabaseService implements DatabaseService {
       client.release();
     }
   }
-  
+
   async deleteMemory(memoryId: string): Promise<void> {
     if (!this.isInitialized || !this.postgresPool) {
       throw new Error('Database not initialized');
     }
 
     const sql = 'DELETE FROM character_memories WHERE id = $1';
-    
+
     const client = await this.postgresPool.connect();
     try {
       await client.query(sql, [memoryId]);
@@ -989,7 +989,7 @@ export class RealDatabaseService implements DatabaseService {
       client.release();
     }
   }
-  
+
   // Conversation management methods
   async getConversationHistory(sessionId: string, limit: number = 50): Promise<ConversationRecord[]> {
     if (!this.isInitialized || !this.postgresPool) {
@@ -1002,7 +1002,7 @@ export class RealDatabaseService implements DatabaseService {
       ORDER BY created_at DESC
       LIMIT $2
     `;
-    
+
     const client = await this.postgresPool.connect();
     try {
       const result = await client.query<ConversationRecord>(sql, [sessionId, limit]);
@@ -1011,7 +1011,7 @@ export class RealDatabaseService implements DatabaseService {
       client.release();
     }
   }
-  
+
   // Relationship management methods
   async updateRelationshipStrength(characterId: string, targetCharacterId: string, sessionId: string, delta: number): Promise<void> {
     if (!this.isInitialized || !this.postgresPool) {
@@ -1023,11 +1023,11 @@ export class RealDatabaseService implements DatabaseService {
       SET strength = GREATEST(-100, LEAST(100, strength + $4)), updated_at = NOW()
       WHERE character_id = $1 AND target_character_id = $2 AND session_id = $3
     `;
-    
+
     const client = await this.postgresPool.connect();
     try {
       await client.query(sql, [characterId, targetCharacterId, sessionId, delta]);
-      
+
       // Clear related cache
       if (this.redisEnabled) {
         await this.cacheDel(`character_relationships:${characterId}:${sessionId}`);
@@ -1036,7 +1036,7 @@ export class RealDatabaseService implements DatabaseService {
       client.release();
     }
   }
-  
+
   // Story event management methods
   async getStoryEventsByLocation(locationId: string, sessionId: string, limit: number = 50): Promise<StoryEventRecord[]> {
     if (!this.isInitialized || !this.postgresPool) {
@@ -1049,7 +1049,7 @@ export class RealDatabaseService implements DatabaseService {
       ORDER BY created_at DESC
       LIMIT $3
     `;
-    
+
     const client = await this.postgresPool.connect();
     try {
       const result = await client.query<StoryEventRecord>(sql, [locationId, sessionId, limit]);
@@ -1058,7 +1058,7 @@ export class RealDatabaseService implements DatabaseService {
       client.release();
     }
   }
-  
+
   // Cache management methods
   async cacheKeys(pattern: string): Promise<string[]> {
     if (!this.redisEnabled || !this.redisClient) {
@@ -1072,7 +1072,7 @@ export class RealDatabaseService implements DatabaseService {
       return [];
     }
   }
-  
+
   async cacheFlush(): Promise<void> {
     if (!this.redisEnabled || !this.redisClient) {
       return;
@@ -1084,7 +1084,7 @@ export class RealDatabaseService implements DatabaseService {
       console.warn('Redis flush operation failed:', error);
     }
   }
-  
+
   // Game state methods
   async setGameState(sessionId: string, gameState: any): Promise<void> {
     if (!this.isInitialized || !this.postgresPool) {
@@ -1096,11 +1096,11 @@ export class RealDatabaseService implements DatabaseService {
       SET game_state = $2, updated_at = NOW()
       WHERE id = $1
     `;
-    
+
     const client = await this.postgresPool.connect();
     try {
       await client.query(sql, [sessionId, gameState]);
-      
+
       // Clear related cache
       if (this.redisEnabled) {
         await this.cacheDel(`game_state:${sessionId}`);
@@ -1109,7 +1109,7 @@ export class RealDatabaseService implements DatabaseService {
       client.release();
     }
   }
-  
+
   async setPlayerPreferences(playerId: string, preferences: any): Promise<void> {
     if (!this.isInitialized || !this.postgresPool) {
       throw new Error('Database not initialized');
@@ -1122,11 +1122,11 @@ export class RealDatabaseService implements DatabaseService {
         preferences = EXCLUDED.preferences,
         updated_at = NOW()
     `;
-    
+
     const client = await this.postgresPool.connect();
     try {
       await client.query(sql, [playerId, preferences]);
-      
+
       // Clear related cache
       if (this.redisEnabled) {
         await this.cacheDel(`player_preferences:${playerId}`);
@@ -1135,7 +1135,7 @@ export class RealDatabaseService implements DatabaseService {
       client.release();
     }
   }
-  
+
   // Batch operations
   async batchInsert<T extends DatabaseRecord>(tableName: string, records: T[]): Promise<void> {
     if (!this.isInitialized || !this.postgresPool || records.length === 0) {
@@ -1151,7 +1151,7 @@ export class RealDatabaseService implements DatabaseService {
 
     await this.executeTransaction(queries);
   }
-  
+
   async batchUpdate<T extends DatabaseRecord>(tableName: string, updates: Array<{ id: string; data: Partial<T> }>): Promise<void> {
     if (!this.isInitialized || !this.postgresPool || updates.length === 0) {
       return;
@@ -1168,7 +1168,7 @@ export class RealDatabaseService implements DatabaseService {
 
     await this.executeTransaction(queries);
   }
-  
+
   // Analytics and statistics
   async getSessionStatistics(sessionId: string): Promise<any> {
     if (!this.isInitialized || !this.postgresPool) {
@@ -1187,7 +1187,7 @@ export class RealDatabaseService implements DatabaseService {
       const results = await Promise.all(
         queries.map(query => client.query(query.sql, query.params))
       );
-      
+
       return {
         characterCount: parseInt(results[0].rows[0].character_count),
         conversationCount: parseInt(results[1].rows[0].conversation_count),
@@ -1198,7 +1198,7 @@ export class RealDatabaseService implements DatabaseService {
       client.release();
     }
   }
-  
+
   async getCharacterInteractionCount(characterId: string, sessionId: string): Promise<number> {
     if (!this.isInitialized || !this.postgresPool) {
       throw new Error('Database not initialized');
@@ -1209,7 +1209,7 @@ export class RealDatabaseService implements DatabaseService {
       FROM conversations 
       WHERE character_id = $1 AND session_id = $2
     `;
-    
+
     const client = await this.postgresPool.connect();
     try {
       const result = await client.query(sql, [characterId, sessionId]);
@@ -1218,7 +1218,7 @@ export class RealDatabaseService implements DatabaseService {
       client.release();
     }
   }
-  
+
   async getPopularLocations(sessionId: string, limit: number = 10): Promise<Array<{ location: string; visits: number }>> {
     if (!this.isInitialized || !this.postgresPool) {
       throw new Error('Database not initialized');
@@ -1232,7 +1232,7 @@ export class RealDatabaseService implements DatabaseService {
       ORDER BY visits DESC
       LIMIT $2
     `;
-    
+
     const client = await this.postgresPool.connect();
     try {
       const result = await client.query(sql, [sessionId, limit]);
@@ -1379,9 +1379,19 @@ export class RealDatabaseService implements DatabaseService {
             UNIQUE(character_id, target_character_id, session_id)
         );
 
+        -- 强制更新地点表结构（由于引入了 session_id 联合主键）
+        -- 如果表中没有 session_id 列，则删除重建
+        DO $$ 
+        BEGIN 
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='locations' AND column_name='session_id') THEN
+                DROP TABLE IF EXISTS locations CASCADE;
+            END IF;
+        END $$;
+
         -- 创建地点表
         CREATE TABLE IF NOT EXISTS locations (
-            id VARCHAR(100) PRIMARY KEY,
+            id VARCHAR(100),
+            session_id VARCHAR(36) REFERENCES game_sessions(id) ON DELETE CASCADE,
             name VARCHAR(200) NOT NULL,
             description TEXT,
             location_type VARCHAR(50),
@@ -1390,7 +1400,8 @@ export class RealDatabaseService implements DatabaseService {
             position_y NUMERIC(10,2),
             location_data JSONB,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (id, session_id)
         );
 
         -- 创建世界背景故事表
@@ -1473,6 +1484,7 @@ export class RealDatabaseService implements DatabaseService {
         CREATE INDEX IF NOT EXISTS idx_story_events_created_at ON story_events(created_at DESC);
         CREATE INDEX IF NOT EXISTS idx_locations_type ON locations(location_type);
         CREATE INDEX IF NOT EXISTS idx_locations_region ON locations(region_id);
+        CREATE INDEX IF NOT EXISTS idx_locations_session_id ON locations(session_id);
         CREATE INDEX IF NOT EXISTS idx_world_lore_session_id ON world_lore(session_id);
         CREATE INDEX IF NOT EXISTS idx_world_lore_type ON world_lore(lore_type);
       `;
@@ -1651,7 +1663,7 @@ export class RealDatabaseService implements DatabaseService {
 
     console.log('示例玩家偏好设置创建完成');
   }
-  
+
   // User management methods
   async createUser(username: string, preferences?: any): Promise<{ id: string; username: string }> {
     if (!this.isInitialized || !this.postgresPool) {
@@ -1667,7 +1679,7 @@ export class RealDatabaseService implements DatabaseService {
         updated_at = NOW()
       RETURNING id, username
     `;
-    
+
     const client = await this.postgresPool.connect();
     try {
       const result = await client.query(sql, [userId, username, preferences || {}]);
@@ -1687,7 +1699,7 @@ export class RealDatabaseService implements DatabaseService {
       WHERE username = $1
       LIMIT 1
     `;
-    
+
     const client = await this.postgresPool.connect();
     try {
       const result = await client.query(sql, [username]);
@@ -1708,7 +1720,7 @@ export class RealDatabaseService implements DatabaseService {
       WHERE user_id = $1
       ORDER BY last_activity DESC
     `;
-    
+
     const client = await this.postgresPool.connect();
     try {
       const result = await client.query(sql, [userId]);
@@ -1727,7 +1739,7 @@ export class RealDatabaseService implements DatabaseService {
     const sessionId = uuidv4();
     const playerId = uuidv4();
     const defaultSessionName = sessionName || `游戏存档 ${new Date().toLocaleString('zh-CN')}`;
-    
+
     const sql = `
       INSERT INTO game_sessions (
         id, user_id, session_name, player_id, game_state, 
@@ -1735,14 +1747,14 @@ export class RealDatabaseService implements DatabaseService {
       ) VALUES ($1, $2, $3, $4, $5, NOW(), NOW(), NOW(), true)
       RETURNING id, session_name
     `;
-    
+
     const client = await this.postgresPool.connect();
     try {
       const result = await client.query(sql, [
-        sessionId, 
-        userId, 
-        defaultSessionName, 
-        playerId, 
+        sessionId,
+        userId,
+        defaultSessionName,
+        playerId,
         initialGameState || {
           timeOfDay: 'afternoon',
           weather: 'sunny',
@@ -1756,7 +1768,7 @@ export class RealDatabaseService implements DatabaseService {
       client.release();
     }
   }
-  
+
   async getSessionById(sessionId: string): Promise<any | null> {
     if (!this.isInitialized || !this.postgresPool) {
       throw new Error('Database not initialized');
@@ -1768,7 +1780,7 @@ export class RealDatabaseService implements DatabaseService {
       WHERE id = $1
       LIMIT 1
     `;
-    
+
     const client = await this.postgresPool.connect();
     try {
       const result = await client.query(sql, [sessionId]);
@@ -1794,7 +1806,7 @@ export class RealDatabaseService implements DatabaseService {
         updated_at = NOW()
       WHERE id = $1
     `;
-    
+
     const client = await this.postgresPool.connect();
     try {
       await client.query(sql, [
@@ -1820,6 +1832,7 @@ export class RealDatabaseService implements DatabaseService {
       { sql: 'DELETE FROM character_relationships WHERE session_id = $1', params: [sessionId] },
       { sql: 'DELETE FROM conversations WHERE session_id = $1', params: [sessionId] },
       { sql: 'DELETE FROM characters WHERE session_id = $1', params: [sessionId] },
+      { sql: 'DELETE FROM locations WHERE session_id = $1', params: [sessionId] },
       { sql: 'DELETE FROM story_events WHERE session_id = $1', params: [sessionId] },
       { sql: 'DELETE FROM world_lore WHERE session_id = $1', params: [sessionId] },
       { sql: 'DELETE FROM game_sessions WHERE id = $1', params: [sessionId] }
@@ -1839,7 +1852,7 @@ export class RealDatabaseService implements DatabaseService {
       SET last_activity = NOW(), updated_at = NOW()
       WHERE id = $1
     `;
-    
+
     const client = await this.postgresPool.connect();
     try {
       await client.query(sql, [sessionId]);
@@ -1859,7 +1872,7 @@ export class RealDatabaseService implements DatabaseService {
       SET session_name = $2, updated_at = NOW()
       WHERE id = $1
     `;
-    
+
     const client = await this.postgresPool.connect();
     try {
       await client.query(sql, [sessionId, newName]);
@@ -1882,7 +1895,7 @@ export class RealDatabaseService implements DatabaseService {
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())
       RETURNING *
     `;
-    
+
     const params = [
       loreId,
       lore.session_id,
@@ -1893,7 +1906,7 @@ export class RealDatabaseService implements DatabaseService {
       lore.generation_seed || null,
       lore.metadata ? JSON.stringify(lore.metadata) : null
     ];
-    
+
     const client = await this.postgresPool.connect();
     try {
       const result = await client.query(sql, params);
@@ -1914,14 +1927,14 @@ export class RealDatabaseService implements DatabaseService {
       WHERE session_id = $1
     `;
     const params = [sessionId];
-    
+
     if (loreType) {
       sql += ` AND lore_type = $2`;
       params.push(loreType);
     }
-    
+
     sql += ` ORDER BY created_at DESC`;
-    
+
     const client = await this.postgresPool.connect();
     try {
       const result = await client.query(sql, params);
@@ -1941,7 +1954,7 @@ export class RealDatabaseService implements DatabaseService {
       SELECT COUNT(*) as count FROM world_lore 
       WHERE session_id = $1
     `;
-    
+
     const client = await this.postgresPool.connect();
     try {
       const result = await client.query(sql, [sessionId]);
@@ -1960,7 +1973,7 @@ export class RealDatabaseService implements DatabaseService {
     const updateFields = [];
     const params = [];
     let paramIndex = 1;
-    
+
     for (const [key, value] of Object.entries(updates)) {
       if (key !== 'id' && key !== 'created_at') {
         updateFields.push(`${key} = $${paramIndex}`);
@@ -1968,19 +1981,125 @@ export class RealDatabaseService implements DatabaseService {
         paramIndex++;
       }
     }
-    
+
     if (updateFields.length === 0) {
       return;
     }
-    
+
     params.push(loreId);
-    
+
     const sql = `
       UPDATE world_lore 
       SET ${updateFields.join(', ')}, updated_at = NOW()
       WHERE id = $${paramIndex}
     `;
-    
+
+    const client = await this.postgresPool.connect();
+    try {
+      await client.query(sql, params);
+    } finally {
+      client.release();
+    }
+  }
+
+  // Location management implementation
+  async createLocation(location: any): Promise<void> {
+    if (!this.isInitialized || !this.postgresPool) {
+      throw new Error('Database not initialized');
+    }
+
+    const sql = `
+      INSERT INTO locations (
+        id, session_id, name, description, location_type, 
+        region_id, position_x, position_y, location_data, created_at, updated_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
+      ON CONFLICT (id, session_id) DO UPDATE SET
+        name = EXCLUDED.name,
+        description = EXCLUDED.description,
+        location_type = EXCLUDED.location_type,
+        region_id = EXCLUDED.region_id,
+        position_x = EXCLUDED.position_x,
+        position_y = EXCLUDED.position_y,
+        location_data = EXCLUDED.location_data,
+        updated_at = NOW()
+    `;
+
+    const params = [
+      location.id,
+      location.session_id,
+      location.name,
+      location.description,
+      location.location_type,
+      location.region_id,
+      location.position_x,
+      location.position_y,
+      typeof location.location_data === 'string' ? location.location_data : JSON.stringify(location.location_data)
+    ];
+
+    const client = await this.postgresPool.connect();
+    try {
+      await client.query(sql, params);
+    } finally {
+      client.release();
+    }
+  }
+
+  async getLocationsBySession(sessionId: string): Promise<any[]> {
+    if (!this.isInitialized || !this.postgresPool) {
+      throw new Error('Database not initialized');
+    }
+
+    const sql = `
+      SELECT * FROM locations 
+      WHERE session_id = $1
+      ORDER BY created_at ASC
+    `;
+
+    const client = await this.postgresPool.connect();
+    try {
+      const result = await client.query(sql, [sessionId]);
+      return result.rows;
+    } finally {
+      client.release();
+    }
+  }
+
+  async updateLocation(locationId: string, updates: any): Promise<void> {
+    if (!this.isInitialized || !this.postgresPool) {
+      throw new Error('Database not initialized');
+    }
+
+    const updateFields = [];
+    const params = [];
+    let paramIndex = 1;
+
+    const sessionId = updates.session_id;
+    if (!sessionId) {
+      throw new Error('sessionId is required for updating location');
+    }
+
+    delete updates.session_id;
+
+    for (const [key, value] of Object.entries(updates)) {
+      if (key !== 'id' && key !== 'created_at' && key !== 'session_id') {
+        updateFields.push(`${key} = $${paramIndex}`);
+        params.push(value);
+        paramIndex++;
+      }
+    }
+
+    if (updateFields.length === 0) {
+      return;
+    }
+
+    params.push(locationId, sessionId);
+
+    const sql = `
+      UPDATE locations 
+      SET ${updateFields.join(', ')}, updated_at = NOW()
+      WHERE id = $${paramIndex} AND session_id = $${paramIndex + 1}
+    `;
+
     const client = await this.postgresPool.connect();
     try {
       await client.query(sql, params);

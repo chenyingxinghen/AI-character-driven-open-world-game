@@ -56,7 +56,7 @@ export class GameContextService {
   constructor(
     private databaseService: DatabaseService,
     private logger: Logger
-  ) {}
+  ) { }
 
   /**
    * 获取完整的游戏上下文信息
@@ -129,7 +129,7 @@ export class GameContextService {
    */
   async getInputClassificationContext(sessionId: string, playerId: string): Promise<InputClassificationContext> {
     const fullContext = await this.getGameContext(sessionId, playerId);
-    
+
     return {
       sessionId,
       currentLocation: fullContext.currentLocation.name,
@@ -160,7 +160,7 @@ export class GameContextService {
         created_at: new Date(),
         updated_at: new Date()
       };
-      
+
       await this.databaseService.storeConversation(conversationRecord);
 
       this.logger.info('Player location updated', {
@@ -200,7 +200,7 @@ export class GameContextService {
         created_at: new Date(),
         updated_at: new Date()
       };
-      
+
       await this.databaseService.storeConversation(conversationRecord);
 
       this.logger.debug('Conversation recorded', {
@@ -232,13 +232,32 @@ export class GameContextService {
     try {
       const session = await this.databaseService.getSession(sessionId);
       const locationId = session?.current_location || 'town_square';
-      
-      // 这里应该从位置数据表获取详细信息
-      // 暂时返回基本信息，实际实现需要查询locations表
+
+      // 尝试从 locations 表获取详细位置信息
+      try {
+        const locations = await this.databaseService.getLocationsBySession(sessionId);
+        const currentLocation = locations.find(loc => loc.id === locationId);
+
+        if (currentLocation) {
+          return {
+            id: currentLocation.id,
+            name: currentLocation.name,
+            description: currentLocation.description || `这是 ${currentLocation.name}`
+          };
+        }
+      } catch (locError) {
+        this.logger.warn('Failed to fetch detailed location info, using basic info', locError as Error);
+      }
+
+      // 如果找不到详细信息，尝试从 session meta 获取
+      const sessionMetadataLocation = session?.game_state?.currentLocation;
+      const effectiveLocationId = locationId === 'town_square' && sessionMetadataLocation ?
+        sessionMetadataLocation : locationId;
+
       return {
-        id: locationId,
-        name: this.getLocationDisplayName(locationId),
-        description: `当前位置：${this.getLocationDisplayName(locationId)}`
+        id: effectiveLocationId,
+        name: this.getLocationDisplayName(effectiveLocationId),
+        description: `当前位置：${this.getLocationDisplayName(effectiveLocationId)}`
       };
     } catch (error) {
       return {
@@ -253,9 +272,26 @@ export class GameContextService {
     try {
       const session = await this.databaseService.getSession(sessionId);
       const locationId = session?.current_location || 'town_square';
-      
-      // 从角色位置表查询当前位置的角色
-      // 这里应该实现实际的数据库查询
+
+      // 从角色表查询当前位置的活跃角色
+      try {
+        const allCharacters = await this.databaseService.getSessionCharacters(sessionId);
+        const nearby = allCharacters
+          .filter(char => char.current_location === locationId && char.is_active)
+          .map(char => ({
+            id: char.id,
+            name: char.name,
+            personality: typeof char.personality === 'string' ? char.personality : JSON.stringify(char.personality)
+          }));
+
+        if (nearby.length > 0) {
+          return nearby;
+        }
+      } catch (charError) {
+        this.logger.warn('Failed to fetch nearby characters from database', charError as Error);
+      }
+
+      // 如果数据库中没有，则返回默认角色
       const defaultCharacters = this.getDefaultCharactersForLocation(locationId);
       return defaultCharacters;
     } catch (error) {
@@ -331,8 +367,8 @@ export class GameContextService {
       ];
 
       // 根据玩家等级过滤可达位置
-      return baseLocations.filter(loc => 
-        loc.id !== currentLocationId && 
+      return baseLocations.filter(loc =>
+        loc.id !== currentLocationId &&
         this.isLocationAccessible(loc.id, playerLevel)
       );
     } catch (error) {
@@ -410,7 +446,7 @@ export class GameContextService {
       'advanced_area': 5,
       'dangerous_zone': 10
     };
-    
+
     const requiredLevel = locationRequirements[locationId] || 1;
     return playerLevel >= requiredLevel;
   }

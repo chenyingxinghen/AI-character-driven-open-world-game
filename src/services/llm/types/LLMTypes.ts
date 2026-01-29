@@ -97,7 +97,7 @@ export interface LLMServiceConfig {
 }
 
 export interface LLMProviderAdapter {
-  generateText(prompt: string, options?: { maxTokens?: number; temperature?: number }): Promise<string>;
+  generateText(prompt: string, options?: { maxTokens?: number; temperature?: number; jsonMode?: boolean; systemPrompt?: string }): Promise<string>;
   generateCharacterResponse(character: any, context: any, prompt: string): Promise<LLMCharacterResponse>;
   generateDirectorDecision(context: any, evaluation: any): Promise<DirectorDecision>;
   getRateLimitStatus(): RateLimitStatus;

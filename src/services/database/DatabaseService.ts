@@ -87,16 +87,16 @@ export interface DatabaseService {
   disconnect(): Promise<void>;
   isConnected(): boolean;
   healthCheck(): Promise<boolean>;
-  
+
   // Core query methods
   query<T = any>(sql: string, params?: any[], options?: QueryOptions): Promise<T[]>;
   executeTransaction<T>(queries: Array<{ sql: string; params?: any[] }>): Promise<T[]>;
-  
+
   // User management
   createUser(username: string, preferences?: any): Promise<{ id: string; username: string }>;
   getUserByUsername(username: string): Promise<{ id: string; username: string; preferences?: any } | null>;
   getUserSessions(userId: string): Promise<any[]>;
-  
+
   // Session management
   createSession(sessionId: string, playerId?: string, gameState?: any): Promise<void>;
   createSessionForUser(userId: string, sessionName?: string, initialGameState?: any): Promise<{ id: string; session_name: string }>;
@@ -107,58 +107,63 @@ export interface DatabaseService {
   deleteSession(sessionId: string): Promise<void>;
   getPlayerSessions(playerId: string): Promise<any[]>;
   getAllActiveSessions(): Promise<any[]>;
-  
+
   // Character management
   createCharacter(character: Omit<CharacterRecord, 'created_at' | 'updated_at'>): Promise<CharacterRecord>;
   getCharacter(id: string, sessionId: string): Promise<CharacterRecord | null>;
   getSessionCharacters(sessionId: string): Promise<CharacterRecord[]>;
   updateCharacter(characterId: string, sessionId: string, updates: Partial<CharacterRecord>): Promise<void>;
   deleteCharacter(characterId: string, sessionId: string): Promise<void>;
-  
+
   // Memory management
   storeMemory(memory: CharacterMemoryRecord): Promise<void>;
   getCharacterMemories(characterId: string, sessionId: string, limit?: number): Promise<CharacterMemoryRecord[]>;
   searchMemories(characterId: string, sessionId: string, query: string, limit?: number): Promise<CharacterMemoryRecord[]>;
   deleteMemory(memoryId: string): Promise<void>;
-  
+
   // Conversation management
   storeConversation(conversation: ConversationRecord): Promise<void>;
   getCharacterConversations(characterId: string, sessionId: string, limit?: number): Promise<ConversationRecord[]>;
   getConversationHistory(sessionId: string, limit?: number): Promise<ConversationRecord[]>;
-  
+
   // Relationship management
   storeCharacterRelationship(relationship: CharacterRelationshipRecord): Promise<void>;
   getCharacterRelationships(characterId: string, sessionId: string): Promise<CharacterRelationshipRecord[]>;
   updateRelationshipStrength(characterId: string, targetCharacterId: string, sessionId: string, delta: number): Promise<void>;
-  
+
   // Story event management
   storeStoryEvent(event: StoryEventRecord): Promise<void>;
   getStoryEvents(sessionId: string, limit?: number): Promise<StoryEventRecord[]>;
   getStoryEventsByLocation(locationId: string, sessionId: string, limit?: number): Promise<StoryEventRecord[]>;
-  
+
   // Cache management
   cacheGet(key: string): Promise<string | null>;
   cacheSet(key: string, value: string, ttl?: number): Promise<void>;
   cacheDel(key: string): Promise<void>;
   cacheKeys(pattern: string): Promise<string[]>;
   cacheFlush(): Promise<void>;
-  
+
   // Game state queries
   getGameState(sessionId: string): Promise<any>;
   setGameState(sessionId: string, gameState: any): Promise<void>;
   getPlayerPreferences(playerId: string): Promise<any>;
   setPlayerPreferences(playerId: string, preferences: any): Promise<void>;
-  
+
   // Batch operations
   batchInsert<T extends DatabaseRecord>(tableName: string, records: T[]): Promise<void>;
   batchUpdate<T extends DatabaseRecord>(tableName: string, updates: Array<{ id: string; data: Partial<T> }>): Promise<void>;
-  
+
   // World Lore operations
   createWorldLore(lore: any): Promise<any>;
   getWorldLoreBySession(sessionId: string, loreType?: string): Promise<any[]>;
   hasWorldLore(sessionId: string): Promise<boolean>;
   updateWorldLore(loreId: string, updates: any): Promise<void>;
-  
+
+  // Location management
+  createLocation(location: any): Promise<void>;
+  getLocationsBySession(sessionId: string): Promise<any[]>;
+  updateLocation(locationId: string, updates: any): Promise<void>;
+
   // Analytics and statistics
   getSessionStatistics(sessionId: string): Promise<any>;
   getCharacterInteractionCount(characterId: string, sessionId: string): Promise<number>;
@@ -169,7 +174,7 @@ export class MockDatabaseService implements DatabaseService {
   private connected = false;
   private mockUsers = new Map<string, { id: string; username: string; preferences?: any }>();
   private mockSessions = new Map<string, any>();
-  
+
   async connect(): Promise<void> {
     console.log('Mock: Connecting to database');
     this.connected = true;
@@ -179,11 +184,11 @@ export class MockDatabaseService implements DatabaseService {
     console.log('Mock: Disconnecting from database');
     this.connected = false;
   }
-  
+
   isConnected(): boolean {
     return this.connected;
   }
-  
+
   async healthCheck(): Promise<boolean> {
     return this.connected;
   }
@@ -192,7 +197,7 @@ export class MockDatabaseService implements DatabaseService {
     console.log(`Mock: Executing query: ${sql} with params:`, params);
     return [] as T[];
   }
-  
+
   async executeTransaction<T>(queries: Array<{ sql: string; params?: any[] }>): Promise<T[]> {
     console.log('Mock: Executing transaction with', queries.length, 'queries');
     return [] as T[];
@@ -268,21 +273,21 @@ export class MockDatabaseService implements DatabaseService {
     console.log(`Mock: Getting session ${sessionId}`);
     return this.mockSessions.get(sessionId) || null;
   }
-  
+
   async deleteSession(sessionId: string): Promise<void> {
     console.log(`Mock: Deleting session ${sessionId}`);
   }
-  
+
   async getPlayerSessions(playerId: string): Promise<any[]> {
     console.log(`Mock: Getting sessions for player ${playerId}`);
     return [];
   }
-  
+
   async getAllActiveSessions(): Promise<any[]> {
     console.log('Mock: Getting all active sessions');
     return [];
   }
-  
+
   // Character management
   async createCharacter(character: Omit<CharacterRecord, 'created_at' | 'updated_at'>): Promise<CharacterRecord> {
     console.log(`Mock: Creating character ${character.name}`);
@@ -297,7 +302,7 @@ export class MockDatabaseService implements DatabaseService {
     console.log(`Mock: Getting character ${id} in session ${sessionId}`);
     return null;
   }
-  
+
   async deleteCharacter(characterId: string, sessionId: string): Promise<void> {
     console.log(`Mock: Deleting character ${characterId} from session ${sessionId}`);
   }
@@ -326,12 +331,12 @@ export class MockDatabaseService implements DatabaseService {
   async storeMemory(memory: CharacterMemoryRecord): Promise<void> {
     console.log(`Mock: Storing memory for character ${memory.character_id}`);
   }
-  
+
   async searchMemories(characterId: string, sessionId: string, query: string, limit: number = 50): Promise<CharacterMemoryRecord[]> {
     console.log(`Mock: Searching memories for character ${characterId} with query: ${query}`);
     return [];
   }
-  
+
   async deleteMemory(memoryId: string): Promise<void> {
     console.log(`Mock: Deleting memory ${memoryId}`);
   }
@@ -348,26 +353,26 @@ export class MockDatabaseService implements DatabaseService {
   async storeConversation(conversation: ConversationRecord): Promise<void> {
     console.log(`Mock: Storing conversation for session ${conversation.session_id}`);
   }
-  
+
   async getConversationHistory(sessionId: string, limit: number = 50): Promise<ConversationRecord[]> {
     console.log(`Mock: Getting conversation history for session ${sessionId}`);
     return [];
   }
-  
+
   // Relationship management
   async storeCharacterRelationship(relationship: CharacterRelationshipRecord): Promise<void> {
     console.log(`Mock: Storing relationship between ${relationship.character_id} and ${relationship.target_character_id}`);
   }
-  
+
   async updateRelationshipStrength(characterId: string, targetCharacterId: string, sessionId: string, delta: number): Promise<void> {
     console.log(`Mock: Updating relationship strength by ${delta} between ${characterId} and ${targetCharacterId}`);
   }
-  
+
   // Story event management
   async storeStoryEvent(event: StoryEventRecord): Promise<void> {
     console.log(`Mock: Storing story event: ${event.event_type}`);
   }
-  
+
   async getStoryEventsByLocation(locationId: string, sessionId: string, limit: number = 50): Promise<StoryEventRecord[]> {
     console.log(`Mock: Getting story events for location ${locationId}`);
     return [];
@@ -377,7 +382,7 @@ export class MockDatabaseService implements DatabaseService {
     console.log(`Mock: Getting story events for session ${sessionId}`);
     return [];
   }
-  
+
   // Cache management
   async cacheGet(key: string): Promise<string | null> {
     console.log(`Mock: Getting cache key ${key}`);
@@ -391,22 +396,22 @@ export class MockDatabaseService implements DatabaseService {
   async cacheDel(key: string): Promise<void> {
     console.log(`Mock: Deleting cache key ${key}`);
   }
-  
+
   async cacheKeys(pattern: string): Promise<string[]> {
     console.log(`Mock: Getting cache keys matching pattern ${pattern}`);
     return [];
   }
-  
+
   async cacheFlush(): Promise<void> {
     console.log('Mock: Flushing all cache');
   }
-  
+
   // Game state queries
   async getGameState(sessionId: string): Promise<any> {
     console.log(`Mock: Getting game state for session ${sessionId}`);
     return null;
   }
-  
+
   async setGameState(sessionId: string, gameState: any): Promise<void> {
     console.log(`Mock: Setting game state for session ${sessionId}`);
   }
@@ -415,51 +420,65 @@ export class MockDatabaseService implements DatabaseService {
     console.log(`Mock: Getting player preferences for ${playerId}`);
     return null;
   }
-  
+
   async setPlayerPreferences(playerId: string, preferences: any): Promise<void> {
     console.log(`Mock: Setting player preferences for ${playerId}`);
   }
-  
+
   // Batch operations
   async batchInsert<T extends DatabaseRecord>(tableName: string, records: T[]): Promise<void> {
     console.log(`Mock: Batch inserting ${records.length} records into ${tableName}`);
   }
-  
+
   async batchUpdate<T extends DatabaseRecord>(tableName: string, updates: Array<{ id: string; data: Partial<T> }>): Promise<void> {
     console.log(`Mock: Batch updating ${updates.length} records in ${tableName}`);
   }
-  
+
   // World Lore operations
   async createWorldLore(lore: any): Promise<any> {
     console.log(`Mock: Creating world lore for session ${lore.session_id}`);
     return { ...lore, created_at: new Date(), updated_at: new Date() };
   }
-  
+
   async getWorldLoreBySession(sessionId: string, loreType?: string): Promise<any[]> {
     console.log(`Mock: Getting world lore for session ${sessionId}, type: ${loreType || 'all'}`);
     return [];
   }
-  
+
   async hasWorldLore(sessionId: string): Promise<boolean> {
     console.log(`Mock: Checking if world lore exists for session ${sessionId}`);
     return false;
   }
-  
+
   async updateWorldLore(loreId: string, updates: any): Promise<void> {
     console.log(`Mock: Updating world lore ${loreId}`);
   }
-  
+
+  // Location management stubs
+  async createLocation(location: any): Promise<void> {
+    console.log(`Mock: Creating location ${location.name}`);
+  }
+
+  async getLocationsBySession(sessionId: string): Promise<any[]> {
+    console.log(`Mock: Getting locations for session ${sessionId}`);
+    return [];
+  }
+
+  async updateLocation(locationId: string, updates: any): Promise<void> {
+    console.log(`Mock: Updating location ${locationId}`);
+  }
+
   // Analytics and statistics
   async getSessionStatistics(sessionId: string): Promise<any> {
     console.log(`Mock: Getting session statistics for ${sessionId}`);
     return {};
   }
-  
+
   async getCharacterInteractionCount(characterId: string, sessionId: string): Promise<number> {
     console.log(`Mock: Getting interaction count for character ${characterId}`);
     return 0;
   }
-  
+
   async getPopularLocations(sessionId: string, limit: number = 10): Promise<Array<{ location: string; visits: number }>> {
     console.log(`Mock: Getting popular locations for session ${sessionId}`);
     return [];

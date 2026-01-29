@@ -184,19 +184,19 @@ export class EnvironmentConfigManager {
   async loadConfig(): Promise<AppConfig> {
     try {
       this.logger.info('Loading application configuration...');
-      
+
       const environment = this.getEnvironment();
       const config = await this.buildConfig(environment);
-      
+
       // 验证配置
       const validation = this.validateConfig(config);
       if (!validation.isValid) {
         throw new Error(`Configuration validation failed: ${validation.errors.join(', ')}`);
       }
-      
+
       this.config = config;
       this.logger.info(`Configuration loaded for environment: ${environment}`);
-      
+
       return config;
     } catch (error) {
       this.logger.error('Failed to load configuration:', error as Error);
@@ -283,7 +283,7 @@ export class EnvironmentConfigManager {
     return {
       environment,
       version: this.getEnvVar('APP_VERSION', '1.0.0'),
-      
+
       database: {
         host: this.getEnvVar('DB_HOST', 'localhost'),
         port: this.getEnvNumber('DB_PORT', 5432),
@@ -295,7 +295,7 @@ export class EnvironmentConfigManager {
         connectionTimeout: this.getEnvNumber('DB_CONNECTION_TIMEOUT', 5000),
         queryTimeout: this.getEnvNumber('DB_QUERY_TIMEOUT', 10000)
       },
-      
+
       redis: {
         host: this.getEnvVar('REDIS_HOST', 'localhost'),
         port: this.getEnvNumber('REDIS_PORT', 6379),
@@ -304,7 +304,7 @@ export class EnvironmentConfigManager {
         keyPrefix: this.getEnvVar('REDIS_PREFIX', 'game:'),
         ttl: this.getEnvNumber('REDIS_TTL', 3600)
       },
-      
+
       llm: {
         defaultProvider: this.getEnvVar('LLM_DEFAULT_PROVIDER', 'openai'),
         providers: this.buildLLMProviders(),
@@ -315,7 +315,7 @@ export class EnvironmentConfigManager {
           initialDelay: this.getEnvNumber('LLM_INITIAL_DELAY', 1000)
         }
       },
-      
+
       server: {
         host: this.getEnvVar('SERVER_HOST', '0.0.0.0'),
         port: this.getEnvNumber('SERVER_PORT', 3000),
@@ -335,7 +335,7 @@ export class EnvironmentConfigManager {
           compression: this.getEnvBoolean('SECURITY_COMPRESSION', true)
         }
       },
-      
+
       logging: {
         level: this.getEnvVar('LOG_LEVEL', environment === 'production' ? 'info' : 'debug') as any,
         format: this.getEnvVar('LOG_FORMAT', 'json') as any,
@@ -354,7 +354,7 @@ export class EnvironmentConfigManager {
           }
         }
       },
-      
+
       monitoring: {
         enabled: this.getEnvBoolean('MONITORING_ENABLED', environment === 'production'),
         metrics: {
@@ -379,7 +379,7 @@ export class EnvironmentConfigManager {
           }
         }
       },
-      
+
       game: {
         sessionTimeout: this.getEnvNumber('GAME_SESSION_TIMEOUT', 1800000), // 30分钟
         maxSessions: this.getEnvNumber('GAME_MAX_SESSIONS', 1000),
@@ -396,7 +396,7 @@ export class EnvironmentConfigManager {
    */
   private buildLLMProviders(): LLMConfig['providers'] {
     const providers: Record<string, any> = {};
-    
+
     if (process.env.OPENAI_API_KEY) {
       providers.openai = {
         apiKey: process.env.OPENAI_API_KEY,
@@ -410,7 +410,7 @@ export class EnvironmentConfigManager {
         }
       };
     }
-    
+
     if (process.env.ZHIPU_API_KEY) {
       providers.zhipu = {
         apiKey: process.env.ZHIPU_API_KEY,
@@ -423,7 +423,7 @@ export class EnvironmentConfigManager {
         }
       };
     }
-    
+
     if (process.env.ANTHROPIC_API_KEY) {
       providers.anthropic = {
         apiKey: process.env.ANTHROPIC_API_KEY,
@@ -436,7 +436,22 @@ export class EnvironmentConfigManager {
         }
       };
     }
-    
+
+    // Ollama (Local LLM) Configuration
+    if (process.env.OLLAMA_BASE_URL || process.env.OLLAMA_DEFAULT_MODEL) {
+      providers.local = {
+        apiKey: 'local', // Placeholder for local provider
+        baseUrl: this.getEnvVar('OLLAMA_BASE_URL', 'http://localhost:11434'),
+        maxTokens: this.getEnvNumber('OLLAMA_MAX_TOKENS', 4000),
+        temperature: this.getEnvNumber('OLLAMA_TEMPERATURE', 0.7),
+        timeout: this.getEnvNumber('OLLAMA_TIMEOUT', 30000),
+        rateLimit: {
+          requestsPerMinute: this.getEnvNumber('OLLAMA_RPM', 1000), // High limit for local
+          tokensPerMinute: this.getEnvNumber('OLLAMA_TPM', 1000000)
+        }
+      };
+    }
+
     return providers;
   }
 
@@ -477,7 +492,7 @@ export class EnvironmentConfigManager {
     for (const rule of this.validationRules) {
       const value = this.getNestedProperty(config, rule.field);
       const result = rule.validator(value);
-      
+
       if (!result.isValid) {
         errors.push(`${rule.field}: ${result.error}`);
       }
@@ -541,7 +556,7 @@ export class EnvironmentConfigManager {
    */
   getConfigSummary(): Record<string, any> {
     const config = this.getConfig();
-    
+
     return {
       environment: config.environment,
       version: config.version,

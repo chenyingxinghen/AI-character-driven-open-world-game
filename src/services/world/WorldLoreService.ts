@@ -7,6 +7,7 @@ import { Logger } from '../Logger';
 import { LLMService } from '../llm/LLMService';
 import { DatabaseService } from '../database/DatabaseService';
 import { v4 as uuidv4 } from 'uuid';
+import { JsonUtils } from '../../utils/JsonUtils';
 
 export interface WorldLore {
   id: string;
@@ -34,7 +35,7 @@ export class WorldLoreService {
     private llmService: LLMService,
     private databaseService: DatabaseService,
     private logger: Logger
-  ) {}
+  ) { }
 
   /**
    * 为新会话生成完整的世界背景故事
@@ -63,7 +64,7 @@ export class WorldLoreService {
         });
         hasExistingLore = false;
       }
-      
+
       if (hasExistingLore) {
         this.logger.info('World lore already exists for session, retrieving from database', {
           sessionId,
@@ -74,18 +75,62 @@ export class WorldLoreService {
 
       // 生成种子用于确保一致性
       const generationSeed = this.generateSeed(sessionId, options);
-      
-      // 生成各类型的世界背景
-      const loreTypes: WorldLore['loreType'][] = ['main_story', 'history', 'legend', 'culture', 'geography'];
-      const generatedLore: WorldLore[] = [];
 
-      for (const loreType of loreTypes) {
-        const lore = await this.generateSpecificLore(sessionId, loreType, options, generationSeed);
-        generatedLore.push(lore);
-        
-        // 存储到数据库（仅在数据库可用时）
-        try {
-          await this.databaseService.createWorldLore({
+      // 批量生成所有类型的世界背景
+      const loreTypes: WorldLore['loreType'][] = ['main_story', 'history', 'legend', 'culture', 'geography'];
+
+      this.logger.info(`Generating ${loreTypes.length} lore types in a single batch request...`);
+
+      const prompt = `你是一个世界构建大师。请为一个${options.setting || '奇幻'}风格的开放世界游戏创建完整的世界观背景。
+${options.inspiration ? `用户提供的灵感：${options.inspiration}` : ''}
+${options.complexity ? `复杂程度：${options.complexity}` : ''}
+
+请以 JSON 格式返回以下 5 个维度的内容（每个维度 300-500 字）：
+1. main_story: 世界总体设定、核心冲突和玩家定位。
+2. history: 重要的历史时期、关键历史转折点。
+3. legend: 神话传说、古老英雄或神秘预言。
+4. culture: 社会结构、主要种族习俗或宗教信仰。
+5. geography: 地理地貌、标志性地标或奇观。
+
+返回格式要求：
+{
+  "main_story": { "title": "...", "content": "..." },
+  "history": { "title": "...", "content": "..." },
+  "legend": { "title": "...", "content": "..." },
+  "culture": { "title": "...", "content": "..." },
+  "geography": { "title": "...", "content": "..." }
+}
+请直接返回 JSON，不要有任何多余文字。`;
+
+      let generatedLore: WorldLore[] = [];
+      try {
+        const response = await this.llmService.generateText(prompt, {
+          maxTokens: 3000,
+          temperature: 0.8,
+          jsonMode: true
+        });
+
+        // 使用 JsonUtils 提取 JSON
+        const data = JsonUtils.extractJson<any>(response || '{}');
+
+        for (const type of loreTypes) {
+          const item = data[type] || { title: this.getDefaultTitle(type), content: this.getDefaultContent(type) };
+          const lore: WorldLore = {
+            id: uuidv4(),
+            sessionId,
+            loreType: type,
+            title: item.title,
+            content: item.content,
+            inspiration: options.inspiration,
+            generationSeed,
+            metadata: { options, generatedAt: new Date().toISOString() },
+            createdAt: new Date(),
+            updatedAt: new Date()
+          };
+          generatedLore.push(lore);
+
+          // 异步存储到数据库
+          this.databaseService.createWorldLore({
             id: lore.id,
             session_id: lore.sessionId,
             lore_type: lore.loreType,
@@ -94,16 +139,23 @@ export class WorldLoreService {
             inspiration: lore.inspiration,
             generation_seed: lore.generationSeed,
             metadata: JSON.stringify(lore.metadata || {})
-          });
-        } catch (dbError) {
-          // 如果数据库不可用，记录警告但不影响生成流程
-          this.logger.warn(`Failed to save ${loreType} lore to database, continuing without persistence`, {
-            sessionId,
-            loreType,
-            component: 'WorldLoreService',
-            error: (dbError as Error).message
-          });
+          }).catch(e => this.logger.warn(`Failed to save ${type} lore`, e));
         }
+      } catch (genError) {
+        this.logger.error('Batch lore generation failed, using fallbacks', genError as Error);
+        // 兜底逻辑：使用默认值
+        generatedLore = loreTypes.map(type => ({
+          id: uuidv4(),
+          sessionId,
+          loreType: type,
+          title: this.getDefaultTitle(type),
+          content: this.getDefaultContent(type),
+          inspiration: options.inspiration,
+          generationSeed,
+          metadata: { fallback: true },
+          createdAt: new Date(),
+          updatedAt: new Date()
+        }));
       }
 
       this.logger.info(`Generated ${generatedLore.length} world lore entries for session`, {
@@ -149,7 +201,7 @@ export class WorldLoreService {
       if (mainStoryLore.length > 0) {
         return mainStoryLore[0].content;
       }
-      
+
       // 如果没有主故事，生成一个（但不依赖数据库）
       try {
         const lore = await this.generateWorldLoreForSession(sessionId);
@@ -180,11 +232,11 @@ export class WorldLoreService {
       // 分析查询类型
       const loreType = this.analyzeLoreTypeFromQuery(query);
       const relevantLore = await this.getWorldLoreForSession(sessionId, loreType);
-      
+
       if (relevantLore.length > 0) {
         return relevantLore[0].content;
       }
-      
+
       // 如果没有找到相关背景，获取主故事
       return await this.getMainStoryForSession(sessionId);
     } catch (error) {
@@ -207,7 +259,7 @@ export class WorldLoreService {
     generationSeed: string
   ): Promise<WorldLore> {
     const prompt = this.buildLoreGenerationPrompt(loreType, options);
-    
+
     try {
       const response = await this.llmService.generateText(prompt, {
         maxTokens: 800,
@@ -234,7 +286,7 @@ export class WorldLoreService {
       };
     } catch (error) {
       this.logger.error(`Failed to generate ${loreType} lore`, error as Error);
-      
+
       // 返回默认内容
       return {
         id: uuidv4(),
@@ -312,7 +364,7 @@ ${this.getLoreTypeSpecificInstructions(loreType)}
       complexity: options.complexity || 'moderate',
       timestamp: new Date().toDateString() // 使用日期确保同一天的种子相同
     };
-    
+
     return Buffer.from(JSON.stringify(seedData)).toString('base64').substring(0, 20);
   }
 
@@ -322,15 +374,15 @@ ${this.getLoreTypeSpecificInstructions(loreType)}
   private extractContent(response: string, loreType: WorldLore['loreType']): string {
     // 清理LLM响应，移除多余的格式
     let content = response.trim();
-    
+
     // 移除可能的标题标记
     content = content.replace(/^#+\s*/, '').replace(/\*\*(.+?)\*\*/g, '$1');
-    
+
     // 确保内容不为空
     if (!content || content.length < 50) {
       return this.getDefaultContent(loreType);
     }
-    
+
     return content;
   }
 
@@ -345,7 +397,7 @@ ${this.getLoreTypeSpecificInstructions(loreType)}
       culture: '文化风貌',
       geography: '地理概览'
     };
-    
+
     return titles[loreType];
   }
 
@@ -367,7 +419,7 @@ ${this.getLoreTypeSpecificInstructions(loreType)}
       culture: '这里的人们有着独特的文化传统，重视荣誉、友谊和智慧，各种节日和仪式丰富着人们的生活。',
       geography: '这片大陆地形多样，有雄伟的山脉、广袤的平原、神秘的森林和繁华的城市，每个地方都有其独特的风貌。'
     };
-    
+
     return defaultContents[loreType];
   }
 
@@ -376,7 +428,7 @@ ${this.getLoreTypeSpecificInstructions(loreType)}
    */
   private analyzeLoreTypeFromQuery(query: string): WorldLore['loreType'] {
     const lowerQuery = query.toLowerCase();
-    
+
     if (/历史|过去|古代|王朝|事件/.test(lowerQuery)) {
       return 'history';
     }
@@ -389,7 +441,7 @@ ${this.getLoreTypeSpecificInstructions(loreType)}
     if (/地理|地形|城市|山脉|河流/.test(lowerQuery)) {
       return 'geography';
     }
-    
+
     return 'main_story'; // 默认返回主故事
   }
 

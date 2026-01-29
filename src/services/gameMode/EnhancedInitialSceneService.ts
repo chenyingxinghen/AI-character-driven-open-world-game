@@ -9,6 +9,7 @@ import { WorldLoreService, WorldLore } from '../world/WorldLoreService';
 import { DatabaseService } from '../database/DatabaseService';
 import { StoryOutlineGeneratorService, StoryOutline } from './StoryOutlineGeneratorService';
 import { v4 as uuidv4 } from 'uuid';
+import { JsonUtils } from '../../utils/JsonUtils';
 
 // 扩展的角色配置接口
 export interface EnhancedCharacterProfile {
@@ -107,7 +108,7 @@ export class EnhancedInitialSceneService {
     private databaseService: DatabaseService,
     private storyOutlineGeneratorService: StoryOutlineGeneratorService,
     private logger: Logger
-  ) {}
+  ) { }
 
   /**
    * 生成增强的初始场景包
@@ -124,7 +125,7 @@ export class EnhancedInitialSceneService {
       let storyOutline = params.storyOutline;
       if (!storyOutline && params.gameMode !== 'free') {
         this.logger.info('Generating story outline for guided gameplay');
-        
+
         const outlineResult = await this.storyOutlineGeneratorService.generateStoryOutline({
           sessionId: params.sessionId,
           worldLore: params.worldLore,
@@ -135,7 +136,7 @@ export class EnhancedInitialSceneService {
           },
           gameMode: params.gameMode === 'script' ? 'script' : 'guided_free'
         });
-        
+
         storyOutline = outlineResult.outline;
       }
 
@@ -144,7 +145,7 @@ export class EnhancedInitialSceneService {
       const startingLocation = await this.generateEnhancedLocation(sceneAnalysis, params);
       const nearbyCharacters = await this.generateStoryAwareCharacters(startingLocation, storyOutline, params);
       const immersiveDescription = await this.generateDeepImmersiveDescription(startingLocation, nearbyCharacters, storyOutline, params);
-      
+
       // 3. 创建上下文和指导
       const storyContext = this.createStoryContext(storyOutline, params);
       const playerGuidance = this.generateEnhancedPlayerGuidance(startingLocation, storyContext, params);
@@ -198,8 +199,12 @@ ${storyContent}
 }`;
 
     try {
-      const response = await this.llmService.generateText(analysisPrompt, { temperature: 0.4, maxTokens: 600 });
-      const analysis = JSON.parse(response || '{}');
+      const response = await this.llmService.generateText(analysisPrompt, {
+        temperature: 0.4,
+        maxTokens: 600,
+        jsonMode: true
+      });
+      const analysis = JsonUtils.extractJson<any>(response || '{}');
       return {
         recommendedLocationTheme: analysis.recommendedLocationTheme || '友好小镇',
         targetAtmosphere: analysis.targetAtmosphere || '温馨友好',
@@ -224,11 +229,15 @@ ${storyContent}
       const locationPrompt = `创建起始位置：
 主题：${sceneAnalysis.recommendedLocationTheme}
 氛围：${sceneAnalysis.targetAtmosphere}
-返回详细位置JSON信息`;
+请以 JSON 格式返回。`;
 
-      const response = await this.llmService.generateText(locationPrompt, { temperature: 0.7, maxTokens: 800 });
-      const locationData = JSON.parse(response || '{}');
-      
+      const response = await this.llmService.generateText(locationPrompt, {
+        temperature: 0.7,
+        maxTokens: 800,
+        jsonMode: true
+      });
+      const locationData = JsonUtils.extractJson<any>(response || '{}');
+
       return {
         id: `enhanced_location_${uuidv4()}`,
         name: locationData.name || '新手村广场',
@@ -250,17 +259,21 @@ ${storyContent}
   private async generateStoryAwareCharacters(location: EnhancedLocationInfo, storyOutline?: StoryOutline, params?: EnhancedSceneGenerationParams): Promise<EnhancedCharacterProfile[]> {
     const characterCount = 2; // 简化
     try {
-      const charactersPrompt = `为${location.name}创建${characterCount}个角色，返回JSON数组`;
-      const response = await this.llmService.generateText(charactersPrompt, { temperature: 0.8, maxTokens: 1000 });
-      const charactersData = JSON.parse(response || '[]');
-      
+      const charactersPrompt = `为 ${location.name} 创建 ${characterCount} 个角色。请以 JSON 数组格式返回。`;
+      const response = await this.llmService.generateText(charactersPrompt, {
+        temperature: 0.8,
+        maxTokens: 1000,
+        jsonMode: true
+      });
+      const charactersData = JsonUtils.extractJson<any[]>(response || '[]');
+
       return charactersData.map((charData: any, index: number) => ({
         id: `enhanced_char_${index}_${uuidv4()}`,
         name: charData.name || `角色${index + 1}`,
-        role: 'guide' as const,
+        role: charData.role || ('guide' as const),
         background: charData.background || '当地居民',
         appearance: charData.appearance || '友善外观',
-        personality: {
+        personality: charData.personality || {
           traits: { friendly: 0.8, helpful: 0.7 },
           values: { community: 0.8 },
           goals: ['帮助新来者'],
@@ -268,12 +281,12 @@ ${storyContent}
           motivations: ['助人'],
           speechStyle: '友好'
         },
-        storyRelevance: {
+        storyRelevance: charData.storyRelevance || {
           plotConnections: [],
           futureImportance: 'medium' as const,
           potentialDevelopment: []
         },
-        gameplayFunctions: {
+        gameplayFunctions: charData.gameplayFunctions || {
           providesGuidance: true,
           offersQuests: false,
           teachesSkills: false,
@@ -427,7 +440,7 @@ ${storyContent}
   private generateFallbackScene(params: EnhancedSceneGenerationParams): EnhancedInitialScenePackage {
     const location = this.getFallbackLocation();
     const characters = this.generateFallbackCharacters(1, location);
-    
+
     return {
       sessionId: params.sessionId,
       startingLocation: location,

@@ -29,7 +29,7 @@ export const SERVICE_IDENTIFIERS = {
   WORLD_LORE_SERVICE: 'WORLD_LORE_SERVICE',
   STORY_OUTLINE_GENERATOR_SERVICE: 'STORY_OUTLINE_GENERATOR_SERVICE',
   ENHANCED_INITIAL_SCENE_SERVICE: 'ENHANCED_INITIAL_SCENE_SERVICE',
-  
+
   // Domain service identifiers
   CHARACTER_MANAGER: 'CHARACTER_MANAGER',
   WORLD_MANAGER: 'WORLD_MANAGER',
@@ -48,7 +48,7 @@ export interface ServiceFactory {
   createWorldLoreService(): WorldLoreService;
   createStoryOutlineGeneratorService(): StoryOutlineGeneratorService;
   createEnhancedInitialSceneService(): EnhancedInitialSceneService;
-  
+
   // Domain manager creation methods
   createCharacterManager(): CharacterManager;
   createWorldManager(): WorldManager;
@@ -66,7 +66,7 @@ export class DefaultServiceFactory implements ServiceFactory {
   private worldLoreService?: WorldLoreService;
   private storyOutlineGeneratorService?: StoryOutlineGeneratorService;
   private enhancedInitialSceneService?: EnhancedInitialSceneService;
-  
+
   // Domain managers (lazy initialization)
   private characterManager?: CharacterManager;
   private worldManager?: WorldManager;
@@ -79,7 +79,7 @@ export class DefaultServiceFactory implements ServiceFactory {
       // 根据环境变量设置日志级别
       const logLevelStr = process.env.LOG_LEVEL?.toUpperCase() || 'INFO';
       let logLevel = LogLevel.INFO;
-      
+
       switch (logLevelStr) {
         case 'DEBUG':
           logLevel = LogLevel.DEBUG;
@@ -93,7 +93,7 @@ export class DefaultServiceFactory implements ServiceFactory {
         default:
           logLevel = LogLevel.INFO;
       }
-      
+
       const enableDebug = process.env.NODE_ENV === 'development' || process.env.LOG_LEVEL === 'debug';
       this.logger = new Logger(logLevel, enableDebug);
     }
@@ -107,9 +107,10 @@ export class DefaultServiceFactory implements ServiceFactory {
       const geminiApiKey = process.env.GEMINI_API_KEY;
       const openRouterApiKey = process.env.OPENROUTER_API_KEY;
       const zhipuApiKey = process.env.ZHIPU_API_KEY;
-      
-      // If we have real API keys, use RealLLMService
-      if (openaiApiKey || anthropicApiKey || geminiApiKey || openRouterApiKey || zhipuApiKey) {
+      const ollamaConfigured = process.env.OLLAMA_BASE_URL || process.env.OLLAMA_DEFAULT_MODEL;
+
+      // If we have real API keys or Ollama configured, use RealLLMService
+      if (openaiApiKey || anthropicApiKey || geminiApiKey || openRouterApiKey || zhipuApiKey || ollamaConfigured) {
         const config = {
           providers: {
             ...(openaiApiKey ? {
@@ -181,14 +182,30 @@ export class DefaultServiceFactory implements ServiceFactory {
                   outputTokenPrice: parseFloat(process.env.ZHIPU_PRICING_OUTPUT || '0.0001')
                 }
               }
+            } : {}),
+            ...((process.env.OLLAMA_BASE_URL || process.env.OLLAMA_DEFAULT_MODEL) ? {
+              [LLMProvider.LOCAL]: {
+                apiKey: 'local', // Placeholder for local provider
+                baseUrl: process.env.OLLAMA_BASE_URL || 'http://localhost:11434',
+                defaultModel: process.env.OLLAMA_DEFAULT_MODEL || 'llama3',
+                rateLimit: {
+                  requestsPerMinute: parseInt(process.env.OLLAMA_RATE_LIMIT_RPM || '1000'),
+                  tokensPerMinute: parseInt(process.env.OLLAMA_RATE_LIMIT_TPM || '1000000')
+                },
+                pricing: {
+                  inputTokenPrice: 0, // Free for local
+                  outputTokenPrice: 0
+                }
+              }
             } : {})
           },
-          defaultProvider: this.parseLLMProvider(process.env.DEFAULT_LLM_PROVIDER) || 
-                        (geminiApiKey ? LLMProvider.GEMINI :
-                        openaiApiKey ? LLMProvider.OPENAI : 
-                        anthropicApiKey ? LLMProvider.ANTHROPIC : 
-                        openRouterApiKey ? LLMProvider.OPENROUTER : 
-                        zhipuApiKey ? LLMProvider.ZHIPU :
+          defaultProvider: this.parseLLMProvider(process.env.DEFAULT_LLM_PROVIDER) ||
+            (geminiApiKey ? LLMProvider.GEMINI :
+              openaiApiKey ? LLMProvider.OPENAI :
+                anthropicApiKey ? LLMProvider.ANTHROPIC :
+                  openRouterApiKey ? LLMProvider.OPENROUTER :
+                    zhipuApiKey ? LLMProvider.ZHIPU :
+                      (process.env.OLLAMA_BASE_URL || process.env.OLLAMA_DEFAULT_MODEL) ? LLMProvider.LOCAL :
                         LLMProvider.GEMINI), // 默认使用Gemini而不是OpenAI
           retryConfig: {
             maxAttempts: parseInt(process.env.LLM_RETRY_MAX_ATTEMPTS || '3'),
@@ -197,14 +214,14 @@ export class DefaultServiceFactory implements ServiceFactory {
           },
           timeoutMs: parseInt(process.env.LLM_TIMEOUT_MS || '30000')
         };
-        
+
         this.llmService = new RealLLMService(config);
       } else {
         // Fall back to MockLLMService if no API keys
         this.llmService = new MockLLMService();
       }
     }
-    
+
     return this.llmService;
   }
 
@@ -213,10 +230,10 @@ export class DefaultServiceFactory implements ServiceFactory {
    */
   private parseLLMProvider(providerStr?: string): LLMProvider | null {
     if (!providerStr) return null;
-    
+
     // 转换为小写进行比较
     const lowerProvider = providerStr.toLowerCase();
-    
+
     switch (lowerProvider) {
       case 'openai': return LLMProvider.OPENAI;
       case 'anthropic': return LLMProvider.ANTHROPIC;
@@ -253,7 +270,7 @@ export class DefaultServiceFactory implements ServiceFactory {
     if (!this.databaseService) {
       // Check if we have database credentials
       const dbHost = process.env.DATABASE_HOST;
-      
+
       // If we have database credentials, use RealDatabaseService
       if (dbHost) {
         const config: any = {
@@ -285,7 +302,7 @@ export class DefaultServiceFactory implements ServiceFactory {
         this.databaseService = new MockDatabaseService();
       }
     }
-    
+
     return this.databaseService;
   }
 
@@ -402,7 +419,7 @@ export class DefaultServiceFactory implements ServiceFactory {
     container.register(SERVICE_IDENTIFIERS.WORLD_LORE_SERVICE, () => this.createWorldLoreService());
     container.register(SERVICE_IDENTIFIERS.STORY_OUTLINE_GENERATOR_SERVICE, () => this.createStoryOutlineGeneratorService());
     container.register(SERVICE_IDENTIFIERS.ENHANCED_INITIAL_SCENE_SERVICE, () => this.createEnhancedInitialSceneService());
-    
+
     // Register domain managers
     container.register(SERVICE_IDENTIFIERS.CHARACTER_MANAGER, () => this.createCharacterManager());
     container.register(SERVICE_IDENTIFIERS.WORLD_MANAGER, () => this.createWorldManager());

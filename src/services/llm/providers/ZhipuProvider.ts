@@ -1,18 +1,12 @@
 import { LLMProviderAdapter, LLMCharacterResponse, DirectorDecision, RateLimitStatus, LLMProvider } from '../types/LLMTypes';
-import OpenAI from 'openai';
 
 export class ZhipuProvider implements LLMProviderAdapter {
-  private client: OpenAI;
+  private apiKey: string;
   private model: string;
   private rateLimit: RateLimitStatus;
-  private apiKey: string;
 
   constructor(apiKey: string, model: string = 'glm-4') {
     this.apiKey = apiKey;
-    this.client = new OpenAI({
-      apiKey: apiKey,
-      baseURL: 'https://gateway.theturbo.ai/v1'
-    });
     this.model = model;
     this.rateLimit = {
       requestsRemaining: 1000,
@@ -22,40 +16,70 @@ export class ZhipuProvider implements LLMProviderAdapter {
     };
   }
 
-  async generateText(prompt: string, options?: { maxTokens?: number; temperature?: number }): Promise<string> {
+  async generateText(prompt: string, options?: { maxTokens?: number; temperature?: number; jsonMode?: boolean; systemPrompt?: string }): Promise<string> {
     // Implement retry mechanism
     const maxRetries = 3;
     let lastError: any;
-    
+
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout
+
       try {
-        const response = await this.client.chat.completions.create({
+        const messages: any[] = [];
+        if (options?.systemPrompt) {
+          messages.push({ role: 'system', content: options.systemPrompt });
+        }
+        messages.push({ role: 'user', content: prompt });
+
+        const requestBody: any = {
           model: this.model,
-          messages: [{ role: 'user', content: prompt }],
+          messages,
           max_tokens: options?.maxTokens || 150,
           temperature: options?.temperature || 0.7
+        };
+
+        if (options?.jsonMode) {
+          requestBody.response_format = { type: "json_object" };
+        }
+
+        const response = await fetch('https://open.bigmodel.cn/api/paas/v4/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${this.apiKey}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(requestBody),
+          signal: controller.signal
         });
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const data = await response.json();
 
         // Update rate limit status
         this.updateRateLimit(1);
-        
-        return response.choices[0]?.message?.content || '';
+
+        return data.choices[0]?.message?.content || '';
       } catch (error: any) {
         lastError = error;
-        
+
         // If this is the last attempt, throw the error
         if (attempt === maxRetries) {
           console.error('Zhipu API error after max retries:', error);
           throw error;
         }
-        
+
         // Wait before retrying with exponential backoff
         const delay = Math.pow(2, attempt) * 1000;
         console.warn(`Zhipu API error (attempt ${attempt + 1}/${maxRetries + 1}), retrying in ${delay}ms:`, error.message);
         await new Promise(resolve => setTimeout(resolve, delay));
       }
     }
-    
+
     throw lastError;
   }
 
@@ -78,22 +102,40 @@ export class ZhipuProvider implements LLMProviderAdapter {
     // Implement retry mechanism
     const maxRetries = 3;
     let lastError: any;
-    
+
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout
+
       try {
-        const response = await this.client.chat.completions.create({
-          model: this.model,
-          messages: [{ role: 'user', content: characterPrompt }],
-          temperature: 0.7,
-          response_format: { type: "json_object" }
+        const response = await fetch('https://open.bigmodel.cn/api/paas/v4/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${this.apiKey}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            model: this.model,
+            messages: [{ role: 'user', content: characterPrompt }],
+            temperature: 0.7,
+            response_format: { type: "json_object" }
+          }),
+          signal: controller.signal
         });
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const data = await response.json();
 
         // Update rate limit status
         this.updateRateLimit(1);
-        
-        const content = response.choices[0]?.message?.content || '{}';
+
+        const content = data.choices[0]?.message?.content || '{}';
         const parsedResponse = JSON.parse(content);
-        
+
         return {
           dialogue: parsedResponse.dialogue || '',
           emotionalState: parsedResponse.emotionalState || { mood: 'neutral', intensity: 50 },
@@ -101,20 +143,20 @@ export class ZhipuProvider implements LLMProviderAdapter {
         };
       } catch (error: any) {
         lastError = error;
-        
+
         // If this is the last attempt, throw the error
         if (attempt === maxRetries) {
           console.error('Zhipu API error after max retries:', error);
           throw error;
         }
-        
+
         // Wait before retrying with exponential backoff
         const delay = Math.pow(2, attempt) * 1000;
         console.warn(`Zhipu API error (attempt ${attempt + 1}/${maxRetries + 1}), retrying in ${delay}ms:`, error.message);
         await new Promise(resolve => setTimeout(resolve, delay));
       }
     }
-    
+
     throw lastError;
   }
 
@@ -137,22 +179,40 @@ export class ZhipuProvider implements LLMProviderAdapter {
     // Implement retry mechanism
     const maxRetries = 3;
     let lastError: any;
-    
+
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout
+
       try {
-        const response = await this.client.chat.completions.create({
-          model: this.model,
-          messages: [{ role: 'user', content: directorPrompt }],
-          temperature: 0.5,
-          response_format: { type: "json_object" }
+        const response = await fetch('https://open.bigmodel.cn/api/paas/v4/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${this.apiKey}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            model: this.model,
+            messages: [{ role: 'user', content: directorPrompt }],
+            temperature: 0.5,
+            response_format: { type: "json_object" }
+          }),
+          signal: controller.signal
         });
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const data = await response.json();
 
         // Update rate limit status
         this.updateRateLimit(1);
-        
-        const content = response.choices[0]?.message?.content || '{}';
+
+        const content = data.choices[0]?.message?.content || '{}';
         const parsedResponse = JSON.parse(content);
-        
+
         return {
           action: parsedResponse.action || 'CONTINUE',
           reasoning: parsedResponse.reasoning || '',
@@ -161,20 +221,20 @@ export class ZhipuProvider implements LLMProviderAdapter {
         };
       } catch (error: any) {
         lastError = error;
-        
+
         // If this is the last attempt, throw the error
         if (attempt === maxRetries) {
           console.error('Zhipu API error after max retries:', error);
           throw error;
         }
-        
+
         // Wait before retrying with exponential backoff
         const delay = Math.pow(2, attempt) * 1000;
         console.warn(`Zhipu API error (attempt ${attempt + 1}/${maxRetries + 1}), retrying in ${delay}ms:`, error.message);
         await new Promise(resolve => setTimeout(resolve, delay));
       }
     }
-    
+
     throw lastError;
   }
 
@@ -186,8 +246,14 @@ export class ZhipuProvider implements LLMProviderAdapter {
   async healthCheck(): Promise<boolean> {
     try {
       // 发送一个简单的请求来检查连接
-      await this.client.models.list();
-      return true;
+      const response = await fetch('https://open.bigmodel.cn/api/paas/v4/models', {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${this.apiKey}`
+        }
+      });
+
+      return response.ok;
     } catch (error) {
       console.error('Zhipu health check failed:', error);
       return false;
@@ -201,7 +267,7 @@ export class ZhipuProvider implements LLMProviderAdapter {
   private updateRateLimit(usedRequests: number): void {
     this.rateLimit.currentUsage += usedRequests;
     this.rateLimit.requestsRemaining = Math.max(0, this.rateLimit.requestsRemaining - usedRequests);
-    
+
     // Reset rate limit if past reset time
     if (new Date() > this.rateLimit.resetTime) {
       this.rateLimit.requestsRemaining = 1000;

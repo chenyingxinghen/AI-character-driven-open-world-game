@@ -111,8 +111,9 @@ export class DialogueGuidanceService {
         dialoguePrompt,
         this.getDialogueSchema(),
         {
-          temperature: 0.7,
-          maxTokens: 300
+          temperature: 0.6,
+          maxTokens: 500,
+          systemPrompt: `You are an AI game guide. Respond with a JSON object describing the character's dialogue and guidance.`
         }
       );
 
@@ -276,16 +277,16 @@ export class DialogueGuidanceService {
     switch (intensity) {
       case InterventionIntensity.SUBTLE:
         return Math.random() > 0.5 ? DialogueGuidanceType.SUBTLE_HINT : DialogueGuidanceType.QUESTION_PROMPT;
-      
+
       case InterventionIntensity.MODERATE:
         return Math.random() > 0.5 ? DialogueGuidanceType.DIRECT_SUGGESTION : DialogueGuidanceType.ENCOURAGEMENT;
-      
+
       case InterventionIntensity.STRONG:
         return Math.random() > 0.5 ? DialogueGuidanceType.WARNING : DialogueGuidanceType.EXPOSITION;
-      
+
       case InterventionIntensity.FORCED:
         return DialogueGuidanceType.CHOICE_CLARIFICATION;
-      
+
       default:
         return DialogueGuidanceType.SUBTLE_HINT;
     }
@@ -306,13 +307,13 @@ export class DialogueGuidanceService {
     switch (guidanceType) {
       case DialogueGuidanceType.INNER_THOUGHT:
         return DialogueSpeakerType.INNER_THOUGHT;
-      
+
       case DialogueGuidanceType.WARNING:
         return Math.random() > 0.5 ? DialogueSpeakerType.MYSTERIOUS_VOICE : DialogueSpeakerType.NARRATOR;
-      
+
       case DialogueGuidanceType.EXPOSITION:
         return DialogueSpeakerType.NARRATOR;
-      
+
       default:
         return Math.random() > 0.7 ? DialogueSpeakerType.NEW_CHARACTER : DialogueSpeakerType.NARRATOR;
     }
@@ -328,22 +329,22 @@ export class DialogueGuidanceService {
     switch (speakerType) {
       case DialogueSpeakerType.EXISTING_CHARACTER:
         return context.availableCharacters[0] || '智者';
-      
+
       case DialogueSpeakerType.NEW_CHARACTER:
         return this.generateNewCharacterName(context);
-      
+
       case DialogueSpeakerType.NARRATOR:
         return '叙述者';
-      
+
       case DialogueSpeakerType.MYSTERIOUS_VOICE:
         return '神秘声音';
-      
+
       case DialogueSpeakerType.INNER_THOUGHT:
         return '内心声音';
-      
+
       case DialogueSpeakerType.ENVIRONMENTAL_SOUND:
         return '环境提示';
-      
+
       default:
         return '未知声音';
     }
@@ -508,9 +509,9 @@ export class DialogueGuidanceService {
    */
   private modifyChoices(originalChoices: string[], preferredChoice: string): string[] {
     const modified = [...originalChoices];
-    
+
     // 找到偏好选项的索引
-    const preferredIndex = modified.findIndex(choice => 
+    const preferredIndex = modified.findIndex(choice =>
       choice.toLowerCase().includes(preferredChoice.toLowerCase())
     );
 
@@ -535,7 +536,7 @@ export class DialogueGuidanceService {
     // 添加一些积极的修饰词
     const positiveWords = ['明智地', '小心地', '果断地', '聪明地'];
     const randomWord = positiveWords[Math.floor(Math.random() * positiveWords.length)];
-    
+
     return `${randomWord}${choice}`;
   }
 

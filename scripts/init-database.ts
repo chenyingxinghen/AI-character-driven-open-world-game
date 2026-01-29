@@ -157,17 +157,8 @@ async function executeSqlScript(scriptPath: string): Promise<boolean> {
   try {
     await client.connect();
 
-    // 读取SQL文件内容
-    const sqlContent = fs.readFileSync(scriptPath, 'utf8');
-
-    // 移除psql元命令（如\c）和注释行
-    const cleanedSql = sqlContent
-      .split('\n')
-      .filter(line => !line.trim().startsWith('\\') && !line.trim().startsWith('--'))
-      .join('\n');
-
     // 按照正确的依赖顺序定义表创建语句
-    // 首先创建无依赖的表
+    // 1. 首先创建无依赖的表
     const createGameSessions = `
       CREATE TABLE IF NOT EXISTS game_sessions (
           id VARCHAR(36) PRIMARY KEY,
@@ -180,7 +171,7 @@ async function executeSqlScript(scriptPath: string): Promise<boolean> {
       );
     `;
 
-    // 然后创建依赖game_sessions的表
+    // 2. 然后创建依赖game_sessions的表
     const createCharacters = `
       CREATE TABLE IF NOT EXISTS characters (
           id VARCHAR(36) PRIMARY KEY,
@@ -197,8 +188,8 @@ async function executeSqlScript(scriptPath: string): Promise<boolean> {
       );
     `;
 
-    // 最后创建依赖其他表的表
-    const remainingTables = `
+    // 3. 创建其他依赖表
+    const createDependentTables = `
       CREATE TABLE IF NOT EXISTS character_memories (
           id VARCHAR(36) PRIMARY KEY,
           character_id VARCHAR(36) REFERENCES characters(id),
@@ -236,6 +227,32 @@ async function executeSqlScript(scriptPath: string): Promise<boolean> {
           updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
 
+      CREATE TABLE IF NOT EXISTS locations (
+          id VARCHAR(100) PRIMARY KEY,
+          name VARCHAR(200) NOT NULL,
+          description TEXT,
+          location_type VARCHAR(50),
+          region_id VARCHAR(100),
+          position_x NUMERIC(10,2),
+          position_y NUMERIC(10,2),
+          location_data JSONB,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS world_lore (
+          id VARCHAR(36) PRIMARY KEY,
+          session_id VARCHAR(36) REFERENCES game_sessions(id) ON DELETE CASCADE,
+          lore_type VARCHAR(50) NOT NULL,
+          title VARCHAR(200) NOT NULL,
+          content TEXT NOT NULL,
+          inspiration TEXT,
+          generation_seed VARCHAR(100),
+          metadata JSONB,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+
       CREATE TABLE IF NOT EXISTS story_events (
           id VARCHAR(36) PRIMARY KEY,
           session_id VARCHAR(36) REFERENCES game_sessions(id),
@@ -248,9 +265,137 @@ async function executeSqlScript(scriptPath: string): Promise<boolean> {
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
+
+      CREATE TABLE IF NOT EXISTS game_mode_sessions (
+          id VARCHAR(36) PRIMARY KEY,
+          session_id VARCHAR(36) REFERENCES game_sessions(id) ON DELETE CASCADE,
+          mode_type VARCHAR(20) CHECK (mode_type IN ('free', 'script')) NOT NULL,
+          config JSONB NOT NULL,
+          state JSONB NOT NULL,
+          player_id VARCHAR(36) NOT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS story_outlines (
+          id VARCHAR(36) PRIMARY KEY,
+          title VARCHAR(200) NOT NULL,
+          genre VARCHAR(50) NOT NULL,
+          summary TEXT,
+          acts JSONB NOT NULL,
+          characters JSONB,
+          locations JSONB,
+          themes TEXT[],
+          estimated_duration INTEGER,
+          tags TEXT[],
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS story_progress (
+          id VARCHAR(36) PRIMARY KEY,
+          session_id VARCHAR(36) REFERENCES game_mode_sessions(id) ON DELETE CASCADE,
+          story_outline_id VARCHAR(36) REFERENCES story_outlines(id),
+          current_act INTEGER DEFAULT 1,
+          completed_plot_points TEXT[],
+          completion_percentage NUMERIC(5,2) DEFAULT 0,
+          story_variables JSONB,
+          started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS deviation_records (
+          id VARCHAR(36) PRIMARY KEY,
+          session_id VARCHAR(36) REFERENCES game_mode_sessions(id) ON DELETE CASCADE,
+          player_action TEXT NOT NULL,
+          expected_action TEXT NOT NULL,
+          deviation_score NUMERIC(5,2) NOT NULL,
+          current_plot_point VARCHAR(36),
+          impact VARCHAR(20) CHECK (impact IN ('minor', 'moderate', 'major', 'critical')),
+          description TEXT,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS intervention_records (
+          id VARCHAR(36) PRIMARY KEY,
+          session_id VARCHAR(36) REFERENCES game_mode_sessions(id) ON DELETE CASCADE,
+          intervention_type VARCHAR(50) NOT NULL,
+          intensity VARCHAR(20) CHECK (intensity IN ('none', 'subtle', 'moderate', 'strong', 'forced')),
+          trigger_reason TEXT,
+          outcome VARCHAR(30) CHECK (outcome IN ('successful', 'partially_successful', 'failed')),
+          effectiveness NUMERIC(5,2),
+          player_reaction TEXT,
+          notes TEXT,
+          applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS director_controllers (
+          id VARCHAR(36) PRIMARY KEY,
+          session_id VARCHAR(36) REFERENCES game_mode_sessions(id) ON DELETE CASCADE,
+          intervention_level INTEGER CHECK (intervention_level >= 0 AND intervention_level <= 100),
+          deviation_tolerance INTEGER CHECK (deviation_tolerance >= 0 AND deviation_tolerance <= 100),
+          total_interventions INTEGER DEFAULT 0,
+          successful_interventions INTEGER DEFAULT 0,
+          is_active BOOLEAN DEFAULT true,
+          cooldown_data JSONB,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS dynamic_content_cache (
+          id VARCHAR(36) PRIMARY KEY,
+          session_id VARCHAR(36) REFERENCES game_mode_sessions(id) ON DELETE CASCADE,
+          content_type VARCHAR(50) NOT NULL,
+          cache_key VARCHAR(200) NOT NULL,
+          content_data JSONB NOT NULL,
+          usage_count INTEGER DEFAULT 0,
+          last_used TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE(session_id, cache_key)
+      );
+
+      CREATE TABLE IF NOT EXISTS story_outlines_generated (
+          id VARCHAR(36) PRIMARY KEY,
+          session_id VARCHAR(36) REFERENCES game_sessions(id) ON DELETE CASCADE,
+          world_lore_ids TEXT[],
+          story_outline JSONB NOT NULL,
+          core_elements JSONB NOT NULL,
+          context_mapping JSONB NOT NULL,
+          validation_report JSONB NOT NULL,
+          generation_params JSONB,
+          is_active BOOLEAN DEFAULT true,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS initial_scene_packages (
+          id VARCHAR(36) PRIMARY KEY,
+          session_id VARCHAR(36) REFERENCES game_sessions(id) ON DELETE CASCADE,
+          story_outline_id VARCHAR(36) REFERENCES story_outlines_generated(id),
+          starting_location JSONB NOT NULL,
+          nearby_characters JSONB NOT NULL,
+          immersive_description TEXT NOT NULL,
+          player_guidance JSONB NOT NULL,
+          environment_details JSONB NOT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS director_guidance_records (
+          id VARCHAR(36) PRIMARY KEY,
+          session_id VARCHAR(36) REFERENCES game_sessions(id) ON DELETE CASCADE,
+          story_outline_id VARCHAR(36) REFERENCES story_outlines_generated(id),
+          current_plot_point VARCHAR(100),
+          guidance_type VARCHAR(50) NOT NULL,
+          guidance_content TEXT NOT NULL,
+          player_deviation_score NUMERIC(5,2) DEFAULT 0,
+          effectiveness_score NUMERIC(5,2),
+          applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
     `;
 
-    // 创建索引语句
+    // 4. 创建索引语句
     const createIndexes = `
       CREATE INDEX IF NOT EXISTS idx_characters_session_id ON characters(session_id);
       CREATE INDEX IF NOT EXISTS idx_character_memories_character_id ON character_memories(character_id);
@@ -263,13 +408,36 @@ async function executeSqlScript(scriptPath: string): Promise<boolean> {
       CREATE INDEX IF NOT EXISTS idx_character_relationships_session_id ON character_relationships(session_id);
       CREATE INDEX IF NOT EXISTS idx_story_events_session_id ON story_events(session_id);
       CREATE INDEX IF NOT EXISTS idx_story_events_created_at ON story_events(created_at);
+      CREATE INDEX IF NOT EXISTS idx_locations_type ON locations(location_type);
+      CREATE INDEX IF NOT EXISTS idx_locations_region ON locations(region_id);
+      CREATE INDEX IF NOT EXISTS idx_world_lore_session_id ON world_lore(session_id);
+      CREATE INDEX IF NOT EXISTS idx_world_lore_type ON world_lore(lore_type);
+      CREATE INDEX IF NOT EXISTS idx_game_mode_sessions_session_id ON game_mode_sessions(session_id);
+      CREATE INDEX IF NOT EXISTS idx_game_mode_sessions_mode_type ON game_mode_sessions(mode_type);
+      CREATE INDEX IF NOT EXISTS idx_story_outlines_genre ON story_outlines(genre);
+      CREATE INDEX IF NOT EXISTS idx_story_progress_session_id ON story_progress(session_id);
+      CREATE INDEX IF NOT EXISTS idx_story_progress_story_outline_id ON story_progress(story_outline_id);
+      CREATE INDEX IF NOT EXISTS idx_deviation_records_session_id ON deviation_records(session_id);
+      CREATE INDEX IF NOT EXISTS idx_deviation_records_created_at ON deviation_records(created_at);
+      CREATE INDEX IF NOT EXISTS idx_intervention_records_session_id ON intervention_records(session_id);
+      CREATE INDEX IF NOT EXISTS idx_intervention_records_applied_at ON intervention_records(applied_at);
+      CREATE INDEX IF NOT EXISTS idx_director_controllers_session_id ON director_controllers(session_id);
+      CREATE INDEX IF NOT EXISTS idx_dynamic_content_cache_session_id ON dynamic_content_cache(session_id);
+      CREATE INDEX IF NOT EXISTS idx_dynamic_content_cache_content_type ON dynamic_content_cache(content_type);
+      CREATE INDEX IF NOT EXISTS idx_story_outlines_generated_session_id ON story_outlines_generated(session_id);
+      CREATE INDEX IF NOT EXISTS idx_story_outlines_generated_created_at ON story_outlines_generated(created_at);
+      CREATE INDEX IF NOT EXISTS idx_initial_scene_packages_session_id ON initial_scene_packages(session_id);
+      CREATE INDEX IF NOT EXISTS idx_initial_scene_packages_story_outline_id ON initial_scene_packages(story_outline_id);
+      CREATE INDEX IF NOT EXISTS idx_director_guidance_records_session_id ON director_guidance_records(session_id);
+      CREATE INDEX IF NOT EXISTS idx_director_guidance_records_story_outline_id ON director_guidance_records(story_outline_id);
+      CREATE INDEX IF NOT EXISTS idx_director_guidance_records_applied_at ON director_guidance_records(applied_at);
     `;
 
     // 按正确顺序执行语句
     const statements = [
       createGameSessions,
       createCharacters,
-      remainingTables,
+      createDependentTables,
       createIndexes
     ];
 
@@ -314,7 +482,19 @@ async function validateTables(): Promise<boolean> {
       'character_memories',
       'conversations',
       'character_relationships',
-      'story_events'
+      'locations',
+      'world_lore',
+      'story_events',
+      'game_mode_sessions',
+      'story_outlines',
+      'story_progress',
+      'deviation_records',
+      'intervention_records',
+      'director_controllers',
+      'dynamic_content_cache',
+      'story_outlines_generated',
+      'initial_scene_packages',
+      'director_guidance_records'
     ];
 
     for (const tableName of expectedTables) {

@@ -10,6 +10,7 @@ import { DatabaseService } from './services/database/DatabaseService';
 import { WorldLoreService } from './services/world/WorldLoreService';
 import { StoryOutlineGeneratorService } from './services/gameMode/StoryOutlineGeneratorService';
 import { EnhancedInitialSceneService } from './services/gameMode/EnhancedInitialSceneService';
+import { SimplifiedDirectorEngine } from './engine/SimplifiedDirectorEngine';
 import { v4 as uuidv4 } from 'uuid';
 
 // Session interface
@@ -40,6 +41,7 @@ export class Orchestrator {
   private worldLoreService: WorldLoreService;
   private storyOutlineGeneratorService: StoryOutlineGeneratorService;
   private enhancedInitialSceneService: EnhancedInitialSceneService;
+  private simplifiedDirectorEngine: SimplifiedDirectorEngine;
   private sessions: Map<string, GameSession> = new Map();
 
   constructor() {
@@ -50,11 +52,18 @@ export class Orchestrator {
     this.enhancedInitialSceneService = container.resolve<EnhancedInitialSceneService>(SERVICE_IDENTIFIERS.ENHANCED_INITIAL_SCENE_SERVICE);
     this.sessionEngine = new GameSessionEngine();
     this.domainCoordinator = container.resolve<DomainCoordinator>(SERVICE_IDENTIFIERS.DOMAIN_COORDINATOR);
-    
+
     // Initialize game mode manager
     const llmService = container.resolve<LLMService>(SERVICE_IDENTIFIERS.LLM_SERVICE);
     this.gameModeManager = new GameModeManager(llmService, this.logger, this.databaseService);
-    
+
+    // Initialize simplified director engine
+    this.simplifiedDirectorEngine = new SimplifiedDirectorEngine(
+      llmService,
+      this.databaseService,
+      this.logger
+    );
+
     this.logger.info('Orchestrator initialized with enhanced story and scene generation');
   }
 
@@ -75,18 +84,19 @@ export class Orchestrator {
    * 创建新的游戏会话
    */
   async createSession(
-    sessionIdOrPlayerId: string = 'player1', 
+    sessionIdOrPlayerId: string = 'player1',
     inspiration?: string,
     gameMode: 'free' | 'script' | 'guided_free' = 'guided_free',
-    playerPreferences?: any
+    playerPreferences?: any,
+    onProgress?: (step: string, message: string) => void
   ): Promise<GameSession> {
     try {
       // Check if the first parameter is a valid UUID (session ID) or a player ID
       const isSessionId = sessionIdOrPlayerId.includes('-') && sessionIdOrPlayerId.length > 20;
-      
+
       let sessionId: string;
       let playerId: string;
-      
+
       if (isSessionId) {
         // If it's a session ID, use it directly and generate a player ID
         sessionId = sessionIdOrPlayerId;
@@ -96,7 +106,7 @@ export class Orchestrator {
         playerId = sessionIdOrPlayerId;
         sessionId = this.sessionEngine.createSession().id;
       }
-      
+
       const gameSession: GameSession = {
         id: sessionId,
         playerId,
@@ -105,9 +115,9 @@ export class Orchestrator {
         isActive: true,
         metadata: { currentLocation: 'town_square', gameMode, hasStoryOutline: false }
       };
-      
+
       this.sessions.set(sessionId, gameSession);
-      
+
       // 保存会话到数据库（如果不是从数据库创建的）
       if (!isSessionId) {
         await this.databaseService.updateSession(sessionId, {
@@ -117,28 +127,28 @@ export class Orchestrator {
           is_active: true
         });
       }
-      
+
       // 生成世界背景故事
       let worldLore: any[] = [];
       try {
-        this.logger.info(`Generating world lore for session ${sessionId}...`);
         const loreOptions = {
           inspiration: inspiration,
           setting: 'fantasy' as const,
           complexity: 'moderate' as const,
           locale: 'zh' as const
         };
+        onProgress?.('lore', '正在利用灵感构建世界背景（历史、传说、地理）...');
         worldLore = await this.worldLoreService.generateWorldLoreForSession(sessionId, loreOptions);
-        this.logger.info(`World lore generated successfully for session ${sessionId}`);
+        onProgress?.('lore_done', '世界背景构建完成。');
       } catch (loreError) {
         this.logger.warn(`Failed to generate world lore for session ${sessionId}:`, loreError as Error);
       }
-      
+
       // 根据游戏模式生成剧情大纲和初始场景
       if (gameMode !== 'free') {
         try {
           this.logger.info(`Generating story outline and initial scene for ${gameMode} mode...`);
-          
+          onProgress?.('outline', '正在基于历史背景编织主线剧情大纲...');
           // 生成增强初始场景（包含剧情大纲生成）
           const initialScenePackage = await this.enhancedInitialSceneService.generateEnhancedInitialScene({
             sessionId,
@@ -152,7 +162,8 @@ export class Orchestrator {
               storyPacing: playerPreferences?.storyPacing || 'medium'
             }
           });
-          
+          onProgress?.('scene', '正在布置初始场景与角色互动锚点...');
+
           // 更新会话元数据
           gameSession.metadata = {
             ...gameSession.metadata,
@@ -162,18 +173,18 @@ export class Orchestrator {
             nearbyCharacters: initialScenePackage.nearbyCharacters.map(c => c.id),
             initialSceneGenerated: true
           };
-          
+
           this.logger.info(`Story outline and initial scene generated for session ${sessionId}`, {
             locationName: initialScenePackage.startingLocation.name,
             characterCount: initialScenePackage.nearbyCharacters.length,
             currentPlotPoint: initialScenePackage.storyContext.currentPlotPoint
           });
-          
+
         } catch (sceneError) {
           this.logger.warn(`Failed to generate story outline/initial scene for session ${sessionId}:`, sceneError as Error);
         }
       }
-      
+
       this.logger.info(`Created new session ${sessionId} for player ${playerId} with mode ${gameMode}`);
       return gameSession;
     } catch (error) {
@@ -193,7 +204,7 @@ export class Orchestrator {
         session.lastActivity = new Date();
         return session;
       }
-      
+
       // Try to load from database
       try {
         const sessionData = await this.databaseService.getSession(sessionId);
@@ -206,17 +217,20 @@ export class Orchestrator {
             isActive: sessionData.is_active !== false,
             metadata: sessionData.game_state || {}
           };
-          
+
           // Store in memory for future access
           this.sessions.set(sessionId, gameSession);
-          
-          this.logger.info(`Session ${sessionId} loaded from database`);
+
+          // 触发深层状态同步（位置、角色等）
+          await this.domainCoordinator.syncSessionState(sessionId);
+
+          this.logger.info(`Session ${sessionId} loaded and synchronized`);
           return gameSession;
         }
       } catch (dbError) {
         this.logger.warn(`Failed to load session ${sessionId} from database:`, dbError as Error);
       }
-      
+
       this.logger.warn(`Session ${sessionId} not found in memory or database`);
       return null;
     } catch (error) {
@@ -235,16 +249,16 @@ export class Orchestrator {
         this.logger.warn(`Session ${sessionId} not found`);
         return false;
       }
-      
+
       // Update last activity
       session.lastActivity = new Date();
-      
+
       // Save to database
       await this.databaseService.updateSession(sessionId, {
         last_activity: session.lastActivity,
         is_active: session.isActive
       });
-      
+
       this.logger.info(`Saved session ${sessionId}`);
       return true;
     } catch (error) {
@@ -263,20 +277,20 @@ export class Orchestrator {
         this.logger.warn(`Session ${sessionId} not found`);
         return false;
       }
-      
+
       // Mark as inactive
       session.isActive = false;
       session.lastActivity = new Date();
-      
+
       // Save to database
       await this.databaseService.updateSession(sessionId, {
         last_activity: session.lastActivity,
         is_active: false
       });
-      
+
       // Remove from memory
       this.sessions.delete(sessionId);
-      
+
       this.logger.info(`Closed session ${sessionId}`);
       return true;
     } catch (error) {
@@ -290,7 +304,7 @@ export class Orchestrator {
    */
   async runOnce(inputText: string, sessionId?: string, playerId: string = 'player1'): Promise<OrchestratorResult> {
     const startTime = Date.now();
-    
+
     try {
       // If no session ID provided, create a new session
       let session: GameSession;
@@ -303,38 +317,79 @@ export class Orchestrator {
       } else {
         session = await this.createSession(playerId);
       }
-      
+
       // Update session activity
       session.lastActivity = new Date();
-      
-      // 构建游戏上下文
+
+      // 并行获取动态上下文信息
+      const contextInfo = await container.resolve<any>(SERVICE_IDENTIFIERS.GAME_CONTEXT_SERVICE).getGameContext(session.id, playerId);
+
+      // 构建动态游戏上下文
       const gameContext: GameContext = {
         sessionId: session.id,
         playerId: session.playerId,
-        currentLocation: session.metadata.currentLocation || 'town_square',
-        activeCharacters: ['town_guard'], // 可以从会话状态获取
-        gameState: {}, // 可以从数据库加载
+        currentLocation: contextInfo.currentLocation.id,
+        activeCharacters: contextInfo.nearbyCharacters.map((c: any) => c.id),
+        gameState: contextInfo.gameState,
         timestamp: new Date()
       };
-      
-      // 使用域协调器处理输入
-      const coordinationResult = await this.domainCoordinator.processPlayerInput(
-        session.id,
-        playerId,
-        inputText,
-        gameContext
-      );
-      
+
+      // 使用动态上下文评估导演决策
+      const directorContext = {
+        sessionId: session.id,
+        playerId: session.playerId,
+        currentLocation: contextInfo.currentLocation.id,
+        recentActions: contextInfo.recentConversation.map((c: any) => c.content),
+        storyState: contextInfo.gameState,
+        characterStates: contextInfo.nearbyCharacters.reduce((acc: any, curr: any) => {
+          acc[curr.id] = { personality: curr.personality };
+          return acc;
+        }, {}),
+        currentTime: new Date()
+      };
+
+      // 并行执行导演评估和领域协调 - 性能优化
+      this.logger.debug('Starting parallel director evaluation and domain coordination', null, { sessionId: session.id });
+      const [evaluation, coordinationResult] = await Promise.all([
+        this.simplifiedDirectorEngine.evaluateStoryProgression(directorContext),
+        this.domainCoordinator.processPlayerInput(
+          session.id,
+          playerId,
+          inputText,
+          gameContext
+        )
+      ]);
+
+      if (evaluation.shouldIntervene && evaluation.decision) {
+        // 执行导演干预
+        const intervention = await this.simplifiedDirectorEngine.executeIntervention(evaluation.decision, directorContext);
+
+        // 将导演干预集成到叙述中
+        if (coordinationResult.responses.narrative) {
+          coordinationResult.responses.narrative = `${intervention.interventionContent}\n\n${coordinationResult.responses.narrative}`;
+        } else {
+          coordinationResult.responses.narrative = intervention.interventionContent;
+        }
+
+        // 记录干预应用
+        this.logger.info('Director intervention applied to narrative', {
+          sessionId: session.id,
+          type: evaluation.decision.interventionType
+        });
+      }
+
       // 更新会话状态
       if (coordinationResult.stateChanges.locationChange) {
         session.metadata.currentLocation = coordinationResult.stateChanges.locationChange;
+        // 保存会话以持久化位置变更
+        await this.saveSession(session.id);
       }
-      
+
       // Save session
       await this.saveSession(session.id);
-      
+
       const executionTime = Date.now() - startTime;
-      
+
       return {
         success: true,
         session,
@@ -344,7 +399,7 @@ export class Orchestrator {
     } catch (error) {
       const executionTime = Date.now() - startTime;
       this.logger.error(`Error in runOnce:`, error as Error);
-      
+
       return {
         success: false,
         session: {
@@ -383,7 +438,7 @@ export class Orchestrator {
     if (!session) {
       return { active: false, lastActivity: null };
     }
-    
+
     return {
       active: session.isActive,
       lastActivity: session.lastActivity
@@ -396,21 +451,21 @@ export class Orchestrator {
   async cleanupExpiredSessions(maxAgeMinutes: number = 60): Promise<number> {
     const now = new Date();
     const expiredSessions: string[] = [];
-    
+
     for (const [sessionId, session] of this.sessions.entries()) {
       const ageInMinutes = (now.getTime() - session.lastActivity.getTime()) / (1000 * 60);
       if (ageInMinutes > maxAgeMinutes) {
         expiredSessions.push(sessionId);
       }
     }
-    
+
     let closedCount = 0;
     for (const sessionId of expiredSessions) {
       if (await this.closeSession(sessionId)) {
         closedCount++;
       }
     }
-    
+
     this.logger.info(`Cleaned up ${closedCount} expired sessions`);
     return closedCount;
   }

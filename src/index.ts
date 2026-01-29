@@ -17,6 +17,10 @@ export class DomainBasedGame {
   private logger: Logger;
 
   constructor() {
+    // 首先注册所有依赖服务到容器
+    const factory = new DefaultServiceFactory();
+    factory.registerAllServices();
+
     this.logger = new Logger();
     this.orchestrator = new Orchestrator();
     this.logger.info('Domain-based AI Character Game initialized');
@@ -34,7 +38,7 @@ export class DomainBasedGame {
 
   async processInput(input: string, sessionId?: string, playerId: string = 'player1'): Promise<any> {
     const result = await this.orchestrator.runOnce(input, sessionId, playerId);
-    
+
     if (result.success && result.coordinationResult) {
       return {
         success: true,
@@ -64,13 +68,13 @@ export class DomainBasedGame {
 // Example usage
 async function main() {
   const game = new DomainBasedGame();
-  
+
   try {
     await game.initialize();
     const sessionId = await game.startSession('test_player');
-    
+
     const result = await game.processInput('你好，我是新来的。', sessionId);
-    
+
     if (result.success) {
       console.log('叙述:', result.narrative);
       console.log('处理时间:', result.processingTime + 'ms');
@@ -78,7 +82,7 @@ async function main() {
     } else {
       console.log('错误:', result.error);
     }
-    
+
     await game.cleanup();
   } catch (error) {
     console.error('游戏运行错误:', error);

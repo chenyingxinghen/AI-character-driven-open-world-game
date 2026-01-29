@@ -82,13 +82,13 @@ export interface LLMService {
     context: any,
     prompt: string
   ): Promise<LLMCharacterResponse>;
-  
+
   // 导演决策
   generateDirectorDecision(
     context: any,
     evaluation: any
   ): Promise<DirectorDecision>;
-  
+
   // 通用文本生成
   generateText(
     prompt: string,
@@ -96,9 +96,11 @@ export interface LLMService {
       maxTokens?: number;
       temperature?: number;
       provider?: LLMProvider;
+      jsonMode?: boolean;
+      systemPrompt?: string;
     }
   ): Promise<string>;
-  
+
   // 结构化响应生成
   generateStructuredResponse(
     prompt: string,
@@ -107,25 +109,27 @@ export interface LLMService {
       maxTokens?: number;
       temperature?: number;
       provider?: LLMProvider;
+      jsonMode?: boolean;
+      systemPrompt?: string;
     }
   ): Promise<any>;
-  
+
   // 批量处理
   processBatchRequests(
-    requests: LLMRequest[], 
+    requests: LLMRequest[],
     options?: BatchRequestOptions
   ): Promise<LLMResponse[]>;
-  
+
   // 成本和频率控制
   getRateLimitStatus(provider?: LLMProvider): RateLimitStatus;
   estimateCost(request: LLMRequest): CostEstimate;
-  
+
   // 配置和管理
   updateConfig(config: Partial<LLMServiceConfig>): void;
   getAvailableProviders(): LLMProvider[];
   switchProvider(provider: LLMProvider): void;
   getDefaultProvider(): LLMProvider;
-  
+
   // 健康检查
   healthCheck(): Promise<{ [key in LLMProvider]?: boolean }>;
 }
@@ -149,11 +153,11 @@ export class MockLLMService implements LLMService {
     };
   }
 
-  async generateText(prompt: string, options?: { maxTokens?: number; temperature?: number; provider?: LLMProvider; }): Promise<string> {
+  async generateText(prompt: string, options?: { maxTokens?: number; temperature?: number; provider?: LLMProvider; jsonMode?: boolean; systemPrompt?: string }): Promise<string> {
     return `Mock text generation for prompt: ${prompt.substring(0, 50)}...`;
   }
 
-  async generateStructuredResponse(prompt: string, schema: any, options?: { maxTokens?: number; temperature?: number; provider?: LLMProvider; }): Promise<any> {
+  async generateStructuredResponse(prompt: string, schema: any, options?: { maxTokens?: number; temperature?: number; provider?: LLMProvider; jsonMode?: boolean; systemPrompt?: string }): Promise<any> {
     return { mock: 'structured response' };
   }
 

@@ -7,10 +7,10 @@ import { GameModeManager } from '../domains/gameMode/aggregates';
 import { FreeModeEngine, IFreeModeEngine } from '../engine/FreeModeEngine';
 import { ScriptModeEngine, IScriptModeEngine } from '../engine/ScriptModeEngine';
 import { GameModeDirectorEngine, IDirectorEngine } from '../engine/GameModeDirectorEngine';
-import { 
-  GameModeType, 
-  FreeModeConfig, 
-  ScriptModeConfig, 
+import {
+  GameModeType,
+  FreeModeConfig,
+  ScriptModeConfig,
   StoryGenre,
   PlayerPreferences,
   ModeConfig,
@@ -20,6 +20,8 @@ import { Logger } from '../services/Logger';
 import { LLMService } from '../services/llm/LLMService';
 import { WorldManager } from '../domains/world/aggregates';
 import { CharacterManager } from '../domains/character/aggregates';
+import { StoryProgress, DirectorController } from '../domains/gameMode/entities';
+import { MockDatabaseService } from '../services/database/DatabaseService';
 
 // Mock implementations for testing
 class MockLLMService implements LLMService {
@@ -36,6 +38,17 @@ class MockLLMService implements LLMService {
     }
     if (prompt.includes('剧本模式')) {
       return '故事按照预期的方向发展，你的选择推进了情节。';
+    }
+    // Handle Director Intervention Prompt
+    if (prompt.includes('DIRECTOR_DECISION') || prompt.includes('干预') || prompt.includes('导演')) {
+      return `
+=== DIRECTOR_DECISION ===
+ACTION: INTERVENE
+REASONING: The director suggests a subtle hint.
+CONFIDENCE: 0.85
+PARAMETERS: interventionType=dialogue_guidance
+=== END_DECISION ===
+`;
     }
     return 'Mock LLM response for testing';
   }
@@ -89,9 +102,9 @@ class MockLLMService implements LLMService {
   async processBatchRequests(requests: any[], options?: any): Promise<any[]> { return []; }
   getRateLimitStatus(): any { return {}; }
   estimateCost(): any { return {}; }
-  updateConfig(): void {}
+  updateConfig(): void { }
   getAvailableProviders(): any[] { return []; }
-  switchProvider(): void {}
+  switchProvider(): void { }
   getDefaultProvider(): any { return 'mock'; }
   async healthCheck(): Promise<any> { return {}; }
 }
@@ -147,14 +160,16 @@ describe('游戏模式系统集成测试', () => {
   let mockLogger: MockLogger;
   let mockWorldManager: MockWorldManager;
   let mockCharacterManager: MockCharacterManager;
+  let mockDatabaseService: MockDatabaseService;
 
   beforeEach(() => {
     mockLLMService = new MockLLMService();
     mockLogger = new MockLogger();
     mockWorldManager = new MockWorldManager();
     mockCharacterManager = new MockCharacterManager();
-    
-    gameModeManager = new GameModeManager(mockLLMService, mockLogger);
+    mockDatabaseService = new MockDatabaseService();
+
+    gameModeManager = new GameModeManager(mockLLMService, mockLogger, mockDatabaseService);
     freeModeEngine = new FreeModeEngine(mockLLMService, mockWorldManager, mockCharacterManager, mockLogger);
     scriptModeEngine = new ScriptModeEngine(mockLLMService, mockWorldManager, mockCharacterManager, mockLogger);
     directorEngine = new GameModeDirectorEngine(mockLLMService, mockLogger);
@@ -294,11 +309,11 @@ describe('游戏模式系统集成测试', () => {
 
       // 2. 模拟故事进展
       const storyActions = [
-        '我仔细检查古代文物',
-        '我与考古学家交谈',
-        '我决定偏离主线去探索其他地方', // 这应该触发导演干预
-        '我回到主要任务',
-        '我解开了文物的秘密'
+        'I examine and investigate the ancient artifact carefully',
+        'I investigate and discover the surroundings',
+        'I decide to explore elsewhere', // This should trigger director intervention
+        'I return to examine and investigate the artifact',
+        'I discover and examine the secret of the artifact'
       ];
 
       let interventionCount = 0;
@@ -342,17 +357,17 @@ describe('游戏模式系统集成测试', () => {
       // 测试导演引擎的不同干预级别
       const storyOutline = {
         id: 'test-story',
-        title: '测试故事',
+        title: 'Test Story',
         genre: StoryGenre.FANTASY,
-        summary: '测试用故事',
+        summary: 'A test story',
         acts: [{
           id: 'act1',
-          title: '第一章',
-          description: '开始',
+          title: 'Chapter 1',
+          description: 'Start',
           plotPoints: [{
             id: 'plot1',
-            title: '测试剧情点',
-            description: '测试描述',
+            title: 'Test Plot Point',
+            description: 'Investigate the artifact',
             requiredConditions: [],
             expectedOutcomes: ['investigate', 'explore'],
             priority: 10,
@@ -369,11 +384,16 @@ describe('游戏模式系统集成测试', () => {
         tags: ['test']
       };
 
+      // Initialize Director Engine
+      const storyProgress = new StoryProgress('test-progress', 'test-session', storyOutline);
+      const directorController = new DirectorController('test-controller', 'test-session', 50, 30);
+      await directorEngine.initialize(storyProgress, directorController);
+
       // 模拟不同偏离程度的行动
       const testCases = [
-        { action: '我按照指示调查文物', expectedIntervention: false },
-        { action: '我稍微偏离了一下去看看周围', expectedIntervention: false },
-        { action: '我完全忽略任务去做其他事情', expectedIntervention: true }
+        { action: 'investigate', expectedIntervention: false },
+        { action: 'explore', expectedIntervention: false },
+        { action: 'ignore everything', expectedIntervention: true }
       ];
 
       for (const testCase of testCases) {
@@ -392,7 +412,7 @@ describe('游戏模式系统集成测试', () => {
 
         expect(evaluation).toBeDefined();
         expect(evaluation.shouldIntervene).toBe(testCase.expectedIntervention);
-        
+
         if (evaluation.shouldIntervene) {
           expect(evaluation.recommendedIntervention).toBeDefined();
           expect(evaluation.recommendedIntervention!.interventionType).toBeDefined();
@@ -472,7 +492,7 @@ describe('游戏模式系统集成测试', () => {
     test('应该保持模式切换时的状态连续性', async () => {
       // 测试模式切换时游戏状态的保持
       const sessionId = 'continuity-test';
-      
+
       // 初始化并进行一些游戏
       const initialConfig: ModeConfig = {
         mode: GameModeType.FREE,
@@ -544,9 +564,9 @@ describe('游戏模式系统集成测试', () => {
         async processBatchRequests(): Promise<any[]> { return []; }
         getRateLimitStatus(): any { return {}; }
         estimateCost(): any { return {}; }
-        updateConfig(): void {}
+        updateConfig(): void { }
         getAvailableProviders(): any[] { return []; }
-        switchProvider(): void {}
+        switchProvider(): void { }
         getDefaultProvider(): any { return 'mock'; }
         async healthCheck(): Promise<any> { return {}; }
       }

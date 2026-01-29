@@ -23,7 +23,7 @@ import { StoryProgress, DirectorController } from './entities';
  * 模式配置验证服务
  */
 export class ModeConfigValidationService {
-  constructor(private logger: Logger) {}
+  constructor(private logger: Logger) { }
 
   /**
    * 验证模式配置
@@ -119,7 +119,7 @@ export class ModeConfigValidationService {
  * 负责决定何时以及如何进行导演干预
  */
 export class InterventionDecisionService {
-  constructor(private logger: Logger) {}
+  constructor(private logger: Logger) { }
 
   /**
    * 评估是否需要干预
@@ -142,7 +142,7 @@ export class InterventionDecisionService {
 
     // 获取基础干预选项
     const options = this.generateInterventionOptions(currentDeviation, context);
-    
+
     // 选择最佳干预方案
     const bestOption = this.selectBestIntervention(options, storyProgress, directorController);
 
@@ -237,7 +237,7 @@ export class InterventionDecisionService {
     if (options.length === 0) return null;
 
     // 过滤掉在冷却中的干预类型
-    const availableOptions = options.filter(option => 
+    const availableOptions = options.filter(option =>
       !directorController.isOnCooldown(option.type)
     );
 
@@ -262,10 +262,10 @@ export class InterventionDecisionService {
 
     // 假设较高强度意味着较高效果（简化计算）
     const effectiveness = this.intensityToNumber(option.intensity);
-    
-    return (effectiveness * effectivenessWeight) - 
-           (option.cost * costWeight / 100) - 
-           (option.riskLevel * riskWeight / 100);
+
+    return (effectiveness * effectivenessWeight) -
+      (option.cost * costWeight / 100) -
+      (option.riskLevel * riskWeight / 100);
   }
 
   /**
@@ -349,7 +349,7 @@ export class InterventionDecisionService {
  * 分析玩家行为与预期故事路径的偏离程度
  */
 export class DeviationAnalysisService {
-  constructor(private logger: Logger) {}
+  constructor(private logger: Logger) { }
 
   /**
    * 计算偏离度
@@ -415,21 +415,36 @@ export class DeviationAnalysisService {
    * 比较动作
    */
   private compareActions(playerAction: string, expectedAction: string): number {
-    // 简化的动作比较逻辑
-    // 实际实现应该使用更复杂的NLP技术
-    
-    if (playerAction.toLowerCase() === expectedAction.toLowerCase()) {
-      return 0; // 完全匹配
+    if (!playerAction || !expectedAction) return 40;
+
+    const playerLower = playerAction.toLowerCase();
+    const expectedLower = expectedAction.toLowerCase();
+
+    if (playerLower === expectedLower) {
+      return 0; // Exact match
     }
 
-    // 检查关键词重叠
-    const playerWords = playerAction.toLowerCase().split(/\s+/);
-    const expectedWords = expectedAction.toLowerCase().split(/\s+/);
-    
+    // Check for substrings (e.g., "I examine the object" contains "examine")
+    if (playerLower.includes(expectedLower) || expectedLower.includes(playerLower)) {
+      return 5; // Very high similarity
+    }
+
+    // Split into words, filtering out common stop words and short particles
+    const splitPattern = /[\s,.;:!?，。；：！？]+/;
+    const playerWords = playerLower.split(splitPattern).filter(w => w.length > 1);
+    const expectedWords = expectedLower.split(splitPattern).filter(w => w.length > 1);
+
+    if (playerWords.length === 0 || expectedWords.length === 0) return 40;
+
     const commonWords = playerWords.filter(word => expectedWords.includes(word));
-    const overlapRatio = commonWords.length / Math.max(playerWords.length, expectedWords.length);
-    
-    return (1 - overlapRatio) * 40; // 最多40分的偏离
+    const overlapRatio = commonWords.length / Math.min(playerWords.length, expectedWords.length);
+
+    // Weighted scoring: 0-40 range
+    if (overlapRatio > 0.8) return 0;
+    if (overlapRatio > 0.5) return 10;
+    if (overlapRatio > 0.2) return 20;
+
+    return (1 - overlapRatio) * 40;
   }
 
   /**
@@ -458,10 +473,10 @@ export class DeviationAnalysisService {
     // 分析行为一致性
     const actionType = this.categorizeAction(playerAction);
     const recentTypes = recentActions.map(action => this.categorizeAction(action));
-    
+
     const consistentActions = recentTypes.filter(type => type === actionType).length;
     const consistencyRatio = consistentActions / recentTypes.length;
-    
+
     // 如果行为模式突然改变，可能表示偏离
     return consistencyRatio < 0.3 ? 20 : 0;
   }
@@ -475,12 +490,12 @@ export class DeviationAnalysisService {
   ): number {
     // 简化的连贯性分析
     // 检查动作是否与已完成的剧情点冲突
-    
+
     // 这里可以实现更复杂的逻辑，比如：
     // - 检查动作是否违反已建立的角色关系
     // - 检查动作是否与故事世界规则冲突
     // - 检查动作是否忽略重要的故事元素
-    
+
     return 0; // 暂时返回0，实际实现需要更多上下文信息
   }
 
@@ -489,7 +504,7 @@ export class DeviationAnalysisService {
    */
   private categorizeAction(action: string): string {
     const actionLower = action.toLowerCase();
-    
+
     if (actionLower.includes('说') || actionLower.includes('talk') || actionLower.includes('speak')) {
       return 'dialogue';
     }
@@ -502,7 +517,7 @@ export class DeviationAnalysisService {
     if (actionLower.includes('拿') || actionLower.includes('take') || actionLower.includes('use')) {
       return 'interaction';
     }
-    
+
     return 'other';
   }
 
@@ -534,7 +549,7 @@ export class DeviationAnalysisService {
  * 处理游戏模式之间的切换逻辑
  */
 export class ModeTransitionService {
-  constructor(private logger: Logger) {}
+  constructor(private logger: Logger) { }
 
   /**
    * 准备模式切换
