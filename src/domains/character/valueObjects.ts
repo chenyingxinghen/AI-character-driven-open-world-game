@@ -156,5 +156,6 @@ export interface CharacterProfile {
   readonly background: string;
   readonly appearance: string;
   readonly personality: CharacterPersonality;
+  readonly currentLocation?: string;
 }
 

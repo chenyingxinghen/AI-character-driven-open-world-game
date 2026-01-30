@@ -48,6 +48,7 @@ let orchestrator: Orchestrator;
 let logger: Logger = new Logger(); // 初始化logger
 let databaseService: DatabaseService;
 let gameContextService: GameContextService;
+let llmRequestController: LLMRequestController;
 
 // Initialize game orchestrator and logger
 async function initializeGameServer() {
@@ -65,14 +66,65 @@ async function initializeGameServer() {
     gameContextService = container.resolve<GameContextService>(SERVICE_IDENTIFIERS.GAME_CONTEXT_SERVICE);
     logger.info('Game context service initialized successfully');
 
+    // Initialize LLM request controller
+    llmRequestController = new LLMRequestController(logger);
+    logger.info('LLM request controller initialized successfully');
+
     orchestrator = new Orchestrator();
     await orchestrator.initializeGame();
     logger.info('Game orchestrator initialized successfully');
+
+    // Start background monitoring for story stagnation
+    startBackgroundMonitoring();
   } catch (error) {
     console.error('Failed to initialize game orchestrator:', error);
     logger?.error('Failed to initialize game orchestrator:', error as Error);
     process.exit(1);
   }
+}
+
+/**
+ * 启动背景监控循环，检测会话停滞并触发导演干预
+ */
+function startBackgroundMonitoring() {
+  const CHECK_INTERVAL = 30000; // 每30秒检查一次
+  const STAGNATION_THRESHOLD = 60000; // 1分钟无活动视为停滞（用于简单检查，复杂检查在导演引擎中）
+
+  setInterval(async () => {
+    const now = new Date();
+    logger.debug('Running background stagnation check...');
+
+    for (const [sessionId, session] of sessions.entries()) {
+      if (!session.isActive) continue;
+
+      const idleTime = now.getTime() - session.lastActivity.getTime();
+
+      // 如果空闲超过阈值，或者我们想要周期性评估剧情进度
+      if (idleTime > STAGNATION_THRESHOLD) {
+        try {
+          logger.info(`Session ${sessionId} is idle for ${idleTime}ms, checking for interventions...`);
+
+          const result = await orchestrator.processBackgroundIntervention(sessionId);
+
+          if (result && result.type === 'director_intervention') {
+            // 找到对应的客户端并发送干预
+            for (const [ws, client] of clients.entries()) {
+              if (client.sessionId === sessionId && ws.readyState === WebSocket.OPEN) {
+                logger.info(`Pushing director intervention to client for session ${sessionId}`);
+                sendMessage(ws, 'director_intervention', result);
+
+                // 更新最后活动时间，避免短时间内重复触发
+                session.lastActivity = new Date();
+                client.lastActivity = new Date();
+              }
+            }
+          }
+        } catch (error) {
+          logger.error(`Error in background intervention for session ${sessionId}:`, error as Error);
+        }
+      }
+    }
+  }, CHECK_INTERVAL);
 }
 
 // Create WebSocket server
@@ -183,6 +235,14 @@ async function handleMessage(ws: WebSocket, message: WebSocketMessage): Promise<
 
       case 'request_game_state':
         await sendGameState(ws, message.payload);
+        break;
+
+      case 'get_world_records':
+        await handleGetWorldRecords(ws, message.payload);
+        break;
+
+      case 'get_character_outline':
+        await handleGetCharacterOutline(ws, message.payload);
         break;
 
       default:
@@ -381,6 +441,62 @@ async function handleDeleteSession(ws: WebSocket, payload: any): Promise<void> {
   }
 }
 
+async function handleGetWorldRecords(ws: WebSocket, payload: any): Promise<void> {
+  const client = clients.get(ws);
+  if (!client?.userId) {
+    sendMessage(ws, 'error', { message: 'Not logged in' });
+    return;
+  }
+
+  try {
+    const sessions = await databaseService.getUserSessions(client.userId);
+    const worldRecords = [];
+    for (const session of sessions) {
+      const lore = await databaseService.getWorldLoreBySession(session.id, 'main_story');
+      worldRecords.push({
+        sessionId: session.id,
+        sessionName: session.session_name,
+        worldStyle: session.world_style || 'fantasy',
+        mainStory: lore.length > 0 ? lore[0].content : '该世界尚无背景记录。',
+        createdAt: session.created_at
+      });
+    }
+    sendMessage(ws, 'world_records', { worlds: worldRecords });
+  } catch (error) {
+    logger.error('Error getting world records:', error as Error);
+    sendMessage(ws, 'error', { message: 'Failed to get world records' });
+  }
+}
+
+async function handleGetCharacterOutline(ws: WebSocket, payload: any): Promise<void> {
+  const client = clients.get(ws);
+  if (!client?.sessionId) {
+    sendMessage(ws, 'error', { message: 'No active session' });
+    return;
+  }
+
+  try {
+    const outline = await databaseService.getStoryGeneratedOutline(client.sessionId);
+    const sessionDoc = await databaseService.getSession(client.sessionId);
+    if (!sessionDoc) {
+      sendMessage(ws, 'error', { message: 'Session data not found' });
+      return;
+    }
+
+    // Get nearby characters (in current location)
+    const characters = await databaseService.getCharactersByLocation(client.sessionId, sessionDoc.current_location);
+
+    sendMessage(ws, 'character_outline_data', {
+      storyOutline: outline ? outline.story_outline : null,
+      nearbyCharacters: characters,
+      currentLocation: sessionDoc.current_location
+    });
+  } catch (error) {
+    logger.error('Error getting character outline:', error as Error);
+    sendMessage(ws, 'error', { message: 'Failed to get character outline' });
+  }
+}
+
 async function createSession(ws: WebSocket, payload: any): Promise<void> {
   const { sessionName, inspiration, description, worldStyle, difficulty, gameMode } = payload;
   const client = clients.get(ws);
@@ -393,6 +509,15 @@ async function createSession(ws: WebSocket, payload: any): Promise<void> {
   try {
     // 确定游戏模式，默认为引导自由模式
     const selectedGameMode = gameMode || 'guided_free';
+
+    // 映射 worldStyle 到 setting (如果提供)
+    const settingMap: Record<string, any> = {
+      'fantasy': 'fantasy',
+      'sci-fi': 'sci-fi',
+      'modern': 'modern',
+      'medieval': 'medieval',
+      'mixed': 'mixed'
+    };
 
     // Create session in database for the user with all parameters
     const sessionResult = await databaseService.createSessionForUser(
@@ -429,6 +554,13 @@ async function createSession(ws: WebSocket, payload: any): Promise<void> {
       playerPreferences, // Pass player preferences
       (step, message) => {
         sendMessage(ws, 'setup_progress', { step, message });
+      },
+      {
+        worldName: sessionName,
+        worldDescription: description,
+        setting: settingMap[worldStyle] || 'fantasy',
+        complexity: payload.complexity || 'moderate',
+        locale: payload.locale || 'zh'
       }
     );
 
@@ -443,11 +575,17 @@ async function createSession(ws: WebSocket, payload: any): Promise<void> {
 
     sessions.set(session.id, session);
 
+    // Update database with the actual initial location and metadata
+    await databaseService.updateSession(session.id, {
+      current_location: session.metadata?.currentLocation || 'town_square',
+      game_state: session.metadata
+    });
+
     // Update client info
     client.sessionId = session.id;
     client.playerId = gameSession.playerId;
 
-    logger.info(`Created session ${session.id} ("${sessionResult.session_name}") for user ${client.username} with mode ${selectedGameMode}`);
+    logger.info(`Created session ${session.id} ("${sessionResult.session_name}") for user ${client.username} with mode ${selectedGameMode}. Initial location: ${session.metadata?.currentLocation}`);
 
     // Send session created message with additional metadata
     sendMessage(ws, 'session_created', {
@@ -535,11 +673,102 @@ async function handlePlayerInput(ws: WebSocket, payload: any): Promise<void> {
     return;
   }
 
+  // Check if session is already processing a request
+  if (llmRequestController.isProcessing(sessionId)) {
+    const status = llmRequestController.getStatus(sessionId);
+    sendMessage(ws, 'request_queued', {
+      message: '正在处理上一个请求，当前请求已加入队列',
+      queuePosition: status.queueLength + 1,
+      queueLength: status.queueLength
+    });
+
+    // Enqueue the request
+    const request = {
+      id: uuidv4(),
+      sessionId,
+      input,
+      timestamp: new Date()
+    };
+
+    llmRequestController.enqueue(request);
+
+    // Process the queued request when ready
+    processQueuedRequest(ws, sessionId, effectivePlayerId);
+    return;
+  }
+
+  // Mark as processing
+  const request = {
+    id: uuidv4(),
+    sessionId,
+    input,
+    timestamp: new Date()
+  };
+
+  const canProcess = llmRequestController.enqueue(request);
+  if (!canProcess) {
+    // This shouldn't happen since we checked above, but handle it anyway
+    logger.warn(`Unexpected queue state for session ${sessionId}`);
+    return;
+  }
+
+  // Send processing indicator
+  sendMessage(ws, 'processing_start', {
+    message: '正在处理您的请求...'
+  });
+
+  try {
+    await processPlayerInput(ws, sessionId, effectivePlayerId, input);
+  } finally {
+    // Mark request as complete and process next in queue
+    const nextRequest = llmRequestController.complete(sessionId);
+    if (nextRequest) {
+      // Process next request in queue
+      setTimeout(() => {
+        processQueuedRequest(ws, sessionId, effectivePlayerId);
+      }, 100); // Small delay to allow UI to update
+    }
+  }
+}
+
+// Helper function to process queued requests
+async function processQueuedRequest(ws: WebSocket, sessionId: string, playerId: string): Promise<void> {
+  const status = llmRequestController.getStatus(sessionId);
+  if (!status.currentRequest) {
+    return;
+  }
+
+  sendMessage(ws, 'processing_start', {
+    message: '正在处理队列中的请求...',
+    queueRemaining: status.queueLength
+  });
+
+  try {
+    await processPlayerInput(ws, sessionId, playerId, status.currentRequest.input);
+  } finally {
+    const nextRequest = llmRequestController.complete(sessionId);
+    if (nextRequest) {
+      setTimeout(() => {
+        processQueuedRequest(ws, sessionId, playerId);
+      }, 100);
+    }
+  }
+}
+
+// Actual processing logic extracted from handlePlayerInput
+async function processPlayerInput(ws: WebSocket, sessionId: string, playerId: string, input: string): Promise<void> {
+  // Get session for state updates
+  const session = sessions.get(sessionId);
+  if (!session) {
+    sendMessage(ws, 'error', { message: 'Session not found' });
+    return;
+  }
+
   try {
     logger.info(`Processing player input: "${input}" for session ${sessionId}`);
 
     // Process input through orchestrator - Use server-validated playerId
-    const result: OrchestratorResult = await orchestrator.runOnce(input, sessionId, effectivePlayerId);
+    const result: OrchestratorResult = await orchestrator.runOnce(input, sessionId, playerId);
 
     if (result.success && result.coordinationResult) {
       const coordination = result.coordinationResult;
@@ -549,9 +778,9 @@ async function handlePlayerInput(ws: WebSocket, payload: any): Promise<void> {
       if (coordination.responses.characterResponses && coordination.responses.characterResponses.length > 0) {
         for (const response of coordination.responses.characterResponses) {
           sendMessage(ws, 'character_response', {
-            characterId: 'npc_1',
-            characterName: '镇守卫',
-            content: response,
+            characterId: response.characterId,
+            characterName: response.characterName,
+            content: response.content,
             type: 'dialogue',
             timestamp: new Date().toISOString()
           });
@@ -604,8 +833,15 @@ async function handlePlayerInput(ws: WebSocket, payload: any): Promise<void> {
 
       // Update game state
       if (coordination.stateChanges.locationChange) {
-        // 如果有位置变更，立即更新游戏状态
-        session.playerId = coordination.stateChanges.locationChange; // 这应该是一个location字段，这里临时使用
+        // 如果有位置变更，同步更新会话和数据库
+        if (!session.metadata) session.metadata = {};
+        session.metadata.currentLocation = coordination.stateChanges.locationChange;
+
+        await databaseService.updateSession(sessionId, {
+          current_location: coordination.stateChanges.locationChange,
+          updated_at: new Date()
+        });
+
         await sendGameState(ws, { sessionId });
       } else {
         await sendGameState(ws, { sessionId });
@@ -768,10 +1004,13 @@ async function sendGameState(ws: WebSocket, payload: any): Promise<void> {
     // Get system status from orchestrator
     const systemStatus = await orchestrator.getSystemStatus();
 
+    const locationId = (await gameContextService.getGameContext(sessionId, session.playerId || 'player1')).currentLocation.id;
+
     sendMessage(ws, 'game_state_update', {
       status: 'playing',
       currentTime: new Date().toLocaleTimeString('zh-CN'),
       currentLocation,
+      mapData: await gameContextService.getDiscoveredLocations(sessionId, locationId),
       hints: [
         '与角色对话了解更多信息',
         '探索不同区域发现秘密',
@@ -785,15 +1024,17 @@ async function sendGameState(ws: WebSocket, payload: any): Promise<void> {
 }
 
 async function sendInitialState(ws: WebSocket, sessionId: string): Promise<void> {
+  const session = sessions.get(sessionId);
   try {
     // Send initial game state
     await sendGameState(ws, { sessionId });
 
     // 获取动态位置信息而非硬编码
+    // 首先尝试从 Session 或 DatabaseService 获取真实位置
     let locationInfo = {
-      location: 'town_square',
-      description: '你站在一个未知的地方，周围的景色模糊不清。',
-      title: '神秘之地'
+      location: session?.metadata?.currentLocation || 'unknown',
+      description: '加载中...',
+      title: '正在进入游戏...'
     };
 
     try {
@@ -808,6 +1049,10 @@ async function sendInitialState(ws: WebSocket, sessionId: string): Promise<void>
       }
     } catch (error) {
       logger.warn('Failed to get dynamic location info, using fallback');
+      // 如果获取失败，尝试从 session 元数据中恢复基础信息
+      if (session?.metadata?.currentLocation) {
+        locationInfo.location = session.metadata.currentLocation;
+      }
     }
 
     // Send initial scene

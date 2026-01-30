@@ -21,6 +21,7 @@ import {
   RelationshipManagementService,
   BehaviorDecisionService
 } from './services';
+import { promptManager } from '../../prompts';
 
 /**
  * 角色管理器
@@ -88,6 +89,7 @@ export class CharacterManager {
           if (!character) {
             // 从数据库记录重建角色对象
             character = this.reconstructCharacterFromRecord(record);
+            await this.loadCharacterMemories(character, sessionId);
             this.characterRegistry.set(record.id, character);
           }
           characters.push(character);
@@ -126,6 +128,7 @@ export class CharacterManager {
           let character = this.characterRegistry.get(record.id);
           if (!character) {
             character = this.reconstructCharacterFromRecord(record);
+            await this.loadCharacterMemories(character, sessionId);
             this.characterRegistry.set(record.id, character);
           }
           characters.push(character);
@@ -220,6 +223,7 @@ export class CharacterManager {
         const record = await this.databaseService.getCharacter(characterId, sessionId);
         if (record) {
           character = this.reconstructCharacterFromRecord(record);
+          await this.loadCharacterMemories(character, sessionId);
           this.characterRegistry.set(characterId, character);
           return character;
         }
@@ -229,6 +233,51 @@ export class CharacterManager {
     } catch (error) {
       this.logger.error('Failed to get character', error as Error, {
         characterId,
+        component: 'CharacterManager'
+      });
+      return null;
+    }
+  }
+
+  /**
+   * 根据名称获取角色（模糊匹配或名称匹配）
+   */
+  async getCharacterByName(name: string, sessionId: string = 'default_session'): Promise<Character | null> {
+    try {
+      if (!name) return null;
+      const searchName = name.toLowerCase().trim();
+
+      // 1. 检查内存注册表
+      for (const char of this.characterRegistry.values()) {
+        if (char.name.toLowerCase() === searchName) {
+          return char;
+        }
+      }
+
+      // 2. 如果内存中没有，从数据库搜索
+      if (this.databaseService) {
+        const allCharacters = await this.databaseService.getSessionCharacters(sessionId);
+        const record = allCharacters.find(c =>
+          c.name.toLowerCase() === searchName ||
+          c.name.toLowerCase().includes(searchName) ||
+          searchName.includes(c.name.toLowerCase())
+        );
+
+        if (record) {
+          let character = this.characterRegistry.get(record.id);
+          if (!character) {
+            character = this.reconstructCharacterFromRecord(record);
+            await this.loadCharacterMemories(character, sessionId);
+            this.characterRegistry.set(record.id, character);
+          }
+          return character;
+        }
+      }
+
+      return null;
+    } catch (error) {
+      this.logger.error('Failed to get character by name', error as Error, {
+        name,
         component: 'CharacterManager'
       });
       return null;
@@ -303,7 +352,7 @@ export class CharacterManager {
    * 生成角色响应
    */
   async generateCharacterResponse(character: Character, context: any): Promise<string> {
-    const recentMemories = character.getRecentMemories(5);
+    const recentMemories = character.getRecentMemories(10);
     const currentEmotion = character.getEmotionalState();
 
     const optimizedContext = this.optimizeContext(context);
@@ -312,7 +361,7 @@ export class CharacterManager {
     try {
       const response = await this.llmService.generateText(prompt, {
         temperature: 0.8,
-        maxTokens: 200
+        maxTokens: 1000
       });
 
       return response || "I need a moment to think...";
@@ -425,20 +474,19 @@ export class CharacterManager {
   ): string {
     const personality = character.personality;
     const profileText = this.getCharacterProfileText(character);
+    const worldLore = context.worldLore || context.gameContext?.worldLore;
 
-    return `
-角色信息：
-${profileText}
-- 当前情绪：${emotion.mood}（强度：${emotion.intensity}）
+    const userInput = context.input || context.description || (context.interaction && context.interaction.description);
 
-最近记忆：
-${recentMemories.map(m => `- ${m.content}`).join('\n')}
-
-当前情况：
-${JSON.stringify(context)}
-
-请以这个角色的身份回应当前情况，保持角色的个性和情绪状态一致：
-`;
+    return promptManager.generate('character.response_generation', {
+      profileText,
+      mood: emotion.mood,
+      intensity: emotion.intensity,
+      worldLore,
+      memories: recentMemories.map(m => m.content),
+      contextJson: JSON.stringify(context),
+      userInput
+    });
   }
 
   /**
@@ -487,6 +535,38 @@ ${JSON.stringify(context)}
 
     sourceCharacter.addMemory(sourceMemory);
     targetCharacter.addMemory(targetMemory);
+
+    if (this.databaseService) {
+      try {
+        await this.databaseService.storeMemory({
+          ...sourceMemory,
+          character_id: sourceCharacter.id,
+          session_id: 'default_session', // TODO: Get from context
+          emotional_weight: sourceMemory.emotionalWeight,
+          associated_characters: sourceMemory.associatedCharacters,
+          memory_type: sourceMemory.memoryType,
+          created_at: sourceMemory.createdAt,
+          updated_at: new Date()
+        } as any);
+
+        await this.databaseService.storeMemory({
+          ...targetMemory,
+          character_id: targetCharacter.id,
+          session_id: 'default_session', // TODO: Get from context
+          emotional_weight: targetMemory.emotionalWeight,
+          associated_characters: targetMemory.associatedCharacters,
+          memory_type: targetMemory.memoryType,
+          created_at: targetMemory.createdAt,
+          updated_at: new Date()
+        } as any);
+      } catch (error) {
+        this.logger.error('Failed to store memories', error as Error, {
+          sourceCharacterId: sourceCharacter.id,
+          targetCharacterId: targetCharacter.id,
+          component: 'CharacterManager'
+        });
+      }
+    }
   }
 
   /**
@@ -543,7 +623,7 @@ ${JSON.stringify(context)}
         personality: character.personality,
         background: character.profile.background,
         appearance: character.profile.appearance,
-        current_location: 'town_square', // 默认位置
+        current_location: character.profile.currentLocation || 'town_square',
         emotional_state: character.getEmotionalState(),
         is_active: true
       };
@@ -567,6 +647,7 @@ ${JSON.stringify(context)}
       name: record.name,
       background: record.background,
       appearance: record.appearance,
+      currentLocation: record.current_location,
       personality: typeof record.personality === 'string'
         ? JSON.parse(record.personality)
         : record.personality
@@ -676,5 +757,35 @@ ${JSON.stringify(context)}
     const profileText = `- 姓名：${character.name}\n- 背景：${character.profile.background}\n- 个性特征：${JSON.stringify(character.personality.traits)}`;
     this.profileCache.set(character.id, profileText);
     return profileText;
+  }
+
+  /**
+   * 加载角色记忆
+   */
+  private async loadCharacterMemories(character: Character, sessionId: string): Promise<void> {
+    if (!this.databaseService) return;
+
+    try {
+      // 加载最近的50条记忆
+      const memories = await this.databaseService.getCharacterMemories(character.id, sessionId, 50);
+
+      for (const record of memories) {
+        character.addMemory({
+          id: record.id,
+          content: record.content,
+          emotionalWeight: record.emotional_weight,
+          associatedCharacters: record.associated_characters || [],
+          tags: record.tags || [],
+          memoryType: record.memory_type,
+          significance: record.significance,
+          createdAt: record.created_at
+        });
+      }
+    } catch (error) {
+      this.logger.error('Failed to load character memories', error as Error, {
+        characterId: character.id,
+        component: 'CharacterManager'
+      });
+    }
   }
 }

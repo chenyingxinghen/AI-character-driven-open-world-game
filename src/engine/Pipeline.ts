@@ -30,6 +30,9 @@ export interface ProcessingContext {
     // 领域执行阶段结果 (兼容层)
     coordinationResult: DomainCoordinationResult;
 
+    // 完整的游戏上下文 (用于各层共享状态)
+    gameContext?: any; // 这里使用 any 以避免循环依赖，实际为 GameContext
+
     // 性能与元数据
     metadata: {
         startTime: number;

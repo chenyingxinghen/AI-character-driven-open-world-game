@@ -897,9 +897,9 @@ export class RealDatabaseService implements DatabaseService {
 
     const sql = `
       INSERT INTO characters (
-        id, name, personality, background, current_location, 
+        id, name, personality, background, appearance, current_location, 
         emotional_state, is_active, character_data, session_id, created_at, updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW())
       RETURNING *
     `;
 
@@ -908,8 +908,9 @@ export class RealDatabaseService implements DatabaseService {
       character.name,
       character.personality,
       character.background,
+      character.appearance || null,
       character.current_location,
-      character.emotional_state,
+      character.emotional_state || { mood: 'neutral', arousal: 0.5, valence: 0.5 },
       character.is_active,
       character.character_data,
       character.session_id
@@ -1323,22 +1324,31 @@ export class RealDatabaseService implements DatabaseService {
             last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
 
+        -- 强制更新角色表结构（如果缺少 appearance 字段，说明是旧版结构）
+        DO $$ 
+        BEGIN 
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='characters' AND column_name='appearance') THEN
+                DROP TABLE IF EXISTS characters CASCADE;
+            END IF;
+        END $$;
+
         -- 创建角色表（依赖game_sessions）
         CREATE TABLE IF NOT EXISTS characters (
-            id VARCHAR(36) PRIMARY KEY,
+            id VARCHAR(36),
             session_id VARCHAR(36) REFERENCES game_sessions(id) ON DELETE CASCADE,
             name VARCHAR(100) NOT NULL,
             personality JSONB,
             background TEXT,
+            appearance TEXT,
             current_location VARCHAR(100),
             emotional_state JSONB,
             is_active BOOLEAN DEFAULT true,
             character_data JSONB,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (id, session_id)
         );
-
-        -- 创建角色记忆表（依赖characters和game_sessions）
+-- 创建角色记忆表（依赖characters和game_sessions）
         CREATE TABLE IF NOT EXISTS character_memories (
             id VARCHAR(36) PRIMARY KEY,
             character_id VARCHAR(36) REFERENCES characters(id) ON DELETE CASCADE,
@@ -2103,6 +2113,47 @@ export class RealDatabaseService implements DatabaseService {
     const client = await this.postgresPool.connect();
     try {
       await client.query(sql, params);
+    } finally {
+      client.release();
+    }
+  }
+
+  // Story Generated Outline Implementation
+  async getStoryGeneratedOutline(sessionId: string): Promise<any | null> {
+    if (!this.isInitialized || !this.postgresPool) {
+      throw new Error('Database not initialized');
+    }
+
+    const sql = `
+      SELECT * FROM story_outlines_generated 
+      WHERE session_id = $1
+      LIMIT 1
+    `;
+
+    const client = await this.postgresPool.connect();
+    try {
+      const result = await client.query(sql, [sessionId]);
+      return result.rows.length > 0 ? result.rows[0] : null;
+    } finally {
+      client.release();
+    }
+  }
+
+  // Get characters by location
+  async getCharactersByLocation(sessionId: string, locationId: string): Promise<CharacterRecord[]> {
+    if (!this.isInitialized || !this.postgresPool) {
+      throw new Error('Database not initialized');
+    }
+
+    const sql = `
+      SELECT * FROM characters 
+      WHERE session_id = $1 AND current_location = $2 AND is_active = true
+    `;
+
+    const client = await this.postgresPool.connect();
+    try {
+      const result = await client.query(sql, [sessionId, locationId]);
+      return result.rows as CharacterRecord[];
     } finally {
       client.release();
     }

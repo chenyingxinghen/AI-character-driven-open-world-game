@@ -35,6 +35,7 @@ export interface CharacterRecord extends DatabaseRecord {
   name: string;
   personality: any;
   background: string;
+  appearance?: string;
   current_location: string;
   emotional_state: any;
   is_active: boolean;
@@ -163,6 +164,12 @@ export interface DatabaseService {
   createLocation(location: any): Promise<void>;
   getLocationsBySession(sessionId: string): Promise<any[]>;
   updateLocation(locationId: string, updates: any): Promise<void>;
+
+  // Story Generated Outline
+  getStoryGeneratedOutline(sessionId: string): Promise<any | null>;
+
+  // Nearby characters
+  getCharactersByLocation(sessionId: string, locationId: string): Promise<CharacterRecord[]>;
 
   // Analytics and statistics
   getSessionStatistics(sessionId: string): Promise<any>;
@@ -466,6 +473,16 @@ export class MockDatabaseService implements DatabaseService {
 
   async updateLocation(locationId: string, updates: any): Promise<void> {
     console.log(`Mock: Updating location ${locationId}`);
+  }
+
+  async getStoryGeneratedOutline(sessionId: string): Promise<any | null> {
+    console.log(`Mock: Getting story outline for session ${sessionId}`);
+    return null;
+  }
+
+  async getCharactersByLocation(sessionId: string, locationId: string): Promise<CharacterRecord[]> {
+    console.log(`Mock: Getting characters by location ${locationId}`);
+    return [];
   }
 
   // Analytics and statistics

@@ -27,8 +27,9 @@ export class IntentAnalysisLayer implements PipelineMiddleware {
                 context.playerId,
                 context.rawInput,
                 {
-                    currentLocation: context.coordinationResult.stateChanges.locationChange || 'unknown',
-                    // 可以补充更多上下文
+                    currentLocation: context.gameContext?.currentLocation || context.coordinationResult.stateChanges.locationChange || 'unknown',
+                    knownCharacters: context.gameContext?.activeCharacters || [],
+                    recentEvents: context.gameContext?.recentStoryEvents || [],
                 }
             );
 

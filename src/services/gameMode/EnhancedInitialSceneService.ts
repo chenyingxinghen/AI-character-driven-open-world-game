@@ -10,6 +10,7 @@ import { DatabaseService } from '../database/DatabaseService';
 import { StoryOutlineGeneratorService, StoryOutline } from './StoryOutlineGeneratorService';
 import { v4 as uuidv4 } from 'uuid';
 import { JsonUtils } from '../../utils/JsonUtils';
+import { promptManager } from '../../prompts';
 
 // 扩展的角色配置接口
 export interface EnhancedCharacterProfile {
@@ -182,21 +183,16 @@ export class EnhancedInitialSceneService {
   // 分析最佳场景设置
   private async analyzeOptimalSceneSetup(params: EnhancedSceneGenerationParams, storyOutline?: StoryOutline) {
     const worldContent = params.worldLore.map(lore => `[${lore.loreType}] ${lore.content}`).join('\n\n');
-    const storyContent = storyOutline ? `故事：${storyOutline.summary}` : '自由探索模式';
+    const storyContent = storyOutline ? `故事大纲：${storyOutline.summary}` : '自由探索模式';
+    const inspiration = params.worldLore.find(l => l.inspiration)?.inspiration || '未指定灵感';
 
-    const analysisPrompt = `基于世界背景分析最佳开场场景：
-${worldContent}
-${storyContent}
-游戏模式：${params.gameMode}
-
-返回JSON：
-{
-  "recommendedLocationTheme": "主题",
-  "targetAtmosphere": "氛围",
-  "keyStoryElements": ["元素1", "元素2"],
-  "characterRoles": ["guide", "mentor"],
-  "playerStartingObjective": "目标"
-}`;
+    const analysisPrompt = promptManager.generate('scene.analyze_optimal_setup', {
+      worldContent,
+      inspiration,
+      storyContent,
+      gameMode: params.gameMode || 'guided_free',
+      playerPreferences: JSON.stringify(params.playerPreferences || {})
+    });
 
     try {
       const response = await this.llmService.generateText(analysisPrompt, {
@@ -206,18 +202,19 @@ ${storyContent}
       });
       const analysis = JsonUtils.extractJson<any>(response || '{}');
       return {
-        recommendedLocationTheme: analysis.recommendedLocationTheme || '友好小镇',
-        targetAtmosphere: analysis.targetAtmosphere || '温馨友好',
-        keyStoryElements: analysis.keyStoryElements || ['探索', '学习'],
-        characterRoles: analysis.characterRoles || ['guide', 'mentor'],
-        playerStartingObjective: analysis.playerStartingObjective || '开始冒险'
+        recommendedLocationTheme: analysis.recommendedLocationTheme || '友好起始点',
+        targetAtmosphere: analysis.targetAtmosphere || '充满好奇与探索感',
+        keyStoryElements: analysis.keyStoryElements || ['发现', '探索'],
+        characterRoles: analysis.characterRoles || ['guide'],
+        playerStartingObjective: analysis.playerStartingObjective || '探索周围环境并寻找线索'
       };
     } catch (error) {
+      this.logger.warn('Failed to analyze optimal scene setup, using fallback', error as Error);
       return {
         recommendedLocationTheme: '友好小镇',
         targetAtmosphere: '温馨友好',
         keyStoryElements: ['探索', '学习'],
-        characterRoles: ['guide', 'mentor'],
+        characterRoles: ['guide'],
         playerStartingObjective: '开始冒险'
       };
     }
@@ -225,11 +222,15 @@ ${storyContent}
 
   // 生成增强位置
   private async generateEnhancedLocation(sceneAnalysis: any, params: EnhancedSceneGenerationParams): Promise<EnhancedLocationInfo> {
+    const worldContent = params.worldLore.slice(0, 3).map(lore => lore.content).join('\n');
+
     try {
-      const locationPrompt = `创建起始位置：
-主题：${sceneAnalysis.recommendedLocationTheme}
-氛围：${sceneAnalysis.targetAtmosphere}
-请以 JSON 格式返回。`;
+      const locationPrompt = promptManager.generate('scene.generate_enhanced_location', {
+        worldContent,
+        recommendedLocationTheme: sceneAnalysis.recommendedLocationTheme,
+        targetAtmosphere: sceneAnalysis.targetAtmosphere,
+        keyStoryElements: sceneAnalysis.keyStoryElements.join(', ')
+      });
 
       const response = await this.llmService.generateText(locationPrompt, {
         temperature: 0.7,
@@ -238,48 +239,107 @@ ${storyContent}
       });
       const locationData = JsonUtils.extractJson<any>(response || '{}');
 
-      return {
-        id: `enhanced_location_${uuidv4()}`,
-        name: locationData.name || '新手村广场',
-        type: 'town',
-        description: locationData.description || '友好的起始地点',
-        atmosphere: sceneAnalysis.targetAtmosphere,
-        keyFeatures: locationData.keyFeatures || ['中央广场', '友善居民'],
-        storySignificance: locationData.storySignificance || '冒险起点',
-        connectedLocations: locationData.connectedLocations || ['森林', '市场'],
-        availableActions: locationData.availableActions || ['交谈', '探索'],
-        hiddenElements: locationData.hiddenElements || ['古老标记']
+      const locationId = uuidv4();
+
+      const location: EnhancedLocationInfo = {
+        id: locationId,
+        name: locationData.name || '起始之地',
+        type: locationData.type || 'town',
+        description: locationData.description || '一个等待探索的神秘地点。',
+        atmosphere: locationData.atmosphere || sceneAnalysis.targetAtmosphere,
+        keyFeatures: locationData.keyFeatures || [],
+        storySignificance: locationData.storySignificance || '冒险的终点与起点',
+        connectedLocations: locationData.connectedLocations || [],
+        availableActions: locationData.availableActions || [],
+        hiddenElements: locationData.hiddenElements || []
       };
+
+      // 实时持久化到数据库 locations 表
+      await this.databaseService.createLocation({
+        id: location.id,
+        session_id: params.sessionId,
+        name: location.name,
+        description: location.description,
+        location_type: location.type,
+        region_id: 'initial_region',
+        position_x: 0,
+        position_y: 0,
+        location_data: {
+          atmosphere: location.atmosphere,
+          keyFeatures: location.keyFeatures,
+          storySignificance: location.storySignificance,
+          availableActions: location.availableActions,
+          hiddenElements: location.hiddenElements
+        }
+      });
+
+      return location;
     } catch (error) {
-      return this.getFallbackLocation();
+      this.logger.error('Failed to generate enhanced location, using fallback', error as Error);
+      const fallback = this.getFallbackLocation();
+      // 仍然尝试保存 fallback
+      await this.databaseService.createLocation({
+        id: fallback.id,
+        session_id: params.sessionId,
+        name: fallback.name,
+        description: fallback.description,
+        location_type: fallback.type,
+        region_id: 'fallback_region',
+        position_x: 0,
+        position_y: 0,
+        location_data: {}
+      });
+      return fallback;
     }
   }
 
   // 生成角色
   private async generateStoryAwareCharacters(location: EnhancedLocationInfo, storyOutline?: StoryOutline, params?: EnhancedSceneGenerationParams): Promise<EnhancedCharacterProfile[]> {
-    const characterCount = 2; // 简化
+    const characterCount = 2;
     try {
-      const charactersPrompt = `为 ${location.name} 创建 ${characterCount} 个角色。请以 JSON 数组格式返回。`;
+      const charactersPrompt = promptManager.generate('scene.generate_story_aware_characters', {
+        locationName: location.name,
+        locationDescription: location.description,
+        atmosphere: location.atmosphere,
+        storyOutline: storyOutline ? storyOutline.summary : '自由探索模式',
+        characterCount
+      });
+
       const response = await this.llmService.generateText(charactersPrompt, {
         temperature: 0.8,
-        maxTokens: 1000,
+        maxTokens: 1200,
         jsonMode: true
       });
-      const charactersData = JsonUtils.extractJson<any[]>(response || '[]');
 
-      return charactersData.map((charData: any, index: number) => ({
-        id: `enhanced_char_${index}_${uuidv4()}`,
+      let charactersData = JsonUtils.extractJson<any>(response || '[]');
+
+      // 增强鲁棒性：处理 LLM 可能返回对象而非数组的情况
+      if (charactersData && !Array.isArray(charactersData)) {
+        if (Array.isArray(charactersData.characters)) {
+          charactersData = charactersData.characters;
+        } else if (Array.isArray(charactersData.npcs)) {
+          charactersData = charactersData.npcs;
+        } else if (typeof charactersData === 'object' && Object.keys(charactersData).length > 0) {
+          // 如果返回的是单个对象，则包装为数组
+          charactersData = [charactersData];
+        } else {
+          charactersData = [];
+        }
+      }
+
+      const characters: EnhancedCharacterProfile[] = (charactersData || []).map((charData: any, index: number) => ({
+        id: uuidv4(),
         name: charData.name || `角色${index + 1}`,
         role: charData.role || ('guide' as const),
         background: charData.background || '当地居民',
-        appearance: charData.appearance || '友善外观',
+        appearance: charData.appearance || '普通市民',
         personality: charData.personality || {
-          traits: { friendly: 0.8, helpful: 0.7 },
-          values: { community: 0.8 },
-          goals: ['帮助新来者'],
-          fears: ['冲突'],
-          motivations: ['助人'],
-          speechStyle: '友好'
+          traits: { friendly: 0.8 },
+          values: { safety: 0.8 },
+          goals: [],
+          fears: [],
+          motivations: [],
+          speechStyle: '普通'
         },
         storyRelevance: charData.storyRelevance || {
           plotConnections: [],
@@ -294,15 +354,143 @@ ${storyContent}
           triggersEvents: false
         }
       }));
+
+      // 持久化到数据库 characters 表
+      for (const char of characters) {
+        await this.databaseService.createCharacter({
+          id: char.id,
+          session_id: params?.sessionId || 'unknown',
+          name: char.name,
+          personality: char.personality,
+          background: char.background,
+          appearance: char.appearance,
+          current_location: location.id,
+          emotional_state: { mood: 'neutral', arousal: 0.5, valence: 0.5 },
+          is_active: true,
+          character_data: {
+            role: char.role,
+            storyRelevance: char.storyRelevance,
+            gameplayFunctions: char.gameplayFunctions
+          }
+        });
+      }
+
+      return characters;
     } catch (error) {
+      this.logger.error('Failed to generate story aware characters, using fallback', error as Error);
       return this.generateFallbackCharacters(characterCount, location);
+    }
+  }
+
+  private isValidCharacterName(name: string): boolean {
+    if (!name || name.toLowerCase() === 'none' || name.toLowerCase() === 'unknown') return false;
+
+    const pronouns = [
+      '她', '他', '它', '他们', '她们', '它们', '你', '我', '我们', '你们',
+      'she', 'her', 'he', 'him', 'it', 'they', 'them', 'you', 'i', 'me', 'we', 'us'
+    ];
+
+    const cleanName = name.trim().toLowerCase();
+    if (pronouns.includes(cleanName)) return false;
+
+    if (name.length === 1 && pronouns.includes(name)) return false;
+
+    return true;
+  }
+
+  /**
+   * 为特定位置生成一个与故事相关的角色并保存到数据库
+   */
+  async generateAndSaveCharacter(
+    sessionId: string,
+    locationId: string,
+    roleHint?: string,
+    characterParams?: any
+  ): Promise<EnhancedCharacterProfile> {
+    this.logger.info(`Generating single mid-game character for session ${sessionId}`, { role: roleHint });
+
+    try {
+      const prompt = promptManager.generate('scene.generate_mid_game_character', {
+        locationId,
+        roleHint,
+        characterParams: JSON.stringify(characterParams)
+      });
+
+      const response = await this.llmService.generateText(prompt, {
+        temperature: 0.8,
+        maxTokens: 800,
+        jsonMode: true
+      });
+
+      const charData = JsonUtils.extractJson<any>(response || '{}');
+      const finalName = charData.name || characterParams?.name || '神秘人';
+
+      if (!this.isValidCharacterName(finalName)) {
+        this.logger.warn(`Generated invalid character name: "${finalName}", skipping creation.`);
+        throw new Error(`Invalid character name generated: ${finalName}`);
+      }
+
+      const char: EnhancedCharacterProfile = {
+        id: uuidv4(),
+        name: finalName,
+        role: charData.role || characterParams?.role || 'mysterious',
+        background: charData.background || '突然出现在这里的神秘人物',
+        appearance: charData.appearance || characterParams?.appearance || '笼罩在迷雾中',
+        personality: charData.personality || {
+          traits: { mysterious: 0.8 },
+          values: { safety: 0.5 },
+          goals: [],
+          fears: [],
+          motivations: [],
+          speechStyle: '简洁'
+        },
+        storyRelevance: charData.storyRelevance || {
+          plotConnections: [],
+          futureImportance: 'medium',
+          potentialDevelopment: []
+        },
+        gameplayFunctions: charData.gameplayFunctions || {
+          providesGuidance: true,
+          offersQuests: false,
+          teachesSkills: false,
+          revealsLore: true,
+          triggersEvents: false
+        }
+      };
+
+      // 持久化到数据库
+      await this.databaseService.createCharacter({
+        id: char.id,
+        session_id: sessionId,
+        name: char.name,
+        personality: char.personality,
+        background: char.background,
+        appearance: char.appearance,
+        current_location: locationId,
+        emotional_state: { mood: 'neutral', arousal: 0.5, valence: 0.5 },
+        is_active: true,
+        character_data: {
+          role: char.role,
+          storyRelevance: char.storyRelevance,
+          gameplayFunctions: char.gameplayFunctions,
+          introducedByIntervention: true
+        }
+      });
+
+      return char;
+    } catch (error) {
+      this.logger.error('Failed to generate mid-game character', error as Error);
+      throw error;
     }
   }
 
   // 生成描述
   private async generateDeepImmersiveDescription(location: EnhancedLocationInfo, characters: EnhancedCharacterProfile[], storyOutline?: StoryOutline, params?: EnhancedSceneGenerationParams): Promise<string> {
     try {
-      const descriptionPrompt = `为${location.name}创建沉浸式开场描述，包含${characters.map(c => c.name).join('、')}`;
+      const descriptionPrompt = promptManager.generate('scene.generate_immersive_description', {
+        locationName: location.name,
+        characters: characters.map(c => c.name).join('、')
+      });
       const response = await this.llmService.generateText(descriptionPrompt, { temperature: 0.8, maxTokens: 400 });
       return response || this.getFallbackDescription(location, characters);
     } catch (error) {
@@ -390,7 +578,7 @@ ${storyContent}
   // 备用方法
   private getFallbackLocation(): EnhancedLocationInfo {
     return {
-      id: `fallback_location_${uuidv4()}`,
+      id: uuidv4(),
       name: '新手村广场',
       type: 'town',
       description: '一个友好的小镇广场，适合新手开始冒险',
@@ -405,7 +593,7 @@ ${storyContent}
 
   private generateFallbackCharacters(count: number, location: EnhancedLocationInfo): EnhancedCharacterProfile[] {
     return [{
-      id: `fallback_char_${uuidv4()}`,
+      id: uuidv4(),
       name: '村长艾伦',
       role: 'guide',
       background: '友善的村长，乐于帮助新来者',
@@ -469,7 +657,7 @@ ${storyContent}
       directorNotes: {
         keyMoments: ['首次对话', '基础探索'],
         interventionTriggers: ['超过2分钟无操作', '多次点击无效区域'],
-        adaptationStrategies: ['提供操作提示', '高亮可交互元素']
+        adaptationStrategies: ['提供提示', '高亮可交互元素']
       }
     };
   }

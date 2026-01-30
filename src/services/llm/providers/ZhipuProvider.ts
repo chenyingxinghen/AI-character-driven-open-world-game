@@ -1,4 +1,5 @@
 import { LLMProviderAdapter, LLMCharacterResponse, DirectorDecision, RateLimitStatus, LLMProvider } from '../types/LLMTypes';
+import { promptManager } from '../../../prompts';
 
 export class ZhipuProvider implements LLMProviderAdapter {
   private apiKey: string;
@@ -16,7 +17,7 @@ export class ZhipuProvider implements LLMProviderAdapter {
     };
   }
 
-  async generateText(prompt: string, options?: { maxTokens?: number; temperature?: number; jsonMode?: boolean; systemPrompt?: string }): Promise<string> {
+  async generateText(prompt: string, options?: { maxTokens?: number; temperature?: number; jsonMode?: boolean; systemPrompt?: string; model?: string }): Promise<string> {
     // Implement retry mechanism
     const maxRetries = 3;
     let lastError: any;
@@ -33,9 +34,9 @@ export class ZhipuProvider implements LLMProviderAdapter {
         messages.push({ role: 'user', content: prompt });
 
         const requestBody: any = {
-          model: this.model,
+          model: options?.model || this.model,
           messages,
-          max_tokens: options?.maxTokens || 150,
+          max_tokens: options?.maxTokens || 1000,
           temperature: options?.temperature || 0.7
         };
 
@@ -85,19 +86,13 @@ export class ZhipuProvider implements LLMProviderAdapter {
 
   async generateCharacterResponse(character: any, context: any, prompt: string): Promise<LLMCharacterResponse> {
     // 构建角色特定的提示词
-    const characterPrompt = `
-      You are ${character.name}, a character with the following personality: ${JSON.stringify(character.personality)}.
-      Current emotional state: ${JSON.stringify(character.emotionalState)}.
-      Context: ${JSON.stringify(context)}
-      Player says: ${prompt}
-      
-      Respond as the character in a JSON format:
-      {
-        "dialogue": "your response here",
-        "emotionalState": { "mood": "current mood", "intensity": 0-100 },
-        "confidence": 0-1
-      }
-    `;
+    const characterPrompt = promptManager.generate('system.default_character_response', {
+      name: character.name,
+      personality: JSON.stringify(character.personality),
+      emotionalState: JSON.stringify(character.emotionalState),
+      context: JSON.stringify(context),
+      prompt
+    });
 
     // Implement retry mechanism
     const maxRetries = 3;
@@ -162,19 +157,10 @@ export class ZhipuProvider implements LLMProviderAdapter {
 
   async generateDirectorDecision(context: any, evaluation: any): Promise<DirectorDecision> {
     // 构建导演决策提示词
-    const directorPrompt = `
-      You are the game director making narrative decisions.
-      Context: ${JSON.stringify(context)}
-      Evaluation: ${JSON.stringify(evaluation)}
-      
-      Respond with a JSON object:
-      {
-        "action": "CONTINUE|ADVANCE_PLOT|INTRODUCE_CONFLICT|etc",
-        "reasoning": "explanation of the decision",
-        "confidence": 0-1,
-        "parameters": { "key": "value" }
-      }
-    `;
+    const directorPrompt = promptManager.generate('system.default_director_decision', {
+      context: JSON.stringify(context),
+      evaluation: JSON.stringify(evaluation)
+    });
 
     // Implement retry mechanism
     const maxRetries = 3;

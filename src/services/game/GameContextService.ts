@@ -4,6 +4,7 @@
  */
 
 import { DatabaseService, ConversationRecord } from '../database/DatabaseService';
+import { WorldLoreService } from '../world/WorldLoreService';
 import { Logger } from '../Logger';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -42,20 +43,35 @@ export interface GameContextInfo {
     difficulty: string;
     narrativeStyle: string;
   };
+  worldLore?: string;
+  recentStoryEvents?: Array<{
+    type: string;
+    description: string;
+    timestamp: Date;
+  }>;
+  discoveredLocations?: Array<{
+    id: string;
+    name: string;
+    connections: string[];
+    isCurrent: boolean;
+  }>;
 }
 
 export interface InputClassificationContext {
   sessionId: string;
   currentLocation: string;
   nearbyCharacters: string[];
+  nearbyCharacterDetails?: string[];
   recentConversation: string[];
+  recentStoryEvents?: string[];
   availableLocations?: string[];
 }
 
 export class GameContextService {
   constructor(
     private databaseService: DatabaseService,
-    private logger: Logger
+    private logger: Logger,
+    private worldLoreService?: WorldLoreService
   ) { }
 
   /**
@@ -75,6 +91,7 @@ export class GameContextService {
         locationInfo,
         charactersInfo,
         conversationHistory,
+        storyEventsData,
         gameStateInfo,
         playerPreferences
       ] = await Promise.all([
@@ -82,25 +99,50 @@ export class GameContextService {
         this.getCurrentLocationInfo(sessionId),
         this.getNearbyCharactersInfo(sessionId),
         this.getRecentConversationHistory(sessionId, 10),
+        this.getRecentStoryEvents(sessionId, 5),
         this.getGameStateInfo(sessionId),
         this.getPlayerPreferences(playerId)
       ]);
 
       // 获取可达位置信息
       const availableLocations = await this.getAvailableLocations(
+        sessionId,
         locationInfo.id,
         gameStateInfo.playerLevel || 1
       );
+
+      // 获取世界背景故事
+      let worldLore = '';
+      if (this.worldLoreService) {
+        worldLore = await this.worldLoreService.getMainStoryForSession(sessionId);
+      }
 
       const context: GameContextInfo = {
         sessionId,
         playerId,
         currentLocation: locationInfo,
         nearbyCharacters: charactersInfo,
-        recentConversation: conversationHistory,
+        recentConversation: conversationHistory.map(conv => {
+          let speakerName = conv.speaker;
+          if (conv.speaker === playerId) {
+            speakerName = 'Player';
+          } else if (conv.speaker === 'system') {
+            speakerName = 'System';
+          } else {
+            const char = charactersInfo.find(c => c.id === conv.speaker);
+            if (char) speakerName = char.name;
+          }
+          return {
+            ...conv,
+            speaker: speakerName
+          };
+        }),
         availableLocations,
         gameState: gameStateInfo,
-        playerPreferences
+        playerPreferences,
+        worldLore,
+        recentStoryEvents: storyEventsData,
+        discoveredLocations: await this.getDiscoveredLocations(sessionId, locationInfo.id)
       };
 
       this.logger.debug('Successfully retrieved game context', {
@@ -134,7 +176,20 @@ export class GameContextService {
       sessionId,
       currentLocation: fullContext.currentLocation.name,
       nearbyCharacters: fullContext.nearbyCharacters.map(char => char.name),
-      recentConversation: fullContext.recentConversation.map(conv => conv.content),
+      nearbyCharacterDetails: fullContext.nearbyCharacters.map(char => {
+        let detail = `${char.name}`;
+        if (char.personality) {
+          try {
+            const p = typeof char.personality === 'string' ? JSON.parse(char.personality) : char.personality;
+            if (p.traits) detail += ` (${p.traits.join(', ')})`;
+          } catch (e) {
+            // ignore parse error
+          }
+        }
+        return detail;
+      }),
+      recentConversation: fullContext.recentConversation.map(conv => `${conv.speaker}: ${conv.content}`),
+      recentStoryEvents: fullContext.recentStoryEvents?.map(event => event.description),
       availableLocations: fullContext.availableLocations.map(loc => loc.name)
     };
   }
@@ -190,12 +245,23 @@ export class GameContextService {
     messageType: 'player_input' | 'character_response' | 'narration' | 'system_message' = 'player_input'
   ): Promise<void> {
     try {
+      const MAX_CONTENT_LENGTH = 65535;
+      let truncatedContent = content;
+      if (content.length > MAX_CONTENT_LENGTH) {
+        truncatedContent = content.substring(0, MAX_CONTENT_LENGTH);
+        this.logger.warn(`Conversation content truncated for session ${sessionId}`, {
+          originalLength: content.length,
+          truncatedLength: MAX_CONTENT_LENGTH,
+          component: 'GameContextService'
+        });
+      }
+
       const conversationRecord: ConversationRecord = {
         id: uuidv4(),
         session_id: sessionId,
         character_id: speaker,
         message_type: messageType,
-        content,
+        content: truncatedContent,
         context: { timestamp: new Date(), speaker },
         created_at: new Date(),
         updated_at: new Date()
@@ -312,6 +378,20 @@ export class GameContextService {
     }
   }
 
+  private async getRecentStoryEvents(sessionId: string, limit: number): Promise<GameContextInfo['recentStoryEvents']> {
+    try {
+      const events = await this.databaseService.getStoryEvents(sessionId, limit);
+      return events.map(event => ({
+        type: event.event_type,
+        description: event.description,
+        timestamp: event.created_at
+      }));
+    } catch (error) {
+      this.logger.warn('Failed to fetch story events from database', error as Error);
+      return [];
+    }
+  }
+
   private async getGameStateInfo(sessionId: string): Promise<GameContextInfo['gameState']> {
     try {
       // 从游戏状态表获取信息
@@ -353,29 +433,55 @@ export class GameContextService {
   }
 
   private async getAvailableLocations(
+    sessionId: string,
     currentLocationId: string,
     playerLevel: number
   ): Promise<GameContextInfo['availableLocations']> {
     try {
-      // 从位置连接表查询可达位置
-      // 这里应该实现实际的数据库查询逻辑
-      const baseLocations = [
-        { id: 'town_square', name: '镇中心广场', accessibility: 'direct' as const },
-        { id: 'library', name: '图书馆', accessibility: 'direct' as const },
-        { id: 'market', name: '市场', accessibility: 'direct' as const },
-        { id: 'park', name: '公园', accessibility: 'direct' as const }
-      ];
+      // 从数据库查询该会话的所有动态位置
+      const locations = await this.databaseService.getLocationsBySession(sessionId);
 
-      // 根据玩家等级过滤可达位置
-      return baseLocations.filter(loc =>
-        loc.id !== currentLocationId &&
-        this.isLocationAccessible(loc.id, playerLevel)
-      );
+      // 找出与当前位置相连的位置
+      const currentLocation = locations.find(loc => loc.id === currentLocationId);
+      const connectedIds = currentLocation?.location_data?.connections || [];
+
+      return locations
+        .filter(loc => loc.id !== currentLocationId && (connectedIds.includes(loc.id) || this.isLocationAccessible(loc.id, playerLevel)))
+        .map(loc => ({
+          id: loc.id,
+          name: loc.name,
+          accessibility: 'direct' as const
+        }));
     } catch (error) {
+      this.logger.warn('Failed to fetch dynamic locations, using basic fallback');
       return [
-        { id: 'town_square', name: '镇中心广场', accessibility: 'direct' },
-        { id: 'library', name: '图书馆', accessibility: 'direct' }
+        { id: 'town_square', name: '镇中心广场', accessibility: 'direct' }
       ];
+    }
+  }
+
+  /**
+   * 获取会话中所有已发现的位置（用于地图显示）
+   */
+  public async getDiscoveredLocations(sessionId: string, currentLocationId: string): Promise<any[]> {
+    try {
+      const locations = await this.databaseService.getLocationsBySession(sessionId);
+      return locations.map(loc => {
+        let connections: string[] = [];
+        if (loc.location_data) {
+          const data = typeof loc.location_data === 'string' ? JSON.parse(loc.location_data) : loc.location_data;
+          connections = data.connections || [];
+        }
+        return {
+          id: loc.id,
+          name: loc.name,
+          connections,
+          isCurrent: loc.id === currentLocationId
+        };
+      });
+    } catch (error) {
+      this.logger.error('Failed to get discovered locations', error as Error);
+      return [];
     }
   }
 
@@ -417,7 +523,40 @@ export class GameContextService {
       'hospital': '医院',
       'school': '学校'
     };
-    return locationNames[locationId] || locationId;
+
+    if (locationNames[locationId]) {
+      return locationNames[locationId];
+    }
+
+    // Handle dynamic IDs
+    if (locationId.startsWith('dynamic_')) {
+      const parts = locationId.split('_');
+      // format: dynamic_name_timestamp or dynamic_name
+      if (parts.length >= 2) {
+        const namePart = parts[1];
+
+        // Special mapping for common fallback names
+        if (namePart === 'unknown') return '未知地点';
+        if (namePart === 'general') return '周边区域';
+
+        // If it looks like an English key that we might have a translation for
+        if (locationNames[namePart]) {
+          return locationNames[namePart];
+        }
+
+        // Return the name part directly if no mapping found
+        return namePart;
+      }
+      return '神秘区域';
+    }
+
+    // Check if it's a UUID (prevent displaying raw UUIDs)
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (uuidRegex.test(locationId)) {
+      return '未知区域';
+    }
+
+    return locationId;
   }
 
   private getDefaultCharactersForLocation(locationId: string): GameContextInfo['nearbyCharacters'] {

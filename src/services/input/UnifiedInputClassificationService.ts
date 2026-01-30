@@ -12,6 +12,7 @@ import { Logger } from '../Logger';
 import { PatternRecognitionUtil, ErrorHandlerUtil, CacheUtil } from '../../utils/CommonUtils';
 import { IntentType, UrgencyLevel, EmotionalTone, InputType, InputClassification as DomainInputClassification } from '../../domains/input/valueObjects';
 import { JsonUtils } from '../../utils/JsonUtils';
+import { promptManager } from '../../prompts';
 import { v4 as uuidv4 } from 'uuid';
 
 export interface InputClassification extends Omit<DomainInputClassification, 'complexity' | 'contextualHints'> {
@@ -134,13 +135,23 @@ export class UnifiedInputClassificationService {
       sessionId: string;
       currentLocation: string;
       nearbyCharacters: string[];
+      nearbyCharacterDetails?: string[];
       recentConversation: string[];
       availableLocations?: string[];
+      recentStoryEvents?: string[];
     }
   ): Promise<InputClassification> {
     try {
       // 首先尝试使用LLM进行分类
       const llmResult = await this.performLLMClassification(input, gameContext);
+
+      this.logger.debug('LLM Classification Result', {
+        input,
+        intent: llmResult?.intent,
+        confidence: llmResult?.confidence,
+        type: llmResult?.type,
+        component: 'UnifiedInputClassificationService'
+      });
 
       // 如果LLM分类成功且置信度足够高，直接返回结果
       if (llmResult && llmResult.confidence >= 70) {
@@ -159,8 +170,19 @@ export class UnifiedInputClassificationService {
       }
 
       // LLM分类失败或置信度低，使用基础分类作为备选
-      this.logger.warn('LLM classification failed or low confidence, falling back to basic classification');
-      return this.performBasicClassification(input);
+      if (llmResult) {
+        const confidenceDisplay = typeof llmResult.confidence === 'object'
+          ? JSON.stringify(llmResult.confidence)
+          : llmResult.confidence;
+
+        this.logger.warn(`LLM classification confidence too low (${confidenceDisplay} < 70), falling back`, {
+          input,
+          intent: llmResult.intent
+        });
+      } else {
+        this.logger.warn('LLM classification failed (returned null), falling back to basic classification');
+      }
+      return this.performBasicClassification(input, gameContext);
     } catch (error) {
       this.logger.error('Input classification failed:', error as Error);
 
@@ -169,29 +191,7 @@ export class UnifiedInputClassificationService {
     }
   }
 
-  /**
-   * 输入分类的 JSON Schema
-   */
-  private readonly CLASSIFICATION_SCHEMA = {
-    type: "object",
-    properties: {
-      type: { type: "string", enum: Object.values(InputType) },
-      intent: { type: "string", enum: Object.values(IntentType) },
-      confidence: { type: "number", minimum: 0, maximum: 100 },
-      targetCharacter: { type: "string" },
-      targetLocation: { type: "string" },
-      isDirectSpeech: { type: "boolean" },
-      isActionDescription: { type: "boolean" },
-      isSystemQuery: { type: "boolean" },
-      isCompoundAction: { type: "boolean" },
-      extractedAction: { type: "string" },
-      extractedSpeech: { type: "string" },
-      urgency: { type: "string", enum: Object.values(UrgencyLevel) },
-      emotionalTone: { type: "string", enum: Object.values(EmotionalTone) },
-      contextualHints: { type: "array", items: { type: "string" } }
-    },
-    required: ["type", "intent", "confidence", "isCompoundAction"]
-  };
+  // CLASSIFICATION_SCHEMA 已迁移至 InputPrompts.ts 并通过 promptManager 获取
 
   /**
    * 使用LLM进行分类（增强版，集成 JSON Schema）
@@ -202,7 +202,10 @@ export class UnifiedInputClassificationService {
       sessionId: string;
       currentLocation: string;
       nearbyCharacters: string[];
+      nearbyCharacterDetails?: string[];
       recentConversation: string[];
+      availableLocations?: string[];
+      recentStoryEvents?: string[];
     }
   ): Promise<InputClassification | null> {
     const cacheKey = `llm_classification_v2_${input.substring(0, 50)}`;
@@ -214,20 +217,107 @@ export class UnifiedInputClassificationService {
 
     const result = await ErrorHandlerUtil.safeExecute(
       async () => {
-        const prompt = `Analyze the following player input in an AI-driven open world game.
-Input: "${input}"
-Current Location: ${gameContext.currentLocation}
-Nearby Characters: ${gameContext.nearbyCharacters.join(', ')}
-Recent Conversation: ${gameContext.recentConversation.slice(-3).join(' | ')}
-
-Determine the user's intent, type of input, and extract relevant entities.`;
+        const prompt = promptManager.generate('input.classification', {
+          input,
+          currentLocation: gameContext.currentLocation,
+          nearbyCharacters: gameContext.nearbyCharacters,
+          nearbyCharacterDetails: gameContext.nearbyCharacterDetails,
+          availableLocations: gameContext.availableLocations || [],
+          recentConversation: gameContext.recentConversation,
+          recentStoryEvents: gameContext.recentStoryEvents
+        });
 
         // 使用 LLM 服务的结构化输出功能
-        const classification = await this.llmService.generateStructuredResponse(
+        const promptTemplate = promptManager.getTemplate('input.classification');
+        let classification = await this.llmService.generateStructuredResponse(
           prompt,
-          this.CLASSIFICATION_SCHEMA,
+          promptTemplate?.schema || {},
           { temperature: 0.1 }
-        );
+        ) as any;
+
+        this.logger.debug('Raw LLM Response', { classification });
+        if (classification && classification.type === 'object' && classification.properties) {
+          // 检查 properties 里的内容是数据还是 schema 定义
+          const props = classification.properties;
+          const firstKey = Object.keys(props)[0];
+          const firstProp = firstKey ? props[firstKey] : null;
+
+          // 简单的判断逻辑：
+          // 如果字段值是基本类型(string, number, boolean)，那肯定是数据
+          // 如果字段值是对象，且没有 type 字段或者 type 字段不是 schema 类型保留字，那可能是嵌套数据
+          const isSchemaDefinition = (val: any) => {
+            if (!val || typeof val !== 'object') return false;
+            return typeof val.type === 'string' &&
+              ['string', 'number', 'integer', 'object', 'array', 'boolean', 'null'].includes(val.type);
+          };
+
+          if (firstProp !== null && !isSchemaDefinition(firstProp)) {
+            this.logger.debug('LLM returned data wrapped in properties, extracting...');
+            classification = classification.properties;
+          } else {
+            this.logger.warn('LLM returned schema structure instead of data', { firstProp });
+            // 如果这确实是一个 schema，我们无法从中获取数据，应视为无效
+            return null;
+          }
+        }
+
+        // 规范化结果 (处理 confidence 是对象或 schema 的情况)
+        if (classification) {
+          // 检查 type 是否为对象，如果是，可能包含嵌套的字段
+          if (typeof classification.type === 'object' && classification.type !== null) {
+            const typeObj = classification.type;
+
+            // 提取嵌套在 type 对象内的字段到顶层
+            if (typeObj.type && typeof typeObj.type === 'string') {
+              classification.type = typeObj.type;
+            }
+            if (typeObj.intent && typeof typeObj.intent === 'string') {
+              classification.intent = typeObj.intent;
+            }
+            if (typeObj.confidence !== undefined) {
+              classification.confidence = typeObj.confidence;
+            }
+            if (typeObj.isDirectSpeech !== undefined) {
+              classification.isDirectSpeech = typeObj.isDirectSpeech;
+            }
+
+            this.logger.debug('Extracted nested fields from type object', {
+              originalType: typeObj,
+              extractedType: classification.type,
+              extractedIntent: classification.intent,
+              extractedConfidence: classification.confidence
+            });
+          }
+
+          // 检查 intent 是否为对象 (如果是，说明是 schema 定义而不是值)
+          if (typeof classification.intent === 'object') {
+            this.logger.warn('LLM returned schema object for intent, considering invalid');
+            return null;
+          }
+
+          // 如果 confidence 是对象，尝试从中提取数值
+          if (typeof classification.confidence === 'object' && classification.confidence !== null) {
+            const c = classification.confidence;
+            if (typeof c.value === 'number') classification.confidence = c.value;
+            else if (typeof c.score === 'number') classification.confidence = c.score;
+            else if (typeof c.default === 'number') classification.confidence = c.default;
+            else if (c.type === 'number' || c.type === 'integer') {
+              // LLM 返回了 schema 定义中的 confidence: { type: 'number' }
+              this.logger.warn('LLM returned schema for confidence field, considering invalid');
+              return null;
+            }
+          }
+
+          // 规范化数值范围 (如果是 0-1 范围，转换为 0-100)
+          if (typeof classification.confidence === 'number') {
+            if (classification.confidence <= 1 && classification.confidence > 0) {
+              classification.confidence = Math.round(classification.confidence * 100);
+            }
+          } else {
+            // 如果仍然不是数字，设为 0 以触发 fallback
+            classification.confidence = 0;
+          }
+        }
 
         CacheUtil.set('llm_classification', cacheKey, classification, 300000);
         return classification as InputClassification;
@@ -269,10 +359,144 @@ Determine the user's intent, type of input, and extract relevant entities.`;
   /**
    * 基础分类（当LLM不可用时的备选方案）
    */
-  private performBasicClassification(input: string): InputClassification {
+  private performBasicClassification(input: string, context?: any): InputClassification {
     const trimmedInput = input.trim().toLowerCase();
 
-    // 检查问题模式
+    // 尝试寻找目标地点
+    let targetLocation = 'none';
+    if (context?.availableLocations) {
+      for (const loc of context.availableLocations) {
+        if (trimmedInput.includes(loc.toLowerCase())) {
+          targetLocation = loc;
+          break;
+        }
+      }
+    }
+
+    // 尝试寻找目标角色
+    let targetCharacter = 'none';
+    if (context?.nearbyCharacters) {
+      // 如果只有一个角色，且是对话意图，默认为该角色
+      if (context.nearbyCharacters.length === 1) {
+        targetCharacter = context.nearbyCharacters[0];
+      } else {
+        // 尝试匹配名字
+        for (const char of context.nearbyCharacters) {
+          if (trimmedInput.includes(char.toLowerCase())) {
+            targetCharacter = char;
+            break;
+          }
+        }
+      }
+    }
+
+
+
+    // 检查动作模式
+    const actionPatterns = [
+      /(走|去|前往|移动|回|回到|返回|返回到|move|go|walk|run|return|back)/i
+    ];
+
+    const isMovement = actionPatterns.some(pattern => pattern.test(trimmedInput));
+    if (isMovement) {
+      this.logger.debug('Basic classification identified movement', { input: trimmedInput });
+      return {
+        type: InputType.ACTION,
+        intent: IntentType.MOVEMENT,
+        confidence: 80,
+        targetLocation: targetLocation,
+        targetCharacter: 'none',
+        isDirectSpeech: false,
+        isActionDescription: true,
+        isSystemQuery: false,
+        isCompoundAction: false,
+        contextualHints: ['movement'],
+        urgency: UrgencyLevel.MEDIUM,
+        emotionalTone: EmotionalTone.NEUTRAL
+      };
+    }
+
+    // 检查环境/位置查询
+    const environmentPatterns = [
+      /(哪里|什么地方|环境|周围|附近|位置|观察|看到|看下|看看|where am i|what's here|look around|examine|observe)/i
+    ];
+
+    if (environmentPatterns.some(pattern => pattern.test(trimmedInput))) {
+      return {
+        type: InputType.QUESTION,
+        intent: IntentType.LOCATION_QUERY,
+        confidence: 80,
+        isDirectSpeech: true,
+        isActionDescription: false,
+        isSystemQuery: false,
+        isCompoundAction: false,
+        contextualHints: ['environment'],
+        urgency: UrgencyLevel.MEDIUM,
+        emotionalTone: EmotionalTone.NEUTRAL
+      };
+    }
+
+    // 检查指引请求
+    const guidancePatterns = [
+      /(该做什么|干什么|做什么|指引|提示|迷路|建议|what should i do|what to do|guide|hint|stuck|help me progress)/i
+    ];
+
+    if (guidancePatterns.some(pattern => pattern.test(trimmedInput))) {
+      return {
+        type: InputType.QUESTION,
+        intent: IntentType.GUIDANCE_REQUEST,
+        confidence: 85,
+        isDirectSpeech: true,
+        isActionDescription: false,
+        isSystemQuery: false,
+        isCompoundAction: false,
+        contextualHints: ['guidance'],
+        urgency: UrgencyLevel.MEDIUM,
+        emotionalTone: EmotionalTone.NEUTRAL
+      };
+    }
+
+    // 检查系统帮助
+    const systemHelpPatterns = [
+      /(帮助|怎么玩|规则|指令|菜单|设置|help|how to play|commands|rules|mechanics)/i
+    ];
+
+    if (systemHelpPatterns.some(pattern => pattern.test(trimmedInput))) {
+      return {
+        type: InputType.SYSTEM_QUERY,
+        intent: IntentType.SYSTEM_HELP,
+        confidence: 90,
+        isDirectSpeech: false,
+        isActionDescription: false,
+        isSystemQuery: true,
+        isCompoundAction: false,
+        contextualHints: ['system'],
+        urgency: UrgencyLevel.MEDIUM,
+        emotionalTone: EmotionalTone.NEUTRAL
+      };
+    }
+
+    const genericActionPatterns = [
+      /(做|执行|说|告诉|问|take|use|say|tell|ask)/i
+    ];
+
+    const isAction = genericActionPatterns.some(pattern => pattern.test(trimmedInput));
+    if (isAction) {
+      return {
+        type: InputType.ACTION,
+        intent: IntentType.DIALOGUE, // Default to dialogue if saying/telling
+        confidence: 70,
+        isDirectSpeech: true,
+        isActionDescription: true,
+        isSystemQuery: false,
+        isCompoundAction: false,
+        contextualHints: ['action'],
+        urgency: UrgencyLevel.MEDIUM,
+        emotionalTone: EmotionalTone.NEUTRAL
+      };
+    }
+
+    // 检查问题模式 (作为备选，如果前面更具体的模式没匹配)
     const questionPatterns = [
       /[?？]$/, // 以问号结尾
       /^(what|when|where|who|why|how|什么|何时|哪里|谁|为什么|如何|怎么样)/i
@@ -294,32 +518,13 @@ Determine the user's intent, type of input, and extract relevant entities.`;
       };
     }
 
-    // 检查动作模式
-    const actionPatterns = [
-      /(走|去|前往|移动|看|观察|检查|说|告诉|问)/i
-    ];
-
-    const isAction = actionPatterns.some(pattern => pattern.test(trimmedInput));
-    if (isAction) {
-      return {
-        type: InputType.ACTION,
-        intent: IntentType.MOVEMENT,
-        confidence: 80,
-        isDirectSpeech: false,
-        isActionDescription: true,
-        isSystemQuery: false,
-        isCompoundAction: false,
-        contextualHints: ['action'],
-        urgency: UrgencyLevel.MEDIUM,
-        emotionalTone: EmotionalTone.NEUTRAL
-      };
-    }
-
     // 默认为对话
     return {
       type: InputType.SPEECH,
       intent: IntentType.DIALOGUE,
       confidence: 75,
+      targetCharacter: targetCharacter,
+      targetLocation: 'none',
       isDirectSpeech: true,
       isActionDescription: false,
       isSystemQuery: false,
@@ -342,31 +547,11 @@ Determine the user's intent, type of input, and extract relevant entities.`;
     actionSequence: 'sequential' | 'simultaneous';
   }> {
     try {
-      const prompt = `分析玩家的复合动作输入："${input}"
-当前位置：${gameContext.currentLocation}
-附近角色：${gameContext.nearbyCharacters.join(', ')}
-
-请将此输入分解为一系列子动作（subActions）。
-每个子动作应包含：
-- type: movement | observation | dialogue | interaction
-- intent: 动作的具体意图
-- description: 动作的详细描述
-- target: 动作的目标（如果有）
-
-请以 JSON 格式返回：
-{
-  "isCompound": true,
-  "actionSequence": "sequential",
-  "subActions": [
-    {
-      "type": "interaction",
-      "intent": "dialogue",
-      "description": "与某人交谈",
-      "target": "某人"
-    }
-  ]
-}
-直接返回 JSON。`;
+      const prompt = promptManager.generate('input.compound_action_analysis', {
+        input,
+        currentLocation: gameContext.currentLocation,
+        nearbyCharacters: gameContext.nearbyCharacters
+      });
 
       const response = await this.llmService.generateText(prompt, {
         temperature: 0.1,

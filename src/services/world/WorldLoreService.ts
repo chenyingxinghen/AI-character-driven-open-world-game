@@ -8,6 +8,7 @@ import { LLMService } from '../llm/LLMService';
 import { DatabaseService } from '../database/DatabaseService';
 import { v4 as uuidv4 } from 'uuid';
 import { JsonUtils } from '../../utils/JsonUtils';
+import { promptManager } from '../../prompts';
 
 export interface WorldLore {
   id: string;
@@ -23,6 +24,8 @@ export interface WorldLore {
 }
 
 export interface LoreGenerationOptions {
+  worldName?: string; // 世界名称
+  worldDescription?: string; // 世界描述
   inspiration?: string; // 用户提供的灵感
   themes?: string[]; // 主题偏好
   setting?: 'fantasy' | 'medieval' | 'modern' | 'sci-fi' | 'mixed'; // 设定风格
@@ -81,26 +84,14 @@ export class WorldLoreService {
 
       this.logger.info(`Generating ${loreTypes.length} lore types in a single batch request...`);
 
-      const prompt = `你是一个世界构建大师。请为一个${options.setting || '奇幻'}风格的开放世界游戏创建完整的世界观背景。
-${options.inspiration ? `用户提供的灵感：${options.inspiration}` : ''}
-${options.complexity ? `复杂程度：${options.complexity}` : ''}
-
-请以 JSON 格式返回以下 5 个维度的内容（每个维度 300-500 字）：
-1. main_story: 世界总体设定、核心冲突和玩家定位。
-2. history: 重要的历史时期、关键历史转折点。
-3. legend: 神话传说、古老英雄或神秘预言。
-4. culture: 社会结构、主要种族习俗或宗教信仰。
-5. geography: 地理地貌、标志性地标或奇观。
-
-返回格式要求：
-{
-  "main_story": { "title": "...", "content": "..." },
-  "history": { "title": "...", "content": "..." },
-  "legend": { "title": "...", "content": "..." },
-  "culture": { "title": "...", "content": "..." },
-  "geography": { "title": "...", "content": "..." }
-}
-请直接返回 JSON，不要有任何多余文字。`;
+      const prompt = promptManager.generate('world.batch_generation', {
+        worldName: options.worldName,
+        worldDescription: options.worldDescription,
+        inspiration: options.inspiration,
+        complexity: options.complexity,
+        setting: options.setting,
+        locale: options.locale
+      });
 
       let generatedLore: WorldLore[] = [];
       try {
@@ -115,12 +106,19 @@ ${options.complexity ? `复杂程度：${options.complexity}` : ''}
 
         for (const type of loreTypes) {
           const item = data[type] || { title: this.getDefaultTitle(type), content: this.getDefaultContent(type) };
+
+          // Truncate title to ensure it fits in database (VARCHAR(200))
+          let cleanTitle = item.title || this.getDefaultTitle(type);
+          if (cleanTitle.length > 190) {
+            cleanTitle = cleanTitle.substring(0, 190) + '...';
+          }
+
           const lore: WorldLore = {
             id: uuidv4(),
             sessionId,
             loreType: type,
-            title: item.title,
-            content: item.content,
+            title: cleanTitle,
+            content: item.content || this.getDefaultContent(type),
             inspiration: options.inspiration,
             generationSeed,
             metadata: { options, generatedAt: new Date().toISOString() },
@@ -307,22 +305,13 @@ ${options.complexity ? `复杂程度：${options.complexity}` : ''}
    * 构建世界背景生成提示词
    */
   private buildLoreGenerationPrompt(loreType: WorldLore['loreType'], options: LoreGenerationOptions): string {
-    const basePrompt = `你是一个富有创造力的世界构建师。为一个${options.setting || '奇幻'}风格的开放世界游戏创建${this.getLoreTypeDescription(loreType)}。
+    const prompt = promptManager.generate('world.specific_lore_generation', {
+      context: options,
+      loreTypeDescription: this.getLoreTypeDescription(loreType),
+      specificInstructions: this.getLoreTypeSpecificInstructions(loreType)
+    });
 
-${options.inspiration ? `用户灵感：${options.inspiration}` : ''}
-
-请创建一个引人入胜、细节丰富的${this.getLoreTypeDescription(loreType)}，要求：
-1. 内容要有独特性和创新性
-2. 适合${options.complexity || 'moderate'}复杂程度
-3. 风格为${options.setting || '奇幻'}
-4. 语言为${options.locale === 'en' ? '英文' : '中文'}
-5. 内容长度适中（300-600字）
-
-${this.getLoreTypeSpecificInstructions(loreType)}
-
-请直接返回内容，不要包含任何格式标记或说明文字。`;
-
-    return basePrompt;
+    return prompt;
   }
 
   /**

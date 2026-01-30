@@ -23,38 +23,41 @@ export class GeminiProvider implements LLMProviderAdapter {
     };
   }
 
-  async generateText(prompt: string, options?: { maxTokens?: number; temperature?: number }): Promise<string> {
+  async generateText(prompt: string, options?: { maxTokens?: number; temperature?: number; jsonMode?: boolean; systemPrompt?: string; model?: string }): Promise<string> {
     // Implement retry mechanism
     const maxRetries = 3;
     let lastError: any;
-    
+
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
         const response = await this.callGeminiAPI(prompt, {
           maxTokens: options?.maxTokens,
-          temperature: options?.temperature
+          temperature: options?.temperature,
+          jsonMode: options?.jsonMode,
+          systemPrompt: options?.systemPrompt,
+          model: options?.model
         });
 
         // Update rate limit status
         this.updateRateLimit(1);
-        
+
         return response;
       } catch (error: any) {
         lastError = error;
-        
+
         // If this is the last attempt, throw the error
         if (attempt === maxRetries) {
           this.logger.error('Gemini API error after max retries:', error);
           throw error;
         }
-        
+
         // Wait before retrying with exponential backoff
         const delay = Math.pow(2, attempt) * 1000;
         this.logger.warn(`Gemini API error (attempt ${attempt + 1}/${maxRetries + 1}), retrying in ${delay}ms:`, error.message);
         await new Promise(resolve => setTimeout(resolve, delay));
       }
     }
-    
+
     throw lastError;
   }
 
@@ -65,17 +68,17 @@ export class GeminiProvider implements LLMProviderAdapter {
     // Implement retry mechanism
     const maxRetries = 3;
     let lastError: any;
-    
+
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
         const response = await this.callGeminiAPI(characterPrompt);
 
         // Update rate limit status
         this.updateRateLimit(1);
-        
+
         // 使用格式化文本提取器解析响应
         const extractedResult = this.extractor.extractCharacterDialogue(response);
-        
+
         return {
           dialogue: extractedResult.dialogue,
           action: extractedResult.action,
@@ -84,21 +87,21 @@ export class GeminiProvider implements LLMProviderAdapter {
         };
       } catch (error: any) {
         lastError = error;
-        
+
         // If this is the last attempt, throw the error
         if (attempt === maxRetries) {
           this.logger.error('Gemini API error after max retries:', error);
           // 返回默认响应
           return this.extractor.extractCharacterDialogue('');
         }
-        
+
         // Wait before retrying with exponential backoff
         const delay = Math.pow(2, attempt) * 1000;
         this.logger.warn(`Gemini API error (attempt ${attempt + 1}/${maxRetries + 1}), retrying in ${delay}ms:`, error.message);
         await new Promise(resolve => setTimeout(resolve, delay));
       }
     }
-    
+
     // This should never be reached, but just in case
     return this.extractor.extractCharacterDialogue('');
   }
@@ -110,17 +113,17 @@ export class GeminiProvider implements LLMProviderAdapter {
     // Implement retry mechanism
     const maxRetries = 3;
     let lastError: any;
-    
+
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
         const response = await this.callGeminiAPI(directorPrompt);
 
         // Update rate limit status
         this.updateRateLimit(1);
-        
+
         // 使用格式化文本提取器解析响应
         const extractedResult = this.extractor.extractDirectorDecision(response);
-        
+
         return {
           action: extractedResult.action,
           reasoning: extractedResult.reasoning,
@@ -129,21 +132,21 @@ export class GeminiProvider implements LLMProviderAdapter {
         };
       } catch (error: any) {
         lastError = error;
-        
+
         // If this is the last attempt, throw the error
         if (attempt === maxRetries) {
           this.logger.error('Gemini API error after max retries:', error);
           // 返回默认响应
           return this.extractor.extractDirectorDecision('');
         }
-        
+
         // Wait before retrying with exponential backoff
         const delay = Math.pow(2, attempt) * 1000;
         this.logger.warn(`Gemini API error (attempt ${attempt + 1}/${maxRetries + 1}), retrying in ${delay}ms:`, error.message);
         await new Promise(resolve => setTimeout(resolve, delay));
       }
     }
-    
+
     // This should never be reached, but just in case
     return this.extractor.extractDirectorDecision('');
   }
@@ -169,20 +172,37 @@ export class GeminiProvider implements LLMProviderAdapter {
     return this.model;
   }
 
-  private async callGeminiAPI(prompt: string, options?: { maxTokens?: number; temperature?: number }): Promise<string> {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${this.model}:generateContent?key=${this.apiKey}`;
-    
-    const requestBody = {
-      contents: [{
-        parts: [{
-          text: prompt
-        }]
-      }],
+  private async callGeminiAPI(prompt: string, options?: { maxTokens?: number; temperature?: number; jsonMode?: boolean; systemPrompt?: string; model?: string }): Promise<string> {
+    const modelToUse = options?.model || this.model;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelToUse}:generateContent?key=${this.apiKey}`;
+
+    // Process system prompt if available
+    const contents = [];
+    if (options?.systemPrompt) {
+      contents.push({
+        role: 'user', // Gemini traditionally puts system instructions in a separate field or as a special user message if not using the latest SDK
+        parts: [{ text: `System Instruction: ${options.systemPrompt}` }]
+      });
+    }
+
+    contents.push({
+      role: 'user',
+      parts: [{
+        text: prompt
+      }]
+    });
+
+    const requestBody: any = {
+      contents,
       generationConfig: {
         temperature: options?.temperature || 0.7,
-        maxOutputTokens: options?.maxTokens || 150
+        maxOutputTokens: options?.maxTokens || 1000
       }
     };
+
+    if (options?.jsonMode) {
+      requestBody.generationConfig.responseMimeType = 'application/json';
+    }
 
     const response = await fetch(url, {
       method: 'POST',
@@ -204,7 +224,7 @@ export class GeminiProvider implements LLMProviderAdapter {
   private updateRateLimit(usedRequests: number): void {
     this.rateLimit.currentUsage += usedRequests;
     this.rateLimit.requestsRemaining = Math.max(0, this.rateLimit.requestsRemaining - usedRequests);
-    
+
     // Reset rate limit if past reset time
     if (new Date() > this.rateLimit.resetTime) {
       this.rateLimit.requestsRemaining = 1000;

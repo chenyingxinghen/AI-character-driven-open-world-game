@@ -24,7 +24,7 @@ export class DomainExecutionLayer implements PipelineMiddleware {
             return next();
         }
 
-        const gameContext = {
+        const gameContext = context.gameContext || {
             sessionId: context.sessionId,
             playerId: context.playerId,
             currentLocation: context.coordinationResult.stateChanges.locationChange || 'town_square',
@@ -47,13 +47,17 @@ export class DomainExecutionLayer implements PipelineMiddleware {
 
             // 2. 转换为标准 GameAction 并推送到 actions 列表
             if (result.responses?.characterResponses?.length > 0) {
-                result.responses.characterResponses.forEach((resp: string) => {
+                result.responses.characterResponses.forEach((resp: any) => {
                     context.actions.push({
                         type: ActionType.DIALOGUE,
-                        actorId: classification.targetCharacter || 'npc',
-                        description: resp,
+                        actorId: resp.characterId,
+                        description: resp.content,
                         priority: 5,
-                        metadata: { isSuccess: true, timestamp: new Date() }
+                        metadata: {
+                            characterName: resp.characterName,
+                            isSuccess: true,
+                            timestamp: new Date()
+                        }
                     });
                 });
             }

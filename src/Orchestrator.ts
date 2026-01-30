@@ -88,7 +88,14 @@ export class Orchestrator {
     inspiration?: string,
     gameMode: 'free' | 'script' | 'guided_free' = 'guided_free',
     playerPreferences?: any,
-    onProgress?: (step: string, message: string) => void
+    onProgress?: (step: string, message: string) => void,
+    worldOptions?: {
+      worldName?: string,
+      worldDescription?: string,
+      setting?: 'fantasy' | 'medieval' | 'modern' | 'sci-fi' | 'mixed',
+      complexity?: 'simple' | 'moderate' | 'complex',
+      locale?: 'zh' | 'en'
+    }
   ): Promise<GameSession> {
     try {
       // Check if the first parameter is a valid UUID (session ID) or a player ID
@@ -107,13 +114,16 @@ export class Orchestrator {
         sessionId = this.sessionEngine.createSession().id;
       }
 
+      // 初始位置默认值,将在后续根据模式更新
+      let initialLocation = 'town_square';
+
       const gameSession: GameSession = {
         id: sessionId,
         playerId,
         createdAt: new Date(),
         lastActivity: new Date(),
         isActive: true,
-        metadata: { currentLocation: 'town_square', gameMode, hasStoryOutline: false }
+        metadata: { currentLocation: initialLocation, gameMode, hasStoryOutline: false }
       };
 
       this.sessions.set(sessionId, gameSession);
@@ -132,10 +142,12 @@ export class Orchestrator {
       let worldLore: any[] = [];
       try {
         const loreOptions = {
+          worldName: worldOptions?.worldName,
+          worldDescription: worldOptions?.worldDescription,
           inspiration: inspiration,
-          setting: 'fantasy' as const,
-          complexity: 'moderate' as const,
-          locale: 'zh' as const
+          setting: worldOptions?.setting || 'fantasy',
+          complexity: worldOptions?.complexity || 'moderate',
+          locale: worldOptions?.locale || 'zh'
         };
         onProgress?.('lore', '正在利用灵感构建世界背景（历史、传说、地理）...');
         worldLore = await this.worldLoreService.generateWorldLoreForSession(sessionId, loreOptions);
@@ -164,17 +176,21 @@ export class Orchestrator {
           });
           onProgress?.('scene', '正在布置初始场景与角色互动锚点...');
 
+          // 使用动态生成的起始位置
+          initialLocation = initialScenePackage.startingLocation.id;
+
           // 更新会话元数据
           gameSession.metadata = {
             ...gameSession.metadata,
             hasStoryOutline: true,
-            currentLocation: initialScenePackage.startingLocation.id,
+            currentLocation: initialLocation,  // 使用动态生成的位置
             storyContext: initialScenePackage.storyContext,
             nearbyCharacters: initialScenePackage.nearbyCharacters.map(c => c.id),
             initialSceneGenerated: true
           };
 
           this.logger.info(`Story outline and initial scene generated for session ${sessionId}`, {
+            locationId: initialScenePackage.startingLocation.id,
             locationName: initialScenePackage.startingLocation.name,
             characterCount: initialScenePackage.nearbyCharacters.length,
             currentPlotPoint: initialScenePackage.storyContext.currentPlotPoint
@@ -185,7 +201,9 @@ export class Orchestrator {
         }
       }
 
-      this.logger.info(`Created new session ${sessionId} for player ${playerId} with mode ${gameMode}`);
+      this.logger.info(`Created new session ${sessionId} for player ${playerId} with mode ${gameMode}`, {
+        initialLocation: initialLocation
+      });
       return gameSession;
     } catch (error) {
       this.logger.error(`Error creating session:`, error as Error);
@@ -256,7 +274,9 @@ export class Orchestrator {
       // Save to database
       await this.databaseService.updateSession(sessionId, {
         last_activity: session.lastActivity,
-        is_active: session.isActive
+        is_active: session.isActive,
+        current_location: session.metadata.currentLocation,
+        game_state: session.metadata
       });
 
       this.logger.info(`Saved session ${sessionId}`);
@@ -331,7 +351,12 @@ export class Orchestrator {
         currentLocation: contextInfo.currentLocation.id,
         activeCharacters: contextInfo.nearbyCharacters.map((c: any) => c.id),
         gameState: contextInfo.gameState,
-        timestamp: new Date()
+        timestamp: new Date(),
+        worldLore: contextInfo.worldLore,
+        recentConversation: contextInfo.recentConversation.map((c: any) => ({
+          speaker: c.speaker,
+          content: c.content
+        }))
       };
 
       // 使用动态上下文评估导演决策
@@ -340,6 +365,7 @@ export class Orchestrator {
         playerId: session.playerId,
         currentLocation: contextInfo.currentLocation.id,
         recentActions: contextInfo.recentConversation.map((c: any) => c.content),
+        recentStoryEvents: contextInfo.recentStoryEvents,
         storyState: contextInfo.gameState,
         characterStates: contextInfo.nearbyCharacters.reduce((acc: any, curr: any) => {
           acc[curr.id] = { personality: curr.personality };
@@ -468,5 +494,75 @@ export class Orchestrator {
 
     this.logger.info(`Cleaned up ${closedCount} expired sessions`);
     return closedCount;
+  }
+
+  /**
+   * 处理背景干预（由服务器定时触发，用于检测停滞和突发事件）
+   */
+  async processBackgroundIntervention(sessionId: string): Promise<any> {
+    try {
+      const session = await this.loadSession(sessionId);
+      if (!session || !session.isActive) return null;
+
+      // 获取上下文
+      const gameContextService = container.resolve<any>(SERVICE_IDENTIFIERS.GAME_CONTEXT_SERVICE);
+      const contextInfo = await gameContextService.getGameContext(sessionId, session.playerId);
+
+      const directorContext = {
+        sessionId: session.id,
+        playerId: session.playerId,
+        currentLocation: contextInfo.currentLocation.id,
+        recentActions: contextInfo.recentConversation.map((c: any) => c.content),
+        recentStoryEvents: contextInfo.recentStoryEvents,
+        storyState: contextInfo.gameState,
+        characterStates: contextInfo.nearbyCharacters.reduce((acc: any, curr: any) => {
+          acc[curr.id] = { personality: curr.personality };
+          return acc;
+        }, {}),
+        currentTime: new Date()
+      };
+
+      // 评估是否需要干预
+      const evaluation = await this.simplifiedDirectorEngine.evaluateStoryProgression(directorContext);
+
+      // 特殊处理：剧情停滞导致的突发事件（如引入新角色）
+      if (evaluation.shouldIntervene && evaluation.decision?.interventionType === 'character_introduction') {
+        const params = evaluation.decision.characterParams;
+        this.logger.info(`Director introducing new character due to stagnation in session ${sessionId}`, params);
+
+        // 生成并保存新角色
+        const newChar = await this.enhancedInitialSceneService.generateAndSaveCharacter(
+          sessionId,
+          directorContext.currentLocation,
+          params?.role || 'mysterious',
+          params
+        );
+
+        // 更新干预内容，包含角色的出现
+        const appearanceDesc = `${newChar.name}（${newChar.role}）突然出现在这里。${newChar.appearance}`;
+        evaluation.decision.content = `${appearanceDesc}\n\n${evaluation.decision.content}`;
+      }
+
+      if (evaluation.shouldIntervene && evaluation.decision) {
+        // 执行干预逻辑（记录到数据库等）
+        const result = await this.simplifiedDirectorEngine.executeIntervention(evaluation.decision, directorContext);
+
+        return {
+          type: 'director_intervention',
+          intervention: result,
+          decision: evaluation.decision,
+          stagnationLevel: evaluation.stagnationLevel
+        };
+      }
+
+      return {
+        type: 'status_check',
+        stagnationLevel: evaluation.stagnationLevel,
+        shouldIntervene: false
+      };
+    } catch (error) {
+      this.logger.error(`Error in processBackgroundIntervention for session ${sessionId}:`, error as Error);
+      return null;
+    }
   }
 }

@@ -35,7 +35,7 @@ Requirements:
 
         try {
             const narrative = await this.llmService.generateText(prompt, {
-                maxTokens: 500,
+                maxTokens: 1000,
                 temperature: 0.7
             });
 
@@ -57,7 +57,7 @@ Requirements:
         if (context.storyGuidance) parts.push(context.storyGuidance);
         if (responses.locationDescription) parts.push(responses.locationDescription);
         if (responses.characterResponses && responses.characterResponses.length > 0) {
-            parts.push(responses.characterResponses.join(' '));
+            parts.push(responses.characterResponses.map((r: any) => r.content).join(' '));
         }
         return parts.join('\n\n');
     }

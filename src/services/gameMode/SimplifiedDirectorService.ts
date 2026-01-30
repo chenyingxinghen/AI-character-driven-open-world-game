@@ -8,6 +8,7 @@ import { LLMService } from '../llm/LLMService';
 import { FormattedTextExtractorService } from '../llm/FormattedTextExtractorService';
 import { DatabaseService } from '../database/DatabaseService';
 import { StoryEventRecord } from '../database/DatabaseService';
+import { promptManager } from '../../prompts';
 
 export interface DirectorIntervention {
   sessionId: string;
@@ -85,28 +86,14 @@ export class SimplifiedDirectorService {
    */
   private async generateInterventionDecision(context: DirectorContext): Promise<InterventionDecision> {
     // 构建提示词，要求LLM返回格式化文本
-    const prompt = `
-你是一个游戏导演AI，负责监控游戏进程并在必要时进行干预以保持故事的连贯性和趣味性。
-
-当前游戏状态：
-- 会话ID: ${context.sessionId}
-- 玩家ID: ${context.playerId}
-- 当前位置: ${context.currentLocation}
-- 最近行动: ${context.recentActions.join(', ')}
-- 故事状态: ${JSON.stringify(context.storyState)}
-- 角色状态: ${JSON.stringify(context.characterStates)}
-
-请评估当前游戏状态，并决定是否需要进行干预。如果需要，请指定干预类型和内容。
-
-请严格按照以下格式返回：
-
-=== DIRECTOR_DECISION ===
-ACTION: INTERVENE|NO_INTERVENTION
-REASONING: 干预内容或不干预的理由
-CONFIDENCE: 0-1的数字，表示预期效果/置信度
-PARAMETERS: interventionType=dialogue_guidance|event_generation|environment_change|information_hint
-=== END_DECISION ===
-`;
+    const prompt = promptManager.generate('director.intervention_decision', {
+      sessionId: context.sessionId,
+      playerId: context.playerId,
+      currentLocation: context.currentLocation,
+      recentActions: context.recentActions,
+      storyState: JSON.stringify(context.storyState),
+      characterStates: JSON.stringify(context.characterStates)
+    });
 
     try {
       // 调用LLM生成决策

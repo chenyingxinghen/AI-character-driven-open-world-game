@@ -98,6 +98,7 @@ export interface LLMService {
       provider?: LLMProvider;
       jsonMode?: boolean;
       systemPrompt?: string;
+      useDeputyModel?: boolean;
     }
   ): Promise<string>;
 
@@ -111,6 +112,7 @@ export interface LLMService {
       provider?: LLMProvider;
       jsonMode?: boolean;
       systemPrompt?: string;
+      useDeputyModel?: boolean;
     }
   ): Promise<any>;
 
@@ -153,11 +155,11 @@ export class MockLLMService implements LLMService {
     };
   }
 
-  async generateText(prompt: string, options?: { maxTokens?: number; temperature?: number; provider?: LLMProvider; jsonMode?: boolean; systemPrompt?: string }): Promise<string> {
+  async generateText(prompt: string, options?: { maxTokens?: number; temperature?: number; provider?: LLMProvider; jsonMode?: boolean; systemPrompt?: string, useDeputyModel?: boolean }): Promise<string> {
     return `Mock text generation for prompt: ${prompt.substring(0, 50)}...`;
   }
 
-  async generateStructuredResponse(prompt: string, schema: any, options?: { maxTokens?: number; temperature?: number; provider?: LLMProvider; jsonMode?: boolean; systemPrompt?: string }): Promise<any> {
+  async generateStructuredResponse(prompt: string, schema: any, options?: { maxTokens?: number; temperature?: number; provider?: LLMProvider; jsonMode?: boolean; systemPrompt?: string, useDeputyModel?: boolean }): Promise<any> {
     return { mock: 'structured response' };
   }
 

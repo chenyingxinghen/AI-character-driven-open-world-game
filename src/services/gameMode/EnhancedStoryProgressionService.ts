@@ -14,6 +14,7 @@ import {
   InterventionRecord
 } from '../../domains/gameMode/valueObjects';
 import { StoryProgress } from '../../domains/gameMode/entities';
+import { promptManager } from '../../prompts';
 
 /**
  * 故事节奏分析结果
@@ -81,16 +82,20 @@ export class EnhancedStoryProgressionService extends BaseStoryProgressionService
       component: 'EnhancedStoryProgressionService'
     });
 
-    const pacingPrompt = this.buildPacingAnalysisPrompt(
-      storyProgress,
-      recentActions,
-      timeSpent
-    );
+    const pacingPrompt = promptManager.generate('story.analyze_pacing', {
+      title: storyProgress.storyOutline.title,
+      currentAct: storyProgress.getCurrentAct(),
+      totalActs: storyProgress.storyOutline.acts.length,
+      completion: storyProgress.getCompletionPercentage(),
+      timeSpent: timeSpent,
+      estimatedDuration: storyProgress.storyOutline.estimatedDuration,
+      recentActions: recentActions
+    });
 
     try {
       const pacingData = await this.llmService.generateStructuredResponse(
         pacingPrompt,
-        this.getPacingAnalysisSchema(),
+        promptManager.getTemplate('story.analyze_pacing')?.schema || {},
         {
           temperature: 0.3,
           maxTokens: 400
@@ -99,7 +104,7 @@ export class EnhancedStoryProgressionService extends BaseStoryProgressionService
 
       const analysis = this.parsePacingAnalysis(pacingData, storyProgress, timeSpent);
       this.recordPacingAnalysis(analysis);
-      
+
       return analysis;
     } catch (error) {
       this.logger.error('Failed to analyze story pacing', error as Error);
@@ -115,16 +120,18 @@ export class EnhancedStoryProgressionService extends BaseStoryProgressionService
     playerActions: string[],
     gameState: any
   ): Promise<PlotPointCompletionAnalysis> {
-    const completionPrompt = this.buildCompletionDetectionPrompt(
-      plotPoint,
-      playerActions,
-      gameState
-    );
+    const completionPrompt = promptManager.generate('story.detect_completion', {
+      plotPointTitle: plotPoint.title,
+      plotPointDescription: plotPoint.description,
+      expectedOutcomes: plotPoint.expectedOutcomes,
+      playerActions: playerActions,
+      gameState: JSON.stringify(gameState, null, 2)
+    });
 
     try {
       const completionData = await this.llmService.generateStructuredResponse(
         completionPrompt,
-        this.getCompletionAnalysisSchema(),
+        promptManager.getTemplate('story.detect_completion')?.schema || {},
         {
           temperature: 0.2,
           maxTokens: 300
@@ -147,17 +154,19 @@ export class EnhancedStoryProgressionService extends BaseStoryProgressionService
     deviationHistory: DeviationRecord[],
     interventionHistory: InterventionRecord[]
   ): Promise<StoryQualityAssessment> {
-    const qualityPrompt = this.buildQualityAssessmentPrompt(
-      storyProgress,
-      playerFeedback,
-      deviationHistory,
-      interventionHistory
-    );
+    const qualityPrompt = promptManager.generate('story.assess_quality', {
+      completion: storyProgress.getCompletionPercentage(),
+      currentAct: storyProgress.getCurrentAct(),
+      completedPlotPointsCount: storyProgress.getCompletedPlotPoints().length,
+      playerFeedback: playerFeedback,
+      deviationHistoryCount: deviationHistory.length,
+      interventionHistoryCount: interventionHistory.length
+    });
 
     try {
       const qualityData = await this.llmService.generateStructuredResponse(
         qualityPrompt,
-        this.getQualityAssessmentSchema(),
+        promptManager.getTemplate('story.assess_quality')?.schema || {},
         {
           temperature: 0.4,
           maxTokens: 500
@@ -166,7 +175,7 @@ export class EnhancedStoryProgressionService extends BaseStoryProgressionService
 
       const assessment = this.parseQualityAssessment(qualityData);
       this.recordQualityAssessment(assessment);
-      
+
       return assessment;
     } catch (error) {
       this.logger.error('Failed to assess story quality', error as Error);
@@ -181,7 +190,11 @@ export class EnhancedStoryProgressionService extends BaseStoryProgressionService
     storyProgress: StoryProgress,
     keyEvents: string[]
   ): Promise<string> {
-    const summaryPrompt = this.buildSummaryPrompt(storyProgress, keyEvents);
+    const summaryPrompt = promptManager.generate('story.generate_summary', {
+      title: storyProgress.storyOutline.title,
+      completion: storyProgress.getCompletionPercentage(),
+      keyEvents: keyEvents
+    });
 
     try {
       const summary = await this.llmService.generateText(summaryPrompt, {
@@ -207,12 +220,17 @@ export class EnhancedStoryProgressionService extends BaseStoryProgressionService
     mostLikely: string;
     confidence: number;
   }> {
-    const predictionPrompt = this.buildEndingPredictionPrompt(storyProgress, playerChoices);
+    const predictionPrompt = promptManager.generate('story.predict_ending', {
+      title: storyProgress.storyOutline.title,
+      genre: storyProgress.storyOutline.genre,
+      completion: storyProgress.getCompletionPercentage(),
+      playerChoices: playerChoices
+    });
 
     try {
       const predictionData = await this.llmService.generateStructuredResponse(
         predictionPrompt,
-        this.getEndingPredictionSchema(),
+        promptManager.getTemplate('story.predict_ending')?.schema || {},
         {
           temperature: 0.5,
           maxTokens: 400
@@ -285,232 +303,7 @@ export class EnhancedStoryProgressionService extends BaseStoryProgressionService
     return suggestions;
   }
 
-  /**
-   * 构建节奏分析提示
-   */
-  private buildPacingAnalysisPrompt(
-    storyProgress: StoryProgress,
-    recentActions: string[],
-    timeSpent: number
-  ): string {
-    const outline = storyProgress.storyOutline;
-    const currentAct = storyProgress.getCurrentAct();
-    const completion = storyProgress.getCompletionPercentage();
-
-    return `
-分析故事节奏：
-
-故事信息:
-- 标题: ${outline.title}
-- 当前章节: ${currentAct}/${outline.acts.length}
-- 完成度: ${completion.toFixed(1)}%
-- 已用时间: ${timeSpent}分钟
-- 预计总时长: ${outline.estimatedDuration}分钟
-
-最近行动:
-${recentActions.slice(-5).map((action, i) => `${i + 1}. ${action}`).join('\n')}
-
-请分析当前故事节奏，包括：
-1. 节奏评估（慢/正常/快/急促）
-2. 节奏调整建议
-3. 预计剩余时间
-4. 可能的瓶颈问题
-`;
-  }
-
-  /**
-   * 构建完成检测提示
-   */
-  private buildCompletionDetectionPrompt(
-    plotPoint: PlotPoint,
-    playerActions: string[],
-    gameState: any
-  ): string {
-    return `
-检测剧情点完成状态：
-
-剧情点信息:
-- 标题: ${plotPoint.title}
-- 描述: ${plotPoint.description}
-- 预期结果: ${plotPoint.expectedOutcomes.join(', ')}
-
-玩家行动:
-${playerActions.map((action, i) => `${i + 1}. ${action}`).join('\n')}
-
-游戏状态:
-${JSON.stringify(gameState, null, 2)}
-
-请分析：
-1. 剧情点是否已完成
-2. 完成的信号和证据
-3. 缺失的关键元素
-4. 下一步建议
-`;
-  }
-
-  /**
-   * 构建质量评估提示
-   */
-  private buildQualityAssessmentPrompt(
-    storyProgress: StoryProgress,
-    playerFeedback: string[],
-    deviationHistory: DeviationRecord[],
-    interventionHistory: InterventionRecord[]
-  ): string {
-    return `
-评估故事质量：
-
-故事进展:
-- 完成度: ${storyProgress.getCompletionPercentage().toFixed(1)}%
-- 当前章节: ${storyProgress.getCurrentAct()}
-- 已完成剧情点: ${storyProgress.getCompletedPlotPoints().length}
-
-玩家反馈:
-${playerFeedback.map(feedback => `- ${feedback}`).join('\n')}
-
-偏离记录: ${deviationHistory.length}次
-干预记录: ${interventionHistory.length}次
-
-请评估故事质量的各个方面（0-100分）：
-1. 叙事连贯性
-2. 角色发展
-3. 情节推进
-4. 玩家参与度
-5. 整体质量
-
-并提供具体的改进建议。
-`;
-  }
-
-  /**
-   * 构建总结提示
-   */
-  private buildSummaryPrompt(storyProgress: StoryProgress, keyEvents: string[]): string {
-    return `
-生成故事总结：
-
-故事: ${storyProgress.storyOutline.title}
-当前进度: ${storyProgress.getCompletionPercentage().toFixed(1)}%
-
-关键事件:
-${keyEvents.map(event => `- ${event}`).join('\n')}
-
-请生成一个简洁的故事总结，概括主要情节发展和角色经历。
-`;
-  }
-
-  /**
-   * 构建结局预测提示
-   */
-  private buildEndingPredictionPrompt(
-    storyProgress: StoryProgress,
-    playerChoices: string[]
-  ): string {
-    return `
-预测故事结局：
-
-故事信息:
-- 标题: ${storyProgress.storyOutline.title}
-- 类型: ${storyProgress.storyOutline.genre}
-- 进度: ${storyProgress.getCompletionPercentage().toFixed(1)}%
-
-玩家关键选择:
-${playerChoices.map(choice => `- ${choice}`).join('\n')}
-
-请预测可能的故事结局，包括：
-1. 3-5个可能的结局
-2. 最可能的结局
-3. 预测置信度
-`;
-  }
-
-  /**
-   * 获取节奏分析数据结构
-   */
-  private getPacingAnalysisSchema(): any {
-    return {
-      type: 'object',
-      properties: {
-        currentPacing: { 
-          type: 'string', 
-          enum: ['slow', 'normal', 'fast', 'rushed'] 
-        },
-        recommendedAdjustments: {
-          type: 'array',
-          items: { type: 'string' }
-        },
-        estimatedTimeToCompletion: { type: 'number' },
-        bottlenecks: {
-          type: 'array',
-          items: { type: 'string' }
-        }
-      },
-      required: ['currentPacing', 'estimatedTimeToCompletion']
-    };
-  }
-
-  /**
-   * 获取完成分析数据结构
-   */
-  private getCompletionAnalysisSchema(): any {
-    return {
-      type: 'object',
-      properties: {
-        completionSignals: {
-          type: 'array',
-          items: { type: 'string' }
-        },
-        completionConfidence: { type: 'number' },
-        missingElements: {
-          type: 'array',
-          items: { type: 'string' }
-        },
-        nextSteps: {
-          type: 'array',
-          items: { type: 'string' }
-        }
-      },
-      required: ['completionConfidence']
-    };
-  }
-
-  /**
-   * 获取质量评估数据结构
-   */
-  private getQualityAssessmentSchema(): any {
-    return {
-      type: 'object',
-      properties: {
-        narrativeCoherence: { type: 'number' },
-        characterDevelopment: { type: 'number' },
-        plotProgression: { type: 'number' },
-        playerEngagement: { type: 'number' },
-        improvement_suggestions: {
-          type: 'array',
-          items: { type: 'string' }
-        }
-      },
-      required: ['narrativeCoherence', 'characterDevelopment', 'plotProgression', 'playerEngagement']
-    };
-  }
-
-  /**
-   * 获取结局预测数据结构
-   */
-  private getEndingPredictionSchema(): any {
-    return {
-      type: 'object',
-      properties: {
-        possibleEndings: {
-          type: 'array',
-          items: { type: 'string' }
-        },
-        mostLikely: { type: 'string' },
-        confidence: { type: 'number' }
-      },
-      required: ['possibleEndings', 'mostLikely']
-    };
-  }
+  // 移除旧的构建方法，已迁移至 PromptManager
 
   /**
    * 解析节奏分析
@@ -523,7 +316,7 @@ ${playerChoices.map(choice => `- ${choice}`).join('\n')}
     const expectedTime = storyProgress.storyOutline.estimatedDuration;
     const completion = storyProgress.getCompletionPercentage();
     const timeRatio = timeSpent / (expectedTime * completion / 100);
-    
+
     let pacingScore = 100;
     if (timeRatio > 1.3) pacingScore -= 30; // 太慢
     if (timeRatio < 0.7) pacingScore -= 20; // 太快
@@ -531,7 +324,7 @@ ${playerChoices.map(choice => `- ${choice}`).join('\n')}
     return {
       currentPacing: pacingData.currentPacing || 'normal',
       recommendedAdjustments: pacingData.recommendedAdjustments || [],
-      estimatedTimeToCompletion: pacingData.estimatedTimeToCompletion || 
+      estimatedTimeToCompletion: pacingData.estimatedTimeToCompletion ||
         (expectedTime - timeSpent),
       pacingScore: Math.max(0, pacingScore),
       bottlenecks: pacingData.bottlenecks || []
@@ -603,7 +396,7 @@ ${playerChoices.map(choice => `- ${choice}`).join('\n')}
   ): StoryPacingAnalysis {
     const expectedTime = storyProgress.storyOutline.estimatedDuration;
     const completion = storyProgress.getCompletionPercentage();
-    
+
     return {
       currentPacing: 'normal',
       recommendedAdjustments: ['保持当前节奏'],

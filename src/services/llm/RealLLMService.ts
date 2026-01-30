@@ -21,6 +21,7 @@ import { ZhipuProvider } from './providers/ZhipuProvider';
 import { LLMProviderAdapter } from './types/LLMTypes';
 import { LLMCache } from './LLMCache';
 import { JsonUtils } from '../../utils/JsonUtils';
+import { promptManager } from '../../prompts';
 
 export interface ProviderHealth {
   isHealthy: boolean;
@@ -45,6 +46,8 @@ export class RealLLMService implements LLMService {
   private config: LLMServiceConfig;
   private providers: Map<LLMProvider, LLMProviderAdapter> = new Map();
   private defaultProvider: LLMProvider;
+  private deputyProvider: LLMProvider;
+  private deputyModel?: string;
   private requestQueue: { request: LLMRequest, priority: RequestPriority }[] = [];
   private costTracking: { [key in LLMProvider]?: number } = {};
   private providerHealth: Map<LLMProvider, ProviderHealth> = new Map();
@@ -58,6 +61,8 @@ export class RealLLMService implements LLMService {
   constructor(config: LLMServiceConfig, loadBalancingStrategy?: LoadBalancingStrategy, failoverConfig?: FailoverConfig) {
     this.config = config;
     this.defaultProvider = config.defaultProvider;
+    this.deputyProvider = config.deputyProvider || config.defaultProvider;
+    this.deputyModel = config.deputyModel;
     this.loadBalancingStrategy = loadBalancingStrategy || { type: 'round-robin' };
     this.failoverConfig = failoverConfig || {
       enabled: true,
@@ -128,7 +133,8 @@ export class RealLLMService implements LLMService {
         LLMProvider.LOCAL,
         new OllamaProvider({
           baseUrl: localConfig.baseUrl || 'http://localhost:11434',
-          model: localConfig.defaultModel
+          model: localConfig.defaultModel,
+          timeout: this.config.timeoutMs || 120000 // Default to 120 seconds (2 minutes)
         })
       );
       this.costTracking[LLMProvider.LOCAL] = 0;
@@ -202,6 +208,7 @@ export class RealLLMService implements LLMService {
       provider?: LLMProvider;
       jsonMode?: boolean;
       systemPrompt?: string;
+      useDeputyModel?: boolean;
     }
   ): Promise<string> {
     const cacheKey = this.cache.generateKey(prompt, options);
@@ -212,17 +219,20 @@ export class RealLLMService implements LLMService {
     }
 
     let response: string;
-    if (options?.provider) {
-      // Use specified provider
-      const provider = this.providers.get(options.provider);
+    const shouldUseDeputy = options?.useDeputyModel ?? (options?.jsonMode && !!this.deputyProvider);
+    if (options?.provider || (shouldUseDeputy && this.deputyProvider)) {
+      // Use specified provider or deputy provider
+      const providerKey = options?.provider || (shouldUseDeputy ? this.deputyProvider : this.defaultProvider);
+      const provider = this.providers.get(providerKey);
       if (!provider) {
-        throw new Error(`Provider ${options.provider} not initialized`);
+        throw new Error(`Provider ${providerKey} not initialized`);
       }
       response = await provider.generateText(prompt, {
         maxTokens: options?.maxTokens,
         temperature: options?.temperature,
         jsonMode: options?.jsonMode,
-        systemPrompt: options?.systemPrompt
+        systemPrompt: options?.systemPrompt,
+        model: shouldUseDeputy ? this.deputyModel : undefined
       });
     } else {
       // Use intelligent selection
@@ -231,7 +241,8 @@ export class RealLLMService implements LLMService {
         temperature: options?.temperature,
         fallbackEnabled: true,
         jsonMode: options?.jsonMode,
-        systemPrompt: options?.systemPrompt
+        systemPrompt: options?.systemPrompt,
+        preferredProviders: shouldUseDeputy ? [this.deputyProvider] : undefined
       });
     }
 
@@ -249,18 +260,23 @@ export class RealLLMService implements LLMService {
       provider?: LLMProvider;
       jsonMode?: boolean;
       systemPrompt?: string;
+      useDeputyModel?: boolean;
     }
   ): Promise<any> {
     try {
       // 对于结构化响应，我们需要在提示中包含schema信息
-      const structuredPrompt = `${prompt}\n\nPlease respond in JSON format according to this schema: ${JSON.stringify(schema)}`;
+      const structuredPrompt = promptManager.generate('system.schema_enforcement', {
+        prompt,
+        schema: JSON.stringify(schema)
+      });
 
       const response = await this.generateText(structuredPrompt, {
         maxTokens: options?.maxTokens || 1000,
         temperature: options?.temperature || 0.1,
         provider: options?.provider,
         jsonMode: options?.jsonMode ?? true,
-        systemPrompt: options?.systemPrompt
+        systemPrompt: options?.systemPrompt,
+        useDeputyModel: options?.useDeputyModel ?? true // Default to deputy model for structured responses
       });
 
       // 使用 JsonUtils 提取 JSON

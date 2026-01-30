@@ -1,3 +1,4 @@
 # GitHub token：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
 node_modules
 dist/*
+.env

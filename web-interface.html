@@ -10,15 +10,23 @@
         rel="stylesheet">
     <style>
         :root {
+            /* Premium Palette */
             --primary: #6366f1;
-            --primary-glow: rgba(99, 102, 241, 0.5);
-            --secondary: #a855f7;
-            --bg-dark: #0f172a;
-            --accent: #fbbf24;
-            --glass: rgba(15, 23, 42, 0.7);
-            --glass-border: rgba(255, 255, 255, 0.1);
-            --text-main: #f1f5f9;
+            /* Indigo 500 */
+            --primary-glow: rgba(99, 102, 241, 0.4);
+            --secondary: #8b5cf6;
+            /* Violet 500 */
+            --accent: #f59e0b;
+            /* Amber 500 */
+            --bg-dark: #020617;
+            /* Slate 950 */
+            --glass: rgba(15, 23, 42, 0.6);
+            --glass-strong: rgba(15, 23, 42, 0.85);
+            --glass-border: rgba(255, 255, 255, 0.08);
+            --text-main: #f8fafc;
             --text-dim: #94a3b8;
+            --success: #10b981;
+            --error: #ef4444;
         }
 
         * {
@@ -30,7 +38,11 @@
 
         body {
             background-color: var(--bg-dark);
-            background-image: linear-gradient(rgba(15, 23, 42, 0.8), rgba(15, 23, 42, 0.8)), url('C:/Users/29454/.gemini/antigravity/brain/6950df7c-d47f-4a87-a174-3e18c1f84c3a/fantasy_landscape_background_1769507168202.png');
+            background-image:
+                radial-gradient(circle at 15% 50%, rgba(99, 102, 241, 0.15), transparent 25%),
+                radial-gradient(circle at 85% 30%, rgba(139, 92, 246, 0.15), transparent 25%),
+                linear-gradient(rgba(15, 23, 42, 0.9), rgba(15, 23, 42, 0.8)),
+                url('C:/Users/29454/.gemini/antigravity/brain/6950df7c-d47f-4a87-a174-3e18c1f84c3a/fantasy_landscape_background_1769507168202.png');
             background-size: cover;
             background-position: center;
             background-attachment: fixed;
@@ -214,6 +226,7 @@
             border-radius: 18px;
             line-height: 1.6;
             font-size: 1rem;
+            white-space: pre-wrap;
         }
 
         .message-player .message-bubble {
@@ -339,6 +352,65 @@
             justify-content: center;
             border: 1px solid var(--glass-border);
             overflow: hidden;
+            position: relative;
+        }
+
+        .map-container {
+            width: 100%;
+            height: 250px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 12px;
+            position: relative;
+            overflow: hidden;
+            border: 1px solid var(--glass-border);
+            margin-bottom: 15px;
+        }
+
+        .map-node {
+            position: absolute;
+            width: 12px;
+            height: 12px;
+            background: var(--text-dim);
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            cursor: pointer;
+            transition: all 0.3s ease;
+            z-index: 2;
+        }
+
+        .map-node:hover {
+            background: var(--primary);
+            box-shadow: 0 0 10px var(--primary-glow);
+            width: 16px;
+            height: 16px;
+        }
+
+        .map-node.current {
+            background: var(--secondary);
+            width: 16px;
+            height: 16px;
+            box-shadow: 0 0 15px var(--secondary);
+            z-index: 3;
+        }
+
+        .map-node-label {
+            position: absolute;
+            top: 15px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 0.7rem;
+            white-space: nowrap;
+            color: var(--text-dim);
+            pointer-events: none;
+        }
+
+        .map-edge {
+            position: absolute;
+            height: 1px;
+            background: rgba(255, 255, 255, 0.1);
+            transform-origin: left center;
+            z-index: 1;
+            pointer-events: none;
         }
 
         .tension-meter {
@@ -422,6 +494,105 @@
             display: flex;
             align-items: center;
         }
+
+        /* Action Options */
+        .action-options {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            padding: 10px 10px 0;
+            margin-bottom: 5px;
+            min-height: 46px;
+            transition: all 0.3s ease;
+        }
+
+        .action-chip {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--glass-border);
+            padding: 8px 16px;
+            border-radius: 12px;
+            color: var(--text-dim);
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            backdrop-filter: blur(4px);
+        }
+
+        .action-chip:hover {
+            background: rgba(255, 255, 255, 0.08);
+            color: var(--text-main);
+            transform: translateY(-2px);
+            border-color: rgba(255, 255, 255, 0.2);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+
+        .action-chip:active {
+            transform: translateY(0);
+        }
+
+        .action-chip.dialogue {
+            border-left: 3px solid var(--primary);
+        }
+
+        .action-chip.movement {
+            border-left: 3px solid var(--secondary);
+        }
+
+        .action-chip.interaction {
+            border-left: 3px solid var(--accent);
+        }
+
+        .action-icon {
+            opacity: 0.7;
+        }
+
+        /* Status Bar */
+        .status-bar {
+            height: 36px;
+            background: var(--glass-strong);
+            border-top: 1px solid var(--glass-border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 20px;
+            font-size: 0.75rem;
+            color: var(--text-dim);
+            z-index: 50;
+        }
+
+        .status-left,
+        .status-right {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+
+        .status-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .status-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--success);
+            box-shadow: 0 0 8px var(--success);
+        }
+
+        .status-dot.offline {
+            background: var(--text-dim);
+            box-shadow: none;
+        }
+
+        .status-dot.error {
+            background: var(--error);
+            box-shadow: 0 0 8px var(--error);
+        }
     </style>
 </head>
 
@@ -449,9 +620,65 @@
 
                 <div style="border-top: 1px solid var(--glass-border); padding-top: 15px; margin-top: 10px;">
                     <p style="font-size: 0.8rem; color: var(--text-dim); margin-bottom: 10px;">或者开启一个新冒险：</p>
-                    <input type="text" id="sessionNameInput" placeholder="会话名称 (例如: 密林探险)..."
+                    <input type="text" id="sessionNameInput" placeholder="历险名称 (如: 极北之境的序章)..."
                         style="width: 100%; padding: 12px; margin-bottom: 15px; border-radius: 10px; background: rgba(255,255,255,0.05); border: 1px solid var(--glass-border); color: white; display: block;"
                         value="幽光密林之行">
+
+                    <textarea id="worldDescriptionInput" placeholder="世界背景简述 (可选)..."
+                        style="width: 100%; height: 80px; padding: 12px; margin-bottom: 15px; border-radius: 10px; background: rgba(255,255,255,0.05); border: 1px solid var(--glass-border); color: white; display: block; resize: none; font-size: 0.9rem;"></textarea>
+
+                    <textarea id="inspirationInput" placeholder="你的灵感或关键词 (可选)..."
+                        style="width: 100%; height: 60px; padding: 12px; margin-bottom: 15px; border-radius: 10px; background: rgba(255,255,255,0.05); border: 1px solid var(--glass-border); color: white; display: block; resize: none; font-size: 0.9rem;"></textarea>
+
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px;">
+                        <div>
+                            <p style="font-size: 0.7rem; color: var(--text-dim); margin-bottom: 5px;">世界风格:</p>
+                            <select id="worldStyleSelect"
+                                style="width: 100%; padding: 8px; border-radius: 8px; background: rgba(255,255,255,0.05); border: 1px solid var(--glass-border); color: white; font-size: 0.8rem; cursor: pointer;">
+                                <option value="fantasy">奇幻幻境</option>
+                                <option value="sci-fi">赛博科幻</option>
+                                <option value="modern">现代都市</option>
+                                <option value="medieval">中世纪风</option>
+                                <option value="mixed">混合多元</option>
+                            </select>
+                        </div>
+                        <div>
+                            <p style="font-size: 0.7rem; color: var(--text-dim); margin-bottom: 5px;">复杂程度:</p>
+                            <select id="complexitySelect"
+                                style="width: 100%; padding: 8px; border-radius: 8px; background: rgba(255,255,255,0.05); border: 1px solid var(--glass-border); color: white; font-size: 0.8rem; cursor: pointer;">
+                                <option value="simple">极简</option>
+                                <option value="moderate" selected>标准</option>
+                                <option value="complex">精深</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- 游戏模式与语言选择 -->
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px;">
+                        <div>
+                            <p style="font-size: 0.7rem; color: var(--text-dim); margin-bottom: 5px;">游戏模式:</p>
+                            <select id="gameModeSelect"
+                                style="width: 100%; padding: 8px; border-radius: 8px; background: rgba(255,255,255,0.05); border: 1px solid var(--glass-border); color: white; font-size: 0.8rem; cursor: pointer;">
+                                <option value="free">自由模式</option>
+                                <option value="guided_free" selected>引导自由</option>
+                                <option value="script">剧本模式</option>
+                            </select>
+                        </div>
+                        <div>
+                            <p style="font-size: 0.7rem; color: var(--text-dim); margin-bottom: 5px;">生成语言:</p>
+                            <select id="localeSelect"
+                                style="width: 100%; padding: 8px; border-radius: 8px; background: rgba(255,255,255,0.05); border: 1px solid var(--glass-border); color: white; font-size: 0.8rem; cursor: pointer;">
+                                <option value="zh" selected>中文 (简体)</option>
+                                <option value="en">English</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div id="mode-description"
+                        style="font-size: 0.7rem; color: var(--text-dim); margin-bottom: 15px; font-style: italic; text-align: left;">
+                        推荐模式: 平衡故事引导与自由探索
+                    </div>
+
                     <button class="nav-btn" id="startBtn"
                         style="width: 100%; padding: 12px; background: var(--secondary);">开启全新征程</button>
                 </div>
@@ -463,33 +690,52 @@
     <header>
         <div class="logo">AETHER NEXUS</div>
         <div class="nav-actions">
-            <button class="nav-btn">角色大纲</button>
-            <button class="nav-btn">世界记录</button>
-            <button class="nav-btn">系统设置</button>
+            <button class="nav-btn" id="nav-outline">角色大纲</button>
+            <button class="nav-btn" id="nav-records">世界记录</button>
+            <button class="nav-btn" id="nav-settings">系统设置</button>
         </div>
     </header>
+
+    <!-- Modal for World Records / Character Outline -->
+    <div id="modal-overlay"
+        style="position: fixed; inset: 0; background: rgba(0,0,0,0.8); z-index: 300; display: none; align-items: center; justify-content: center; backdrop-filter: blur(10px);">
+        <div class="panel"
+            style="width: 80%; max-width: 900px; max-height: 85vh; overflow-y: auto; position: relative; border: 1px solid var(--primary);">
+            <button id="close-modal"
+                style="position: absolute; top: 15px; right: 20px; background: none; border: none; color: white; font-size: 2rem; cursor: pointer; z-index: 310;">&times;</button>
+            <div id="modal-content-container">
+                <div class="panel-title" id="modal-title"
+                    style="font-size: 1.5rem; border-bottom: 1px solid var(--glass-border); padding-bottom: 10px;">世界记录
+                </div>
+                <div id="modal-body" style="margin-top: 20px;">
+                    <!-- Content injected here -->
+                </div>
+            </div>
+        </div>
+    </div>
 
     <main id="game-main" style="visibility: hidden;">
         <!-- 左侧：角色信息 -->
         <div class="sidebar">
             <div class="panel">
-                <div class="panel-title">当前目标角色</div>
-                <div class="char-portrait">
-                    <img src="https://images.unsplash.com/photo-1519067736912-42cc95716e48?auto=format&fit=crop&q=80&w=400"
+                <div class="panel-title">当前交流角色</div>
+                <div class="char-portrait" id="char-portrait-container">
+                    <img id="char-img"
+                        src="https://images.unsplash.com/photo-1519067736912-42cc95716e48?auto=format&fit=crop&q=80&w=400"
                         alt="Character">
                 </div>
-                <h3 id="target-char-name">艾琳娜·晨晖 (Elara)</h3>
+                <h3 id="target-char-name">等待接触...</h3>
                 <p id="target-char-desc" style="font-size: 0.85rem; color: var(--text-dim); margin: 8px 0 20px;">
-                    银翼骑士团的见习向导</p>
+                    附近暂无正在交流的角色</p>
 
                 <div class="stat-item">
-                    <div class="stat-label"><span>好感度 (Affinity)</span><span id="affinity-val">0%</span></div>
+                    <div class="stat-label"><span>信任度 (Trust)</span><span id="affinity-val">0%</span></div>
                     <div class="stat-bar">
                         <div class="stat-fill" id="affinity-bar" style="width: 0%;"></div>
                     </div>
                 </div>
                 <div class="stat-item">
-                    <div class="stat-label"><span>情绪值 (Mood)</span><span id="mood-val">未知</span></div>
+                    <div class="stat-label"><span>主要情绪</span><span id="mood-val">未知</span></div>
                     <div class="stat-bar">
                         <div class="stat-fill" id="mood-bar" style="width: 0%; background: var(--primary);"></div>
                     </div>
@@ -521,6 +767,11 @@
 
         <div class="content-area">
             <div class="narrative-feed" id="feed"></div>
+
+            <div class="action-options" id="action-options">
+                <!-- Actions will be injected here -->
+            </div>
+
             <div class="input-container">
                 <input type="text" id="userInput" placeholder="输入你想说的话或动作..." autocomplete="off">
                 <button class="send-btn" id="sendBtn">
@@ -534,13 +785,26 @@
 
         <div class="sidebar">
             <div class="panel">
-                <div class="panel-title">当前位置</div>
-                <div class="world-view" id="location-title">[ 加载中... ]</div>
-                <p id="location-desc" style="font-size: 0.85rem; line-height: 1.5;">世界数据正在从以太中同步...</p>
+                <div class="panel-title">世界地图 (以太映射)</div>
+                <div class="map-container" id="map-world">
+                    <!-- Map will be rendered here -->
+                </div>
+                <div class="panel-title">当前场景</div>
+                <div class="world-view" id="scene-view">
+                    <div style="font-size: 3rem; opacity: 0.5;">🏰</div>
+                </div>
+                <h3 id="location-title"
+                    style="margin: 15px 0 10px; color: var(--secondary); font-family: 'Outfit', sans-serif;">[ 加载中... ]
+                </h3>
+                <p id="location-desc" style="font-size: 0.85rem; line-height: 1.6; color: var(--text-dim);">
+                    世界数据正在从以太中同步...</p>
+                <div id="nearby-chars" style="margin-top: 15px; display: flex; flex-wrap: wrap; gap: 8px;">
+                    <!-- Characters here -->
+                </div>
             </div>
 
             <div class="panel">
-                <div class="panel-title">叙事张力 (Director Control)</div>
+                <div class="panel-title">剧情张力指数</div>
                 <div class="tension-meter">
                     <div
                         style="flex: 1; height: 10px; background: rgba(255,255,255,0.05); border-radius: 5px; position: relative; overflow: hidden;">
@@ -550,10 +814,34 @@
                     <span style="font-size: 0.8rem; font-weight: 600; color: #ef4444;" id="tension-val">0%</span>
                 </div>
                 <p id="conflict-desc" style="font-size: 0.8rem; color: var(--text-dim); margin-top: 10px;">
-                    导演系统正在评估当前叙事曲线。</p>
+                    导演引擎实时监测中...</p>
             </div>
         </div>
     </main>
+
+    <footer class="status-bar">
+        <div class="status-left">
+            <div class="status-item">
+                <div class="status-dot" id="connection-dot"></div>
+                <span id="connection-status">已连接</span>
+            </div>
+            <div class="status-item">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <polyline points="12 6 12 12 16 14"></polyline>
+                </svg>
+                <span id="game-time">14:00</span>
+            </div>
+        </div>
+        <div class="status-right">
+            <div class="status-item" id="location-coords">
+                <!-- optional coords -->
+            </div>
+            <div class="status-item">
+                <span>AETHER ENGINE v1.0</span>
+            </div>
+        </div>
+    </footer>
 
     <script>
         const setupOverlay = document.getElementById('setup-overlay');
@@ -646,67 +934,257 @@
                     break;
 
                 case 'character_response':
-                    addMessage(payload.content, payload.characterId === 'narrator' ? 'ai' : 'ai', payload.characterName);
-                    // 恢复输入
+                    const isSystem = payload.characterId === 'system';
+                    const isNarrator = payload.characterId === 'narrator';
+                    const isWorld = payload.characterId === 'world';
+
+                    addMessage(payload.content, (isSystem || isNarrator || isWorld) ? 'ai' : 'ai', payload.characterName);
+
+                    // 如果是NPC对话，更新左侧面板
+                    if (!isSystem && !isNarrator && !isWorld) {
+                        updateTargetCharacter(payload.characterId, payload.characterName);
+                    }
+
+                    // 无论如何都要恢复输入，防止死锁
                     userInput.disabled = false;
                     sendBtn.disabled = false;
+                    userInput.placeholder = "输入你想说的话或动作...";
                     userInput.focus();
                     break;
 
+                case 'processing_start':
+                    userInput.placeholder = payload.message || "正在处理...";
+                    break;
+
                 case 'scene_update':
-                    document.getElementById('location-title').innerText = `[ ${payload.title || '未知'} ]`;
+                    document.getElementById('location-title').innerText = payload.title || '未知地点';
                     document.getElementById('location-desc').innerText = payload.description;
+
+                    // 更新附近角色
+                    const nearbyDiv = document.getElementById('nearby-chars');
+                    if (nearbyDiv && payload.charactersPresent) {
+                        nearbyDiv.innerHTML = payload.charactersPresent.map(charName =>
+                            `<span class="action-chip" style="font-size: 0.7rem; padding: 4px 8px; border-left: 2px solid var(--primary); cursor: default;">👤 ${charName}</span>`
+                        ).join('');
+                    }
+
+                    const sceneImg = document.getElementById('scene-img');
+                    if (payload.imageUrl && !payload.imageUrl.includes('default')) {
+                        // In a real app we would have images, for now we might just show a placeholder gradient or try to load
+                        // For this demo, let's stick to the placeholder unless a real URL is provided
+                        // sceneImg.src = payload.imageUrl; 
+                    }
                     break;
 
                 case 'game_state_update':
-                    document.getElementById('location-title').innerText = `[ ${payload.currentLocation} ]`;
+                    if (payload.currentLocation) {
+                        document.getElementById('location-title').innerText = payload.currentLocation;
+                    }
+                    if (payload.currentTime) {
+                        document.getElementById('game-time').innerText = payload.currentTime;
+                    }
+                    if (payload.mapData) {
+                        renderWorldMap(payload.mapData);
+                    }
                     break;
 
                 case 'pipeline_actions':
-                    visualizePipeline(payload.actions);
+                    visualizePipeline(payload.actions).catch(err => console.error("Pipeline error:", err));
+                    break;
+
+                case 'action_options_update':
+                    renderActionOptions(payload.options);
                     break;
 
                 case 'error':
-                    addMessage(`[错误] ${payload.message}`, 'ai');
-                    // 恢复所有按钮
+                    addMessage(`[错误] ${payload.message}`, 'ai', 'SYSTEM');
+                    // 恢复
                     userInput.disabled = false;
                     sendBtn.disabled = false;
-                    document.getElementById('loginBtn').disabled = false;
-                    document.getElementById('loginBtn').innerText = "进入世界";
-                    document.getElementById('startBtn').disabled = false;
-                    document.getElementById('startBtn').innerText = "开启征程";
+                    userInput.placeholder = "输入你想说的话或动作...";
+                    break;
+
+                case 'world_records':
+                    renderWorldRecords(payload.worlds);
+                    break;
+
+                case 'character_outline_data':
+                    renderCharacterOutline(payload);
                     break;
             }
         }
 
-        async function visualizePipeline(actions) {
-            // 通过解析 GameActions 来模拟流水线步进
-            for (const stepId of pipelineSteps) {
-                const el = document.getElementById(stepId);
-                el.classList.add('step-active');
-                el.querySelector('.step-dot').style.transform = 'scale(1.5)';
-                await new Promise(r => setTimeout(r, 400));
-            }
+        function renderActionOptions(options) {
+            const container = document.getElementById('action-options');
+            container.innerHTML = '';
 
-            // 简单模拟基于动作的属性变化
-            actions.forEach(action => {
-                if (action.type === 'STORY_EVENT') {
-                    const tensionValEl = document.getElementById('tension-val');
-                    const currentTension = parseInt(tensionValEl.innerText) || 0;
-                    const tension = Math.min(100, currentTension + 15);
-                    document.getElementById('tension-bar').style.width = tension + '%';
-                    tensionValEl.innerText = tension + '%';
-                }
+            if (!options || options.length === 0) return;
+
+            options.forEach(opt => {
+                const chip = document.createElement('div');
+                chip.className = `action-chip ${opt.type || 'interaction'}`;
+
+                let icon = '';
+                if (opt.type === 'dialogue') icon = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>';
+                else if (opt.type === 'movement') icon = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 9l7-7 7 7"></path><path d="M9 21h6"></path><path d="M9 9h6v12H9z"></path></svg>';
+                else icon = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>';
+
+                chip.innerHTML = `<span class="action-icon">${icon}</span>${opt.label}`;
+
+                chip.onclick = () => {
+                    handleActionClick(opt.id, opt.label);
+                };
+
+                container.appendChild(chip);
+            });
+        }
+
+        function handleActionClick(actionId, label) {
+            if (!sessionId || userInput.disabled) return;
+
+            // Add visual feedback
+            addMessage(`[操作] ${label}`, 'player');
+            userInput.disabled = true;
+            sendBtn.disabled = true;
+            document.getElementById('action-options').innerHTML = ''; // Clear options temporarily
+
+            socket.send(JSON.stringify({
+                type: 'player_action',
+                payload: { sessionId, playerId, action: { actionId } }
+            }));
+        }
+
+        function updateTargetCharacter(id, name) {
+            document.getElementById('target-char-name').innerText = name;
+            document.getElementById('target-char-desc').innerText = "与你正在交流中...";
+
+            // 简单模拟好感度变化
+            const affinityBar = document.getElementById('affinity-bar');
+            const affinityVal = document.getElementById('affinity-val');
+            let current = parseInt(affinityVal.innerText) || 0;
+            current = Math.min(100, current + Math.floor(Math.random() * 5));
+            affinityBar.style.width = current + '%';
+            affinityVal.innerText = current + '%';
+
+            // 更新头像
+            const charImg = document.getElementById('char-img');
+            charImg.src = `https://api.dicebear.com/7.x/avataaars/svg?seed=${id}`;
+        }
+
+        function renderWorldMap(mapData) {
+            const container = document.getElementById('map-world');
+            container.innerHTML = '';
+
+            if (!mapData || mapData.length === 0) return;
+
+            // 简单的布局算法：环形或力导向简化版
+            const centerX = container.clientWidth / 2;
+            const centerY = container.clientHeight / 2;
+            const radius = Math.min(centerX, centerY) * 0.7;
+
+            const nodes = {};
+            mapData.forEach((loc, i) => {
+                const angle = (i / mapData.length) * 2 * Math.PI;
+                const x = centerX + radius * Math.cos(angle);
+                const y = centerY + radius * Math.sin(angle);
+                nodes[loc.id] = { x, y, loc };
             });
 
-            // 重置点
-            setTimeout(() => {
-                pipelineSteps.forEach(id => {
-                    const el = document.getElementById(id);
-                    el.classList.remove('step-active');
-                    el.querySelector('.step-dot').style.transform = 'scale(1)';
+            // 绘制连接
+            mapData.forEach(loc => {
+                const startNode = nodes[loc.id];
+                (loc.connections || []).forEach(targetId => {
+                    const endNode = nodes[targetId];
+                    if (startNode && endNode) {
+                        const edge = document.createElement('div');
+                        edge.className = 'map-edge';
+                        const dx = endNode.x - startNode.x;
+                        const dy = endNode.y - startNode.y;
+                        const dist = Math.sqrt(dx * dx + dy * dy);
+                        const angle = Math.atan2(dy, dx) * 180 / Math.PI;
+
+                        edge.style.width = dist + 'px';
+                        edge.style.left = startNode.x + 'px';
+                        edge.style.top = startNode.y + 'px';
+                        edge.style.transform = `rotate(${angle}deg)`;
+                        container.appendChild(edge);
+                    }
                 });
-            }, 2000);
+            });
+
+            // 绘制节点
+            mapData.forEach(loc => {
+                const nodeData = nodes[loc.id];
+                const node = document.createElement('div');
+                node.className = `map-node ${loc.isCurrent ? 'current' : ''}`;
+                node.style.left = nodeData.x + 'px';
+                node.style.top = nodeData.y + 'px';
+
+                node.innerHTML = `<div class="map-node-label">${loc.name}</div>`;
+                node.title = loc.name;
+
+                node.onclick = () => {
+                    handleActionClick('move', `前往 ${loc.name}`);
+                    socket.send(JSON.stringify({
+                        type: 'player_input',
+                        payload: { sessionId, playerId, input: `前往${loc.name}` }
+                    }));
+                };
+
+                container.appendChild(node);
+            });
+        }
+
+        async function visualizePipeline(actions) {
+            try {
+                // 找到动作对应的步骤
+                const stepMapping = {
+                    'classification': 'step-intent',
+                    'thought': 'step-director',
+                    'action': 'step-domain',
+                    'response': 'step-narrative'
+                };
+
+                // 如果 actions 包含特定标记，按顺序激活步骤
+                // 服务器发送 pipeline_actions 时，通常带有 action 类型
+                const activeSteps = ['step-intent', 'step-director', 'step-domain', 'step-narrative'];
+
+                for (const stepId of activeSteps) {
+                    const el = document.getElementById(stepId);
+                    if (!el) continue;
+
+                    el.classList.add('step-active');
+                    const dot = el.querySelector('.step-dot');
+                    if (dot) dot.style.transform = 'scale(1.5)';
+
+                    await new Promise(r => setTimeout(r, 600)); // 增加延迟展示过程
+
+                    el.classList.remove('step-active');
+                    if (dot) dot.style.transform = 'scale(1)';
+                }
+
+                // 最终全部点亮一下表示完成
+                activeSteps.forEach(id => document.getElementById(id).classList.add('step-active'));
+                setTimeout(() => {
+                    activeSteps.forEach(id => document.getElementById(id).classList.remove('step-active'));
+                }, 1000);
+
+                // 模拟张力变化
+                if (actions) {
+                    const storyEvents = actions.filter(a => a.type === 'story_event');
+                    if (storyEvents.length > 0) {
+                        const tensionValEl = document.getElementById('tension-val');
+                        const tensionBar = document.getElementById('tension-bar');
+                        const currentTension = parseInt(tensionValEl.innerText) || 0;
+                        const newTension = Math.min(100, currentTension + (storyEvents.length * 15));
+                        tensionBar.style.width = newTension + '%';
+                        tensionValEl.innerText = newTension + '%';
+                        document.getElementById('conflict-desc').innerText = "当前叙事张力正在提升！";
+                    }
+                }
+            } catch (err) {
+                console.warn("Pipeline visualization failed:", err);
+            }
         }
 
         function renderSessionList(sessions) {
@@ -779,7 +1257,7 @@
                 let i = 0;
                 function typeWriter() {
                     if (i < content.length) {
-                        bubble.innerHTML += content.charAt(i++);
+                        bubble.textContent += content.charAt(i++);
                         feed.scrollTop = feed.scrollHeight;
                         setTimeout(typeWriter, 20);
                     }
@@ -811,19 +1289,140 @@
             socket.send(JSON.stringify({ type: 'login', payload: { username: user } }));
         };
 
+        const modalOverlay = document.getElementById('modal-overlay');
+        const modalTitle = document.getElementById('modal-title');
+        const modalBody = document.getElementById('modal-body');
+        const closeModal = document.getElementById('close-modal');
+
+        closeModal.onclick = () => { modalOverlay.style.display = 'none'; };
+        window.onclick = (e) => { if (e.target === modalOverlay) modalOverlay.style.display = 'none'; };
+
+        document.getElementById('nav-records').onclick = () => {
+            modalTitle.innerText = "世界探险记录";
+            modalBody.innerHTML = "<p style='color: var(--primary);'>正在从以太中检索世界谱系...</p>";
+            modalOverlay.style.display = 'flex';
+            socket.send(JSON.stringify({ type: 'get_world_records', payload: {} }));
+        };
+
+        document.getElementById('nav-outline').onclick = () => {
+            if (!sessionId) {
+                alert("请先进入一个世界以查看大纲。");
+                return;
+            }
+            modalTitle.innerText = "剧情大纲与周边角色";
+            modalBody.innerHTML = "<p style='color: var(--secondary);'>正在同步当前时空节点的因果线...</p>";
+            modalOverlay.style.display = 'flex';
+            socket.send(JSON.stringify({ type: 'get_character_outline', payload: {} }));
+        };
+
+        function renderWorldRecords(worlds) {
+            modalBody.innerHTML = '';
+            if (!worlds || worlds.length === 0) {
+                modalBody.innerHTML = "<p style='text-align: center; color: var(--text-dim);'>暂无世界记录。开启一段新的旅程吧！</p>";
+                return;
+            }
+
+            worlds.forEach(w => {
+                const item = document.createElement('div');
+                item.style.cssText = "background: rgba(255,255,255,0.05); border: 1px solid var(--glass-border); border-radius: 15px; padding: 20px; margin-bottom: 20px; transition: all 0.3s ease;";
+                item.className = "world-record-item";
+
+                const dateStr = new Date(w.createdAt).toLocaleDateString();
+                item.innerHTML = `
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                        <h3 style="color: var(--primary);">${w.sessionName}</h3>
+                        <span style="font-size: 0.8rem; color: var(--text-dim); background: rgba(99,102,241,0.1); padding: 4px 10px; border-radius: 20px; border: 1px solid var(--primary);">${w.worldStyle}</span>
+                    </div>
+                    <p style="font-size: 0.9rem; color: var(--text-main); line-height: 1.6; margin-bottom: 10px;">${w.mainStory}</p>
+                    <div style="font-size: 0.75rem; color: var(--text-dim);">创建于: ${dateStr}</div>
+                `;
+                modalBody.appendChild(item);
+            });
+        }
+
+        function renderCharacterOutline(data) {
+            modalBody.innerHTML = '';
+            const { storyOutline, nearbyCharacters, currentLocation } = data;
+
+            // Story Outline Section
+            const outlineSection = document.createElement('div');
+            outlineSection.style.marginBottom = "30px";
+            outlineSection.innerHTML = `
+                <h3 style="color: var(--secondary); margin-bottom: 15px; border-left: 4px solid var(--secondary); padding-left: 15px;">当前剧情大纲</h3>
+                <div style="background: rgba(139, 92, 246, 0.05); border: 1px solid rgba(139, 92, 246, 0.2); border-radius: 12px; padding: 20px;">
+                    ${storyOutline ? `
+                        <h4 style="margin-bottom: 10px;">${storyOutline.title}</h4>
+                        <p style="font-size: 0.95rem; line-height: 1.6; color: var(--text-main);">${storyOutline.summary}</p>
+                        ${storyOutline.acts ? `
+                            <div style="margin-top: 15px; display: flex; flex-direction: column; gap: 10px;">
+                                ${storyOutline.acts.map(act => `
+                                    <div style="font-size: 0.85rem; color: var(--text-dim);"><span style="color: var(--secondary); font-weight: bold;">[ACT ${act.actNumber}]</span> ${act.title}: ${act.summary}</div>
+                                `).join('')}
+                            </div>
+                        ` : ''}
+                    ` : '<p style="color: var(--text-dim);">当前会话尚未生成详细大纲或处于自由探索模式。</p>'}
+                </div>
+            `;
+            modalBody.appendChild(outlineSection);
+
+            // Nearby Characters Section
+            const charSection = document.createElement('div');
+            charSection.innerHTML = `
+                <h3 style="color: var(--accent); margin-bottom: 15px; border-left: 4px solid var(--accent); padding-left: 15px;">附近角色 <span style="font-size: 0.8rem; font-weight: normal; color: var(--text-dim); margin-left: 10px;">(当前位置: ${currentLocation})</span></h3>
+                <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 15px;">
+                    ${nearbyCharacters && nearbyCharacters.length > 0 ? nearbyCharacters.map(c => `
+                        <div style="background: rgba(255,255,255,0.05); border: 1px solid var(--glass-border); border-radius: 12px; padding: 15px;">
+                            <div style="font-weight: bold; color: var(--text-main); margin-bottom: 8px;">${c.name}</div>
+                            <div style="font-size: 0.8rem; color: var(--text-dim); line-height: 1.4;">${c.background || '身份神秘的旅人'}</div>
+                            ${c.appearance ? `<div style="font-size: 0.75rem; color: var(--text-dim); margin-top: 5px; font-style: italic;">"${c.appearance}"</div>` : ''}
+                        </div>
+                    `).join('') : '<p style="grid-column: 1/-1; text-align: center; color: var(--text-dim);">周围似乎空无一人...</p>'}
+                </div>
+            `;
+            modalBody.appendChild(charSection);
+        }
+
         document.getElementById('startBtn').onclick = function () {
             const sName = document.getElementById('sessionNameInput').value || 'New Adventure';
+            const description = document.getElementById('worldDescriptionInput').value;
+            const inspiration = document.getElementById('inspirationInput').value;
+            const worldStyle = document.getElementById('worldStyleSelect').value;
+            const complexity = document.getElementById('complexitySelect').value;
+            const gameMode = document.getElementById('gameModeSelect').value;
+            const locale = document.getElementById('localeSelect').value;
+
             this.disabled = true;
             this.innerText = "正在构建世界大纲...";
             setupStatus.innerText = "正在初始化时空维度与大纲缓存...";
             socket.send(JSON.stringify({
                 type: 'create_session',
-                payload: { sessionName: sName, worldStyle: 'fantasy', difficulty: 'normal' }
+                payload: {
+                    sessionName: sName,
+                    description: description,
+                    inspiration: inspiration,
+                    worldStyle: worldStyle,
+                    complexity: complexity,
+                    gameMode: gameMode,
+                    locale: locale,
+                    difficulty: 'normal'
+                }
             }));
         };
 
+
         sendBtn.onclick = handleSend;
         userInput.onkeypress = (e) => { if (e.key === 'Enter') handleSend(); };
+
+        // 游戏模式选择器事件
+        document.getElementById('gameModeSelect').onchange = function () {
+            const modeDesc = document.getElementById('mode-description');
+            const descriptions = {
+                'free': '完全自由探索,无预设故事线,适合喜欢开放世界的玩家',
+                'guided_free': '推荐模式:平衡故事引导与自由探索',
+                'script': '结构化剧情体验,有明确的故事线和目标'
+            };
+            modeDesc.innerText = descriptions[this.value] || '';
+        };
 
         window.onload = initWebSocket;
     </script>

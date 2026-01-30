@@ -24,14 +24,33 @@ import { DynamicLocationService } from '../../services/world/DynamicLocationServ
 
 /**
  * 世界管理器
- * 世界域的主要聚合根，协调所有世界相关的业务逻辑
+ * 世界域的主要聚合根，协调所有 world 相关的业务逻辑
  */
 export class WorldManager {
-  private world: GameWorld;
+  private sessions: Map<string, GameWorld> = new Map();
+  private currentSessionId?: string; // For legacy methods or internal state
   private locationGenerationService: LocationGenerationService;
   private environmentService: EnvironmentManagementService;
   private sceneDescriptionService: SceneDescriptionService;
   private worldEventService: WorldEventService;
+
+  /**
+   * 动态获取当前世界的 Getter（兼容旧代码）
+   */
+  get world(): GameWorld {
+    if (!this.currentSessionId) {
+      const defaultSessionId = 'default_session';
+      if (!this.sessions.has(defaultSessionId)) {
+        this.sessions.set(defaultSessionId, new GameWorld());
+      }
+      return this.sessions.get(defaultSessionId)!;
+    }
+
+    if (!this.sessions.has(this.currentSessionId)) {
+      this.sessions.set(this.currentSessionId, new GameWorld());
+    }
+    return this.sessions.get(this.currentSessionId)!;
+  }
 
   constructor(
     private llmService: LLMService,
@@ -39,15 +58,21 @@ export class WorldManager {
     private databaseService?: any,
     initialTime?: GameTime
   ) {
-    this.world = new GameWorld(initialTime);
     this.locationGenerationService = new LocationGenerationService(llmService, logger);
     this.environmentService = new EnvironmentManagementService(logger);
     this.sceneDescriptionService = new SceneDescriptionService(llmService, logger);
     this.worldEventService = new WorldEventService(logger);
   }
 
+  private getSessionWorld(sessionId: string): GameWorld {
+    if (!this.sessions.has(sessionId)) {
+      this.sessions.set(sessionId, new GameWorld());
+    }
+    return this.sessions.get(sessionId)!;
+  }
+
   /**
-   * 获取游戏世界
+   * 获取游戏世界 (兼容接口)
    */
   getWorld(): GameWorld {
     return this.world;
@@ -58,6 +83,8 @@ export class WorldManager {
    */
   async initializeWorld(): Promise<void> {
     this.logger.info('Initializing game world...');
+
+    const world = this.world; // 使用当前 session 的 world
 
     // 创建基础区域
     const townRegion: Region = {
@@ -71,7 +98,7 @@ export class WorldManager {
       characteristics: ['urban', 'populated', 'safe']
     };
 
-    this.world.addRegion(townRegion);
+    world.addRegion(townRegion);
 
     // 创建初始位置
     const townSquare = new GameLocation(
@@ -90,8 +117,8 @@ export class WorldManager {
       'town_region'
     );
 
-    this.world.addLocation(townSquare);
-    this.world.addLocation(tavern);
+    world.addLocation(townSquare);
+    world.addLocation(tavern);
 
     // 创建位置连接
     townSquare.addConnection({
@@ -131,14 +158,16 @@ export class WorldManager {
       // 1. 加载位置
       const locationRecords = await this.databaseService.getLocationsBySession(sessionId);
 
+      // 2. 准备该会话的全新世界对象
+      const world = new GameWorld();
+      this.sessions.set(sessionId, world);
+      this.currentSessionId = sessionId;
+
       if (locationRecords.length === 0) {
         this.logger.info('No existing locations found for session, initializing defaults');
         await this.initializeWorld();
         return;
       }
-
-      // 2. 清空当前内存世界（如果需要）
-      // this.world = new GameWorld(); // 或者按需清理
 
       // 3. 构建位置实体
       for (const record of locationRecords) {
@@ -155,11 +184,11 @@ export class WorldManager {
         );
 
         // 恢复状态
-        if (locationData.state) {
+        if (locationData && locationData.state) {
           location.updateState(locationData.state);
         }
 
-        this.world.addLocation(location);
+        world.addLocation(location);
       }
 
       // 4. 第二轮循环：恢复连接
@@ -167,8 +196,8 @@ export class WorldManager {
         const locationData = typeof record.location_data === 'string' ?
           JSON.parse(record.location_data) : record.location_data;
 
-        if (locationData.connections && Array.isArray(locationData.connections)) {
-          const fromLoc = this.world.getLocation(record.id);
+        if (locationData && locationData.connections && Array.isArray(locationData.connections)) {
+          const fromLoc = world.getLocation(record.id);
           if (fromLoc) {
             for (const conn of locationData.connections) {
               fromLoc.addConnection(conn);
@@ -178,8 +207,8 @@ export class WorldManager {
       }
 
       // 5. 恢复场景
-      for (const location of this.world.getAllLocations()) {
-        await this.createSceneForLocation(location);
+      for (const location of world.getAllLocations()) {
+        await this.createSceneForLocation(location, sessionId);
       }
 
       this.logger.info(`Successfully loaded ${locationRecords.length} locations for session ${sessionId}`);
@@ -204,9 +233,21 @@ export class WorldManager {
     travelTime: number;
     sceneDescription?: string;
   }> {
-    const currentLocation = this.world.getLocation(currentLocationId);
-    let targetLocation = this.world.getLocation(targetLocationId);
-    let isNewLocation = false; // 标记是否是新创建的位置
+    this.currentSessionId = sessionId;
+    const world = this.getSessionWorld(sessionId);
+    const currentLocation = world.getLocation(currentLocationId);
+
+    // 1. 尝试通过 ID 查找
+    let targetLocation = world.getLocation(targetLocationId);
+
+    // 2. 如果 ID 找不到，尝试通过名称查找
+    if (!targetLocation) {
+      targetLocation = world.getAllLocations().find(loc =>
+        loc.name === targetLocationId || loc.name.toLowerCase() === targetLocationId.toLowerCase()
+      );
+    }
+
+    let isNewLocation = false;
 
     if (!currentLocation) {
       return {
@@ -218,22 +259,15 @@ export class WorldManager {
 
     // 如果目标位置不存在，尝试动态创建
     if (!targetLocation) {
-      this.logger.warn(`Target location "${targetLocationId}" not found, attempting to create dynamically`, {
-        component: 'WorldManager',
-        currentLocationId,
-        targetLocationId
-      });
+      this.logger.warn(`Target location "${targetLocationId}" not found, attempting to create dynamically`);
 
       try {
-        // 尝试通过动态位置服务创建新位置
         const dynamicLocationService = new DynamicLocationService(this.llmService, this.logger);
+        const existingLocations = world.getAllLocations().map(loc => loc.name);
 
-        // 获取所有现有位置名称
-        const existingLocations = this.world.getAllLocations().map(loc => loc.name);
-
-        // 生成动态位置
+        // 生成动态位置定义
         const locationDefinition = await dynamicLocationService.generateLocation(
-          targetLocationId, // 使用ID作为名称
+          targetLocationId,
           {
             currentLocation: currentLocation.name,
             gameStyle: 'fantasy_open_world',
@@ -241,31 +275,20 @@ export class WorldManager {
           }
         );
 
-        this.logger.info('Generated location definition', {
-          component: 'WorldManager',
-          locationDefinition
-        });
-
-        // 创建新位置
+        // 创建新位置实体
         targetLocation = new GameLocation(
           locationDefinition.id,
           locationDefinition.name,
           locationDefinition.description,
-          { x: Math.random() * 100, y: Math.random() * 100 }, // 随机位置
+          { x: Math.random() * 100, y: Math.random() * 100 },
           locationDefinition.region,
           'urban'
         );
 
         // 添加到世界
-        this.world.addLocation(targetLocation);
+        world.addLocation(targetLocation);
 
-        this.logger.info('Added new location to world', {
-          component: 'WorldManager',
-          locationId: targetLocation.id,
-          locationName: targetLocation.name
-        });
-
-        // 创建双向连接 - 从当前位置到新位置
+        // 创建双向连接
         currentLocation.addConnection({
           fromLocationId: currentLocationId,
           toLocationId: targetLocation.id,
@@ -274,7 +297,6 @@ export class WorldManager {
           travelTime: 5
         });
 
-        // 创建双向连接 - 从新位置到当前位置
         targetLocation.addConnection({
           fromLocationId: targetLocation.id,
           toLocationId: currentLocationId,
@@ -283,57 +305,17 @@ export class WorldManager {
           travelTime: 5
         });
 
-        // 创建额外的连接到其他现有位置，提高世界的连通性
-        const allLocations = this.world.getAllLocations();
-        const otherLocations = allLocations.filter(loc =>
-          loc.id !== currentLocationId && loc.id !== targetLocation!.id
-        );
-
-        // 随机选择1-2个其他位置建立连接
-        const shuffledLocations = [...otherLocations].sort(() => 0.5 - Math.random());
-        const locationsToConnect = shuffledLocations.slice(0, Math.min(2, shuffledLocations.length));
-
-        for (const location of locationsToConnect) {
-          // 从新位置到其他位置的连接
-          targetLocation!.addConnection({
-            fromLocationId: targetLocation!.id,
-            toLocationId: location.id,
-            connectionType: 'path',
-            direction: 'unknown',
-            travelTime: 7
-          });
-
-          // 从其他位置到新位置的连接
-          location.addConnection({
-            fromLocationId: location.id,
-            toLocationId: targetLocation!.id,
-            connectionType: 'path',
-            direction: 'unknown',
-            travelTime: 7
-          });
-        }
-
         // 创建场景
-        await this.createSceneForLocation(targetLocation);
+        await this.createSceneForLocation(targetLocation, sessionId);
 
-        // 如果开启了持久化，保存新位置
+        // 数据持久化
         if (this.databaseService) {
           await this.persistLocationToDatabase(targetLocation, sessionId);
         }
 
-        this.logger.info(`Dynamically created new location: ${targetLocation.name}`, {
-          component: 'WorldManager',
-          locationId: targetLocation.id,
-          connectionsCreated: 1 + locationsToConnect.length
-        });
-
-        isNewLocation = true; // 标记为新创建的位置
+        isNewLocation = true;
       } catch (error) {
-        this.logger.error('Failed to dynamically create location', error as Error, {
-          component: 'WorldManager',
-          targetLocationId
-        });
-
+        this.logger.error('Failed to dynamically create location', error as Error);
         return {
           success: false,
           message: `Cannot reach or create location: ${targetLocationId}`,
@@ -342,8 +324,8 @@ export class WorldManager {
       }
     }
 
-    // 检查是否可以到达（仅对已存在的位置进行检查）
-    if (!isNewLocation && !currentLocation.canReach(targetLocationId)) {
+    // 检查可达性
+    if (!isNewLocation && !currentLocation.canReach(targetLocation.id)) {
       return {
         success: false,
         message: `Cannot reach ${targetLocation.name} from ${currentLocation.name}`,
@@ -351,47 +333,31 @@ export class WorldManager {
       };
     }
 
-    // 获取连接和旅行时间
-    const connection = currentLocation.getConnection(targetLocationId);
+    // 获取行程信息
+    const connection = currentLocation.getConnection(targetLocation.id);
     const travelTime = connection?.travelTime || 5;
 
-    // 推进时间
-    this.world.advanceTime(travelTime / 60); // 分钟转小时
+    // 状态更新
+    world.advanceTime(travelTime / 60);
+    currentLocation.updateState({ activityLevel: Math.max(0, currentLocation.getState().activityLevel - 5) });
+    targetLocation.updateState({ activityLevel: Math.min(100, targetLocation.getState().activityLevel + 5) });
 
-    // 更新位置活动
-    currentLocation.updateState({
-      activityLevel: Math.max(0, currentLocation.getState().activityLevel - 5)
-    });
-    targetLocation.updateState({
-      activityLevel: Math.min(100, targetLocation.getState().activityLevel + 5)
-    });
+    // 获取场景描述
+    const scenes = world.getScenesByLocation(targetLocation.id);
+    let sceneDescription = scenes.length > 0 ?
+      scenes[0].generateFullDescription() :
+      await this.generateArrivalDescription(targetLocation);
 
-    // 生成到达场景描述
-    const scenes = this.world.getScenesByLocation(targetLocationId);
-    let sceneDescription = '';
-
-    if (scenes.length > 0) {
-      sceneDescription = scenes[0].generateFullDescription();
-    } else {
-      sceneDescription = await this.generateArrivalDescription(targetLocation);
-    }
-
-    // 创建移动事件
+    // 记录移动事件
     const movementEvent = this.worldEventService.createWorldEvent(
       'player_movement',
-      `Player moved from ${currentLocation.name} to ${targetLocation.name}`,
-      targetLocationId,
-      [
-        {
-          target: 'location',
-          property: 'activityLevel',
-          change: 5
-        }
-      ],
+      `Player moved to ${targetLocation.name}`,
+      targetLocation.id,
+      [],
       [playerId]
     );
 
-    this.world.addGlobalEvent(movementEvent);
+    world.addGlobalEvent(movementEvent);
     targetLocation.addEvent(movementEvent);
 
     return {
@@ -404,7 +370,7 @@ export class WorldManager {
   }
 
   /**
-   * 生成动态位置
+   * 生成动态位置 (API 接口)
    */
   async generateDynamicLocation(
     name: string,
@@ -416,45 +382,24 @@ export class WorldManager {
       sessionId: string;
     }
   ): Promise<GameLocation> {
-    const nearbyLocations = context.nearbyLocationIds?.map(id => this.world.getLocation(id))
-      .filter(Boolean) as GameLocation[] || [];
+    const world = this.getSessionWorld(context.sessionId);
+    const nearbyLocations = context.nearbyLocationIds?.map(id => world.getLocation(id)).filter(Boolean) as GameLocation[] || [];
 
     const newLocation = await this.locationGenerationService.generateLocation(
       name,
       regionId,
-      {
-        nearbyLocations,
-        theme: context.theme,
-        purpose: context.purpose
-      }
+      { nearbyLocations, theme: context.theme, purpose: context.purpose }
     );
 
-    this.world.addLocation(newLocation);
+    world.addLocation(newLocation);
 
-    // 持久化位置到数据库
     if (this.databaseService) {
-      await this.persistLocationToDatabase(newLocation, context.sessionId).catch(error => {
-        this.logger.warn('Failed to persist location to database', error, {
-          locationId: newLocation.id,
-          component: 'WorldManager'
-        });
-      });
+      await this.persistLocationToDatabase(newLocation, context.sessionId).catch(err =>
+        this.logger.error('Failed to persist dynamic location', err)
+      );
     }
 
-    // 创建场景
-    await this.createSceneForLocation(newLocation);
-
-    // 创建位置生成事件
-    const generationEvent = this.worldEventService.createWorldEvent(
-      'location_generated',
-      `New location "${name}" has been discovered`,
-      newLocation.id,
-      [],
-      []
-    );
-
-    this.world.addGlobalEvent(generationEvent);
-
+    await this.createSceneForLocation(newLocation, context.sessionId);
     return newLocation;
   }
 
@@ -462,16 +407,14 @@ export class WorldManager {
    * 更新世界状态
    */
   updateWorldState(timeElapsed: number): void {
-    const currentTime = this.world.getCurrentTime();
+    const world = this.world;
+    const currentTime = world.getCurrentTime();
 
-    // 更新所有场景的环境因素
-    for (const location of this.world.getAllLocations()) {
-      const scenes = this.world.getScenesByLocation(location.id);
-
+    for (const location of world.getAllLocations()) {
+      const scenes = world.getScenesByLocation(location.id);
       for (const scene of scenes) {
-        const currentFactors = scene.getEnvironmentalFactors();
         const updatedFactors = this.environmentService.updateEnvironmentalFactors(
-          currentFactors,
+          scene.getEnvironmentalFactors(),
           timeElapsed,
           currentTime
         );
@@ -484,23 +427,15 @@ export class WorldManager {
    * 处理世界事件
    */
   async processWorldEvent(event: WorldEvent): Promise<void> {
-    this.logger.info(`Processing world event: ${event.type}`);
-
-    // 应用事件效果
-    this.worldEventService.applyEventEffects(event, this.world);
-
-    // 添加到相关位置
-    const location = this.world.getLocation(event.locationId);
-    if (location) {
-      location.addEvent(event);
-    }
-
-    // 添加到全局事件
-    this.world.addGlobalEvent(event);
+    const world = this.world;
+    this.worldEventService.applyEventEffects(event, world);
+    const location = world.getLocation(event.locationId);
+    if (location) location.addEvent(event);
+    world.addGlobalEvent(event);
   }
 
   /**
-   * 获取位置的完整上下文
+   * 获取位置上下文
    */
   async getLocationContext(locationId: string): Promise<{
     location: GameLocation;
@@ -509,143 +444,79 @@ export class WorldManager {
     nearbyLocations: GameLocation[];
     currentTime: GameTime;
   }> {
-    const location = this.world.getLocation(locationId);
-    if (!location) {
-      throw new Error(`Location not found: ${locationId}`);
-    }
+    const world = this.world;
+    const location = world.getLocation(locationId);
+    if (!location) throw new Error(`Location not found: ${locationId}`);
 
-    const scenes = this.world.getScenesByLocation(locationId);
-    const scene = scenes.length > 0 ? scenes[0] : null;
-    const recentEvents = location.getRecentEvents(5);
-    const nearbyLocations = this.findNearbyLocations(location, 3);
-    const currentTime = this.world.getCurrentTime();
-
+    const scenes = world.getScenesByLocation(locationId);
     return {
       location,
-      scene,
-      recentEvents,
-      nearbyLocations,
-      currentTime
+      scene: scenes.length > 0 ? scenes[0] : null,
+      recentEvents: location.getRecentEvents(5),
+      nearbyLocations: this.findNearbyLocations(location, 3),
+      currentTime: world.getCurrentTime()
     };
   }
 
-  /**
-   * 创建初始场景
-   */
   private async createInitialScenes(): Promise<void> {
-    const locations = this.world.getAllLocations();
-
-    for (const location of locations) {
+    const world = this.world;
+    for (const location of world.getAllLocations()) {
       await this.createSceneForLocation(location);
     }
   }
 
-  /**
-   * 为位置创建场景
-   */
-  private async createSceneForLocation(location: GameLocation): Promise<void> {
+  private async createSceneForLocation(location: GameLocation, sessionId?: string): Promise<void> {
+    const world = sessionId ? this.getSessionWorld(sessionId) : this.world;
+
     const environmentalFactors: EnvironmentalFactors = {
-      weather: 'sunny',
-      lighting: 'bright',
-      temperature: 20,
-      humidity: 60,
-      noiseLevel: 'moderate',
-      visibility: 100
+      weather: 'sunny', lighting: 'bright', temperature: 20, humidity: 60, noiseLevel: 'moderate', visibility: 100
     };
 
     const sceneDescription = await this.sceneDescriptionService.generateSceneDescription(
       location,
       environmentalFactors,
-      this.world.getCurrentTime()
+      world.getCurrentTime()
     );
 
-    const scene = new GameScene(
-      `scene_${location.id}`,
-      location.id,
-      `${location.name} Scene`,
-      environmentalFactors,
-      sceneDescription
-    );
-
-    this.world.addScene(scene);
+    const scene = new GameScene(`scene_${location.id}`, location.id, `${location.name} Scene`, environmentalFactors, sceneDescription);
+    world.addScene(scene);
   }
 
-  /**
-   * 生成到达描述
-   */
   private async generateArrivalDescription(location: GameLocation): Promise<string> {
     return `You arrive at ${location.name}. ${location.description}`;
   }
 
-  /**
-   * 查找附近位置
-   */
   private findNearbyLocations(centerLocation: GameLocation, radius: number): GameLocation[] {
-    const allLocations = this.world.getAllLocations();
-    const nearby: GameLocation[] = [];
-
-    for (const location of allLocations) {
-      if (location.id === centerLocation.id) continue;
-
-      const distance = this.calculateDistance(centerLocation.position, location.position);
-      if (distance <= radius * 50) { // 50 units per radius level
-        nearby.push(location);
-      }
-    }
-
-    return nearby.sort((a, b) => {
-      const distA = this.calculateDistance(centerLocation.position, a.position);
-      const distB = this.calculateDistance(centerLocation.position, b.position);
-      return distA - distB;
-    });
+    const world = this.world;
+    return world.getAllLocations()
+      .filter(loc => loc.id !== centerLocation.id)
+      .filter(loc => this.calculateDistance(centerLocation.position, loc.position) <= radius * 50)
+      .sort((a, b) => this.calculateDistance(centerLocation.position, a.position) - this.calculateDistance(centerLocation.position, b.position));
   }
 
-  /**
-   * 计算距离
-   */
   private calculateDistance(pos1: Location, pos2: Location): number {
-    const dx = pos1.x - pos2.x;
-    const dy = pos1.y - pos2.y;
-    return Math.sqrt(dx * dx + dy * dy);
+    return Math.sqrt(Math.pow(pos1.x - pos2.x, 2) + Math.pow(pos1.y - pos2.y, 2));
   }
 
-  /**
-   * 持久化位置到数据库
-   */
-  private async persistLocationToDatabase(location: GameLocation, sessionId?: string): Promise<void> {
-    if (!this.databaseService || !sessionId) {
-      return;
-    }
-
+  private async persistLocationToDatabase(location: GameLocation, sessionId: string): Promise<void> {
+    if (!this.databaseService || !sessionId) return;
     try {
-      const locationRecord = {
+      await this.databaseService.createLocation({
         id: location.id,
         session_id: sessionId,
         name: location.name,
         description: location.description,
-        location_type: location.locationType || 'general',
+        location_type: location.locationType || 'urban',
         region_id: location.regionId,
         position_x: location.position.x,
         position_y: location.position.y,
-        location_data: JSON.stringify({
+        location_data: {
           state: location.getState(),
-          connections: location.getAllConnections().map(conn => ({
-            fromLocationId: conn.fromLocationId,
-            toLocationId: conn.toLocationId,
-            connectionType: conn.connectionType,
-            direction: conn.direction,
-            travelTime: conn.travelTime
-          }))
-        })
-      };
-
-      await this.databaseService.createLocation(locationRecord);
-    } catch (error) {
-      this.logger.error('Failed to persist location to database', error as Error, {
-        locationId: location.id,
-        component: 'WorldManager'
+          connections: location.getAllConnections()
+        }
       });
-      throw error;
+    } catch (error) {
+      this.logger.error('Failed to persist location', error as Error);
     }
   }
 }

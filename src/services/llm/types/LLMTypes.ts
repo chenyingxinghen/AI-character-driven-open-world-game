@@ -88,6 +88,8 @@ export interface LLMServiceConfig {
     };
   };
   defaultProvider: LLMProvider;
+  deputyProvider?: LLMProvider;
+  deputyModel?: string;
   retryConfig: {
     maxAttempts: number;
     backoffMultiplier: number;
@@ -97,7 +99,7 @@ export interface LLMServiceConfig {
 }
 
 export interface LLMProviderAdapter {
-  generateText(prompt: string, options?: { maxTokens?: number; temperature?: number; jsonMode?: boolean; systemPrompt?: string }): Promise<string>;
+  generateText(prompt: string, options?: { maxTokens?: number; temperature?: number; jsonMode?: boolean; systemPrompt?: string; model?: string }): Promise<string>;
   generateCharacterResponse(character: any, context: any, prompt: string): Promise<LLMCharacterResponse>;
   generateDirectorDecision(context: any, evaluation: any): Promise<DirectorDecision>;
   getRateLimitStatus(): RateLimitStatus;

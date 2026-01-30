@@ -10,6 +10,7 @@ import { Logger } from '../services/Logger';
 import { LLMService } from '../services/llm/LLMService';
 import { GameContextService } from '../services/game/GameContextService';
 import { WorldLoreService } from '../services/world/WorldLoreService';
+import { EnhancedInitialSceneService } from '../services/gameMode/EnhancedInitialSceneService';
 
 import { Pipeline, ProcessingContext } from '../engine/Pipeline';
 import { IntentAnalysisLayer } from '../engine/IntentAnalysisLayer';
@@ -24,7 +25,7 @@ import { InputManager } from './input/aggregates';
 import { OperationsManager } from './operations/aggregates';
 
 // 导入值对象
-import { InputClassification } from './input/valueObjects';
+import { InputClassification, IntentType } from './input/valueObjects';
 import { Character } from './character/entities';
 import { CharacterProfile } from './character/valueObjects';
 
@@ -38,6 +39,8 @@ export interface GameContext {
   activeCharacters: string[];
   gameState: any;
   timestamp: Date;
+  worldLore?: string;
+  recentConversation?: Array<{ speaker: string, content: string }>;
 }
 
 import { GameAction } from '../engine/GameAction';
@@ -49,7 +52,11 @@ export interface DomainCoordinationResult {
   success: boolean;
   responses: {
     narrative?: string;
-    characterResponses?: string[];
+    characterResponses?: Array<{
+      characterId: string;
+      characterName: string;
+      content: string;
+    }>;
     locationDescription?: string;
     choices?: any[];
   };
@@ -73,6 +80,7 @@ export class DomainCoordinator {
   private inputManager: InputManager;
   private operationsManager: OperationsManager;
   private gameContextService?: GameContextService;
+  private enhancedInitialSceneService?: EnhancedInitialSceneService;
   private worldLoreService?: WorldLoreService;
   private pipeline: Pipeline;
 
@@ -81,7 +89,8 @@ export class DomainCoordinator {
     private logger: Logger,
     gameContextService?: GameContextService,
     private databaseService?: any,
-    worldLoreService?: WorldLoreService
+    worldLoreService?: WorldLoreService,
+    enhancedInitialSceneService?: EnhancedInitialSceneService
   ) {
     this.characterManager = new CharacterManager(llmService, logger, databaseService);
     this.worldManager = new WorldManager(llmService, logger, databaseService);
@@ -89,6 +98,7 @@ export class DomainCoordinator {
     this.operationsManager = new OperationsManager(logger);
     this.gameContextService = gameContextService;
     this.worldLoreService = worldLoreService;
+    this.enhancedInitialSceneService = enhancedInitialSceneService;
 
     // 初始化处理流水线
     this.pipeline = new Pipeline();
@@ -125,6 +135,7 @@ export class DomainCoordinator {
         stateChanges: { locationChange: gameContext.currentLocation },
         metadata: { processingTime: 0, domainsInvolved: ['input'], complexity: 0 }
       },
+      gameContext,
       metadata: { startTime, steps: [] }
     };
 
@@ -179,21 +190,144 @@ export class DomainCoordinator {
     this.logger.info(`Session state synchronization completed for: ${sessionId}`);
   }
 
+  private isValidCharacterName(name: string): boolean {
+    if (!name || name.toLowerCase() === 'none' || name.toLowerCase() === 'unknown') return false;
+
+    const pronouns = [
+      '她', '他', '它', '他们', '她们', '它们', '你', '我', '我们', '你们',
+      'she', 'her', 'he', 'him', 'it', 'they', 'them', 'you', 'i', 'me', 'we', 'us'
+    ];
+
+    // 如果名称完全匹配代词，或者是代词加上称呼（如“她那个”），则拒绝
+    const cleanName = name.trim().toLowerCase();
+    if (pronouns.includes(cleanName)) return false;
+
+    // 长度检查，通常合法的名字至少2个汉字或2个字母（排除单字称呼，但有些名字可能是单字，需谨慎）
+    // 这里主要防范单字代词
+    if (name.length === 1 && pronouns.includes(name)) return false;
+
+    return true;
+  }
+
   // 辅助方法：由 DomainExecutionLayer 调用
   private async handleSimpleScenario(analysis: any, gameContext: any, domains: string[]): Promise<any> {
     const result = { responses: {} as any, stateChanges: {} as any };
     const classification = analysis.classification;
 
-    if (classification.intent === 'dialogue') {
-      const char = await this.characterManager.getCharacter(classification.targetCharacter || 'any', gameContext.sessionId);
+    if (classification.intent === IntentType.DIALOGUE || classification.intent === IntentType.CHARACTER_INTERACTION) {
+      // 增强：从数据库或管理器中解析真正的角色
+      const targetChar = classification.targetCharacter;
+      let char = null;
+
+      if (targetChar && targetChar !== 'none') {
+        // 先尝试通过 ID 获取
+        char = await this.characterManager.getCharacter(targetChar, gameContext.sessionId);
+
+        // 如果 ID 找不到，尝试通过名称获取
+        if (!char) {
+          char = await this.characterManager.getCharacterByName(targetChar, gameContext.sessionId);
+        }
+      }
+
       if (char) {
         const charResponse = await this.characterManager.generateCharacterResponse(char, {
           input: analysis.preprocessed?.sanitizedInput || classification.extractedSpeech,
           gameContext
         });
-        result.responses.characterResponses = [charResponse];
+
+        result.responses.characterResponses = [{
+          characterId: char.id,
+          characterName: char.name,
+          content: charResponse
+        }];
+
+        // 标记涉及的域
+        if (!domains.includes('character')) {
+          domains.push('character');
+        }
+      } else if (classification.targetCharacter &&
+        classification.targetCharacter !== 'none' &&
+        this.isValidCharacterName(classification.targetCharacter) &&
+        this.enhancedInitialSceneService) {
+        // 如果指定了角色但不存在，且有生成服务，则动态新建角色
+        this.logger.info(`Character "${classification.targetCharacter}" not found, attempting dynamic creation`, {
+          sessionId: gameContext.sessionId,
+          targetCharacter: classification.targetCharacter
+        });
+
+        try {
+          const newChar = await this.enhancedInitialSceneService.generateAndSaveCharacter(
+            gameContext.sessionId,
+            gameContext.currentLocation,
+            'mysterious', // 默认角色类型
+            { name: classification.targetCharacter }
+          );
+
+          if (newChar) {
+            this.logger.info(`Dynamically created character: ${newChar.name} (${newChar.id})`);
+
+            // 重新获取角色对象（为了保证 CharacterManager 内部状态同步，或者直接用 reconstruction 如果 CharacterManager 暴露了）
+            const createdChar = await this.characterManager.getCharacter(newChar.id, gameContext.sessionId);
+
+            if (createdChar) {
+              const charResponse = await this.characterManager.generateCharacterResponse(createdChar, {
+                input: analysis.preprocessed?.sanitizedInput || classification.extractedSpeech,
+                gameContext
+              });
+
+              result.responses.characterResponses = [{
+                characterId: createdChar.id,
+                characterName: createdChar.name,
+                content: charResponse
+              }];
+
+              if (!domains.includes('character')) {
+                domains.push('character');
+              }
+            }
+          }
+        } catch (error) {
+          this.logger.error('Failed to dynamically create character:', error as Error);
+        }
+      } else {
+        // 如果找不到指定角色但有附近角色，尝试选择一个
+        const nearby = await this.characterManager.getCharactersInLocation(gameContext.currentLocation, gameContext.sessionId);
+
+        if (nearby.length > 0) {
+          let targetCharObj = nearby[0]; // 默认第一个
+
+          // 增强：如果有对话历史，尝试找到最近说话的那个人
+          if (gameContext.recentConversation && gameContext.recentConversation.length > 0) {
+            const lastSpeaker = [...gameContext.recentConversation]
+              .reverse()
+              .find(c => c.speaker !== 'Player' && c.speaker !== 'System');
+
+            if (lastSpeaker) {
+              const matchedChar = nearby.find(n => n.name === lastSpeaker.speaker);
+              if (matchedChar) {
+                targetCharObj = matchedChar;
+                this.logger.debug(`Inferred target character "${targetCharObj.name}" from conversation history`);
+              }
+            }
+          }
+
+          const charResponse = await this.characterManager.generateCharacterResponse(targetCharObj, {
+            input: analysis.preprocessed?.sanitizedInput || classification.extractedSpeech,
+            gameContext
+          });
+
+          result.responses.characterResponses = [{
+            characterId: targetCharObj.id,
+            characterName: targetCharObj.name,
+            content: charResponse
+          }];
+
+          if (!domains.includes('character')) {
+            domains.push('character');
+          }
+        }
       }
-    } else if (classification.intent === 'movement') {
+    } else if (classification.intent === IntentType.MOVEMENT) {
       const moveResult = await this.worldManager.processLocationMovement(
         gameContext.currentLocation,
         classification.targetLocation || 'unknown',
@@ -203,6 +337,10 @@ export class DomainCoordinator {
       if (moveResult.success) {
         result.stateChanges.locationChange = moveResult.newLocation?.id;
         result.responses.locationDescription = moveResult.sceneDescription;
+
+        if (!domains.includes('world')) {
+          domains.push('world');
+        }
       }
     }
 

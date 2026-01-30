@@ -8,12 +8,18 @@ import { LLMService } from '../services/llm/LLMService';
 import { DatabaseService } from '../services/database/DatabaseService';
 import { FormattedTextExtractorService } from '../services/llm/FormattedTextExtractorService';
 import { StoryEventRecord } from '../services/database/DatabaseService';
+import { promptManager } from '../prompts';
 
 export interface DirectorContext {
   sessionId: string;
   playerId: string;
   currentLocation: string;
   recentActions: string[];
+  recentStoryEvents?: Array<{
+    type: string;
+    description: string;
+    timestamp: Date;
+  }>;
   storyState: any;
   characterStates: Record<string, any>;
   currentTime: Date;
@@ -25,6 +31,7 @@ export interface DirectorDecision {
   content: string;
   effectiveness: number;
   parameters: Record<string, any>;
+  characterParams?: any;
 }
 
 export interface InterventionResult {
@@ -52,6 +59,7 @@ export class SimplifiedDirectorEngine {
     type: "object",
     properties: {
       shouldIntervene: { type: "boolean" },
+      stagnationLevel: { type: "number", minimum: 0, maximum: 100 },
       conflictEvaluation: {
         type: "object",
         properties: {
@@ -70,11 +78,20 @@ export class SimplifiedDirectorEngine {
           },
           content: { type: "string" },
           targetActorId: { type: "string" },
-          priority: { type: "number", minimum: 1, maximum: 10 }
+          priority: { type: "number", minimum: 1, maximum: 10 },
+          characterParams: {
+            type: "object",
+            properties: {
+              name: { type: "string" },
+              role: { type: "string" },
+              appearance: { type: "string" },
+              personalityHint: { type: "string" }
+            }
+          }
         }
       }
     },
-    required: ["shouldIntervene", "conflictEvaluation"]
+    required: ["shouldIntervene", "conflictEvaluation", "stagnationLevel"]
   };
 
   /**
@@ -83,16 +100,21 @@ export class SimplifiedDirectorEngine {
   async evaluateStoryProgression(context: DirectorContext): Promise<{
     shouldIntervene: boolean;
     decision?: DirectorDecision;
+    stagnationLevel: number;
   }> {
     try {
-      const prompt = `As a Game Director AI, evaluate the current story progression and tension.
-Current Game State:
-Location: ${context.currentLocation}
-Recent Actions: ${context.recentActions.join(', ')}
-Story State: ${JSON.stringify(context.storyState)}
-Character States: ${JSON.stringify(context.characterStates)}
+      const recentEventsText = context.recentStoryEvents
+        ? context.recentStoryEvents.map(e => `- [${e.timestamp.toISOString()}] ${e.type}: ${e.description}`).join('\n')
+        : 'None';
 
-Evaluate if a narrative intervention is needed to maintain engagement or drive the conflict forward.`;
+      const prompt = promptManager.generate('director.evaluate_story_progression', {
+        currentLocation: context.currentLocation,
+        recentActions: context.recentActions.join(', '),
+        recentEventsText,
+        storyState: JSON.stringify(context.storyState),
+        characterStates: JSON.stringify(context.characterStates),
+        currentTime: context.currentTime.toISOString()
+      });
 
       const result = await this.llmService.generateStructuredResponse(
         prompt,
@@ -101,7 +123,11 @@ Evaluate if a narrative intervention is needed to maintain engagement or drive t
       );
 
       if (!result.shouldIntervene) {
-        return { shouldIntervene: false, decision: result };
+        return {
+          shouldIntervene: false,
+          decision: undefined,
+          stagnationLevel: result.stagnationLevel || 0
+        };
       }
 
       const decision: DirectorDecision = {
@@ -109,16 +135,21 @@ Evaluate if a narrative intervention is needed to maintain engagement or drive t
         interventionType: result.intervention?.type || 'event_generation',
         content: result.intervention?.content || '',
         effectiveness: result.conflictEvaluation?.currentTension || 50,
+        characterParams: result.intervention?.characterParams,
         parameters: {
           ...result.intervention,
           ...result.conflictEvaluation
         }
       };
 
-      return { shouldIntervene: true, decision };
+      return {
+        shouldIntervene: true,
+        decision,
+        stagnationLevel: result.stagnationLevel || 0
+      };
     } catch (error) {
       this.logger.error('Error evaluating story progression (structured):', error as Error);
-      return { shouldIntervene: false };
+      return { shouldIntervene: false, stagnationLevel: 0 };
     }
   }
 

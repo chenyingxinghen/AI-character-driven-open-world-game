@@ -82,6 +82,8 @@ export enum IntentType {
   INVENTORY_ACTION = 'inventory_action',
   COMBAT = 'combat',
   INFORMATION_QUERY = 'information_query',
+  GUIDANCE_REQUEST = 'guidance_request',
+  SYSTEM_HELP = 'system_help',
   COMPLEX_SCENARIO = 'complex_scenario',
   UNKNOWN = 'unknown'
 }

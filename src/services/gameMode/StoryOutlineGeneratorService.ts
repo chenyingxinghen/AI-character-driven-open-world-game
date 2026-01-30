@@ -10,6 +10,7 @@ import { DatabaseService } from '../database/DatabaseService';
 import { FormattedTextExtractorService } from '../llm/FormattedTextExtractorService';
 import { v4 as uuidv4 } from 'uuid';
 import { JsonUtils } from '../../utils/JsonUtils';
+import { promptManager } from '../../prompts';
 
 // 剧情大纲接口
 export interface StoryOutline {
@@ -210,21 +211,9 @@ export class StoryOutlineGeneratorService {
       `[${lore.loreType}] ${lore.title}: ${lore.content}`
     ).join('\n\n');
 
-    const analysisPrompt = `分析以下世界背景故事，提取关键要素用于剧情大纲生成。
-请以 JSON 格式返回分析结果：
-
-${combinedLore}
-
-返回 JSON 格式要求：
-{
-  "keyElements": ["元素1", "元素2", "元素3"],
-  "themes": ["主题1", "主题2", "主题3"],
-  "conflicts": ["冲突1", "冲突2", "冲突3"],
-  "characters": ["角色/势力1", "角色/势力2", "角色/势力3"],
-  "locations": ["地点1", "地点2", "地点3"],
-  "tone": "整体基调描述"
-}
-请直接返回 JSON，要求简洁准确。`;
+    const analysisPrompt = promptManager.generate('story.analyze_world_lore', {
+      combinedLore
+    });
 
     try {
       const response = await this.llmService.generateText(analysisPrompt, {
@@ -260,28 +249,13 @@ ${combinedLore}
     characterArcs: string[];
     acts: StoryAct[];
   }> {
-    const frameworkPrompt = `基于世界分析结果，创建一个适合${params.gameMode === 'script' ? '剧本模式' : '引导自由模式'}的故事框架。
-玩家偏好：${params.playerPreferences?.preferredGenre || '冒险'}，目标时长：${params.playerPreferences?.targetDuration || 90}分钟。
-
-世界关键信息：
-- 元素：${worldAnalysis.keyElements.join(', ')}
-- 基调：${worldAnalysis.tone}
-
-请以 JSON 格式返回故事框架：
-{
-  "mainConflict": "核心对立和张力描述",
-  "turningPoints": ["转折点1", "转折点2"],
-  "characterArcs": ["角色弧线1", "角色弧线2"],
-  "acts": [
-    {
-      "title": "章节标题",
-      "summary": "章节概要",
-      "keyEvents": ["事件1", "事件2"],
-      "expectedOutcomes": ["结果1", "结果2"]
-    }
-  ]
-}
-要求简洁、逻辑连贯。直接返回 JSON。`;
+    const frameworkPrompt = promptManager.generate('story.generate_framework', {
+      gameMode: params.gameMode || 'script',
+      preferredGenre: params.playerPreferences?.preferredGenre || '冒险',
+      targetDuration: params.playerPreferences?.targetDuration || 90,
+      keyElements: worldAnalysis.keyElements,
+      tone: worldAnalysis.tone
+    });
 
     try {
       const response = await this.llmService.generateText(frameworkPrompt, {
@@ -295,7 +269,7 @@ ${combinedLore}
       // 为 acts 补齐必要信息（如 ID 和预估时长）
       const acts = (data.acts || []).map((act: any, index: number) => ({
         ...act,
-        id: `act_${index + 1}_${uuidv4()}`,
+        id: uuidv4(),
         actNumber: index + 1,
         estimatedDuration: Math.floor((params.playerPreferences?.targetDuration || 90) / (data.acts?.length || 3))
       }));
@@ -324,30 +298,11 @@ ${combinedLore}
       `ACT ${index + 1}: ${act.title} - ${act.summary}\nKEY EVENTS: ${act.keyEvents.join(', ')}`
     ).join('\n\n');
 
-    const systemPrompt = `You are a master screenwriter. Your task is to generate detailed plot points for a structured narrative.
-You MUST respond with a valid JSON object matching this structure:
-{
-  "allPlotPoints": [
-    {
-      "actNumber": 1,
-      "points": [
-        {
-          "title": "Plot Point Title",
-          "description": "Detailed description",
-          "type": "introduction|conflict|climax|resolution|transition",
-          "expectedPlayerActions": ["action 1", "action 2"],
-          "possibleOutcomes": ["outcome 1", "outcome 2"],
-          "directorNotes": "Guidance for the director"
-        }
-      ]
-    }
-  ]
-}`;
-
-    const prompt = `Based on the following acts, generate 4-6 detailed plot points for EACH act:
-${actsInfo}
-
-Ensure narrative flow, creativity, and logic. Directly return the JSON.`;
+    const prompt = promptManager.generate('story.generate_plot_points', {
+      actsInfo
+    });
+    const template = promptManager.getTemplate('story.generate_plot_points');
+    const systemPrompt = template?.systemPrompt;
 
     try {
       const response = await this.llmService.generateText(prompt, {
@@ -367,7 +322,7 @@ Ensure narrative flow, creativity, and logic. Directly return the JSON.`;
 
         const points = (actGroup.points || []).map((pp: any, index: number) => ({
           ...pp,
-          id: `pp_${actGroup.actNumber}_${index + 1}_${uuidv4()}`,
+          id: uuidv4(),
           actId: act.id,
           sequence: index + 1
         }));
@@ -400,24 +355,11 @@ Ensure narrative flow, creativity, and logic. Directly return the JSON.`;
     actNumber: number,
     params: StoryOutlineGenerationParams
   ): Promise<PlotPoint[]> {
-    const plotPointPrompt = `为章节 "${act.title}" 生成 4-6 个详细剧情点。
-章节任务：${act.summary}
-关键点：${act.keyEvents.join(', ')}
-
-请以 JSON 格式返回列表：
-{
-  "plotPoints": [
-    {
-      "title": "剧情点标题",
-      "description": "详细描述",
-      "type": "introduction|conflict|climax|resolution|transition",
-      "expectedPlayerActions": ["行动1", "行动2"],
-      "possibleOutcomes": ["结果1", "结果2"],
-      "directorNotes": "给导演的引导建议"
-    }
-  ]
-}
-直接返回 JSON。`;
+    const plotPointPrompt = promptManager.generate('story.generate_act_plot_points', {
+      title: act.title,
+      summary: act.summary,
+      keyEvents: act.keyEvents
+    });
 
     try {
       const response = await this.llmService.generateText(plotPointPrompt, {
@@ -429,7 +371,7 @@ Ensure narrative flow, creativity, and logic. Directly return the JSON.`;
       const data = JsonUtils.extractJson<any>(response || '{}');
       return (data.plotPoints || []).map((pp: any, index: number) => ({
         ...pp,
-        id: `pp_${actNumber}_${index + 1}_${uuidv4()}`,
+        id: uuidv4(),
         actId: act.id,
         sequence: index + 1
       }));
@@ -449,27 +391,12 @@ Ensure narrative flow, creativity, and logic. Directly return the JSON.`;
       `[${p.id}] "${p.title}": ${p.description} (Type: ${p.type})`
     ).join('\n');
 
-    const systemPrompt = `You are a specialized game director assistant. Provide detailed guidance for plot points.
-Response MUST be a JSON object:
-{
-  "guidanceList": [
-    {
-      "plotPointId": "id from input",
-      "guidance": "Core principle",
-      "interventionTriggers": ["trigger 1", "trigger 2"],
-      "suggestedApproaches": ["approach 1", "approach 2"],
-      "backupPlans": ["backup 1", "backup 2"]
-    }
-  ]
-}`;
-
-    const prompt = `Provide director guidance for the following plot points in the context of the world analysis:
-WORLD ANALYSIS: ${JSON.stringify(worldAnalysis).substring(0, 1000)}...
-
-PLOT POINTS:
-${pointsInfo}
-
-Return detailed guidance for EACH point. JSON only.`;
+    const prompt = promptManager.generate('story.generate_director_guidance', {
+      worldAnalysis: JSON.stringify(worldAnalysis).substring(0, 1000),
+      pointsInfo
+    });
+    const template = promptManager.getTemplate('story.generate_director_guidance');
+    const systemPrompt = template?.systemPrompt;
 
     try {
       const response = await this.llmService.generateText(prompt, {
@@ -501,7 +428,7 @@ Return detailed guidance for EACH point. JSON only.`;
     plotPoint: PlotPoint,
     worldAnalysis: any
   ): Promise<DirectorGuidancePoint> {
-    const guidancePrompt = `为剧情点 "${plotPoint.title}" 提供导演指导 JSON。`;
+    const guidancePrompt = promptManager.generate('story.generate_plot_point_guidance_individual', { title: plotPoint.title });
     try {
       const response = await this.llmService.generateText(guidancePrompt, { jsonMode: true });
       const data = JsonUtils.extractJson<any>(response || '{}');
@@ -532,7 +459,7 @@ Return detailed guidance for EACH point. JSON only.`;
     const summary = framework.summary || `在这个故事中，玩家将面对${framework.mainConflict}，经历多个重要转折点，最终实现成长和目标。`;
 
     return {
-      id: `story_outline_${uuidv4()}`,
+      id: uuidv4(),
       sessionId: params.sessionId,
       title,
       genre: params.playerPreferences?.preferredGenre || 'adventure',
@@ -554,20 +481,12 @@ Return detailed guidance for EACH point. JSON only.`;
     outline: StoryOutline,
     params: StoryOutlineGenerationParams
   ): Promise<StoryOutlineResult['validationReport']> {
-    const validationPrompt = `对剧情大纲进行评估：
-- 标题：${outline.title} - ${outline.genre}
-- 结构：${outline.acts.length}章节, ${outline.plotPoints.length}剧情点
-
-请以 JSON 格式返回验证结果：
-{
-  "coherenceScore": 80,
-  "worldConsistency": 85,
-  "playerEngagement": 75,
-  "adaptabilityScore": 70,
-  "issues": ["例：章节逻辑断层"],
-  "recommendations": ["例：补充过渡剧情"]
-}
-直接返回 JSON。`;
+    const validationPrompt = promptManager.generate('story.validate_outline', {
+      title: outline.title,
+      genre: outline.genre,
+      actsCount: outline.acts.length,
+      pointsCount: outline.plotPoints.length
+    });
 
     try {
       const response = await this.llmService.generateText(validationPrompt, {
@@ -698,7 +617,7 @@ Return detailed guidance for EACH point. JSON only.`;
     }
 
     return acts.map((act: any, index: number) => ({
-      id: `act_${index + 1}_${uuidv4()}`,
+      id: uuidv4(),
       actNumber: index + 1,
       title: act.title || `第${index + 1}章`,
       summary: act.summary || '',
@@ -712,7 +631,7 @@ Return detailed guidance for EACH point. JSON only.`;
     const totalDuration = params.playerPreferences?.targetDuration || 90;
     return [
       {
-        id: `act_1_${uuidv4()}`,
+        id: uuidv4(),
         actNumber: 1,
         title: '开始',
         summary: '引入世界和角色，建立初始目标',
@@ -721,7 +640,7 @@ Return detailed guidance for EACH point. JSON only.`;
         estimatedDuration: Math.floor(totalDuration * 0.3)
       },
       {
-        id: `act_2_${uuidv4()}`,
+        id: uuidv4(),
         actNumber: 2,
         title: '发展',
         summary: '深入探索，遇到挑战和冲突',
@@ -730,7 +649,7 @@ Return detailed guidance for EACH point. JSON only.`;
         estimatedDuration: Math.floor(totalDuration * 0.4)
       },
       {
-        id: `act_3_${uuidv4()}`,
+        id: uuidv4(),
         actNumber: 3,
         title: '高潮与结局',
         summary: '面对最终挑战，达成结局',
@@ -791,7 +710,7 @@ Return detailed guidance for EACH point. JSON only.`;
     const guidance = typeBasedGuidance[plotPoint.type] || typeBasedGuidance['transition'];
 
     return {
-      id: `guidance_${plotPoint.id}`,
+      id: uuidv4(),
       plotPointId: plotPoint.id,
       guidance: guidance.guidance,
       interventionTriggers: guidance.triggers,
@@ -806,7 +725,7 @@ Return detailed guidance for EACH point. JSON only.`;
   private generateFallbackPlotPoints(act: StoryAct, actNumber: number): PlotPoint[] {
     return [
       {
-        id: `plot_${actNumber}_1_${uuidv4()}`,
+        id: uuidv4(),
         actId: act.id,
         sequence: 1,
         title: `${act.title} - 开始`,
@@ -850,7 +769,7 @@ Return detailed guidance for EACH point. JSON only.`;
   private generateFallbackCharacters(framework: any): StoryCharacter[] {
     return [
       {
-        id: `character_1_${uuidv4()}`,
+        id: uuidv4(),
         name: '主角',
         role: 'protagonist',
         background: '一个勇敢的冒险者',
@@ -859,7 +778,7 @@ Return detailed guidance for EACH point. JSON only.`;
         appearanceActs: [1, 2, 3]
       },
       {
-        id: `character_2_${uuidv4()}`,
+        id: uuidv4(),
         name: '向导',
         role: 'supporting',
         background: '经验丰富的向导',
@@ -868,7 +787,7 @@ Return detailed guidance for EACH point. JSON only.`;
         appearanceActs: [1, 2]
       },
       {
-        id: `character_3_${uuidv4()}`,
+        id: uuidv4(),
         name: '对手',
         role: 'antagonist',
         background: '神秘的反派角色',
@@ -885,7 +804,7 @@ Return detailed guidance for EACH point. JSON only.`;
   private generateFallbackLocations(framework: any): StoryLocation[] {
     return [
       {
-        id: `location_1_${uuidv4()}`,
+        id: uuidv4(),
         name: '起始之地',
         type: '城镇',
         significance: 'major',
@@ -893,7 +812,7 @@ Return detailed guidance for EACH point. JSON only.`;
         usedInActs: [1]
       },
       {
-        id: `location_2_${uuidv4()}`,
+        id: uuidv4(),
         name: '神秘森林',
         type: '自然环境',
         significance: 'major',
@@ -901,7 +820,7 @@ Return detailed guidance for EACH point. JSON only.`;
         usedInActs: [2]
       },
       {
-        id: `location_3_${uuidv4()}`,
+        id: uuidv4(),
         name: '最终目标',
         type: '特殊地点',
         significance: 'major',

@@ -1,7 +1,7 @@
 {
   "name": "ai-character-driven-open-world-game-refactor",
   "version": "1.0.0",
-  "description": "重构版本的AI驱动开放世界叙事游戏",
+  "description": "AI驱动开放世界叙事游戏",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc -p tsconfig.json",

@@ -8,15 +8,15 @@ class MockLogger {
   debug(message: string, meta?: any): void {
     console.log(`[DEBUG] ${message}`, meta);
   }
-  
+
   info(message: string, meta?: any): void {
     console.log(`[INFO] ${message}`, meta);
   }
-  
+
   warn(message: string, meta?: any): void {
     console.log(`[WARN] ${message}`, meta);
   }
-  
+
   error(message: string, error?: Error, meta?: any): void {
     console.log(`[ERROR] ${message}`, error, meta);
   }
@@ -38,15 +38,14 @@ describe('SimplifiedDirectorEngine', () => {
   describe('evaluateStoryProgression', () => {
     it('should not intervene when LLM returns no intervention', async () => {
       // Mock LLM to return no intervention
-      jest.spyOn(mockLLMService, 'generateText').mockResolvedValue(`
-=== DIRECTOR_EVALUATION ===
-SHOULD_INTERVENE: false
-INTERVENTION_TYPE: none
-CONTENT: Current story progression is fine
-EFFECTIVENESS: 90
-PARAMETERS: {}
-=== END_EVALUATION ===
-      `);
+      jest.spyOn(mockLLMService, 'generateStructuredResponse').mockResolvedValue({
+        shouldIntervene: false,
+        stagnationLevel: 10,
+        conflictEvaluation: {
+          currentTension: 20,
+          primaryConflict: 'None'
+        }
+      });
 
       const context = {
         sessionId: 'test-session',
@@ -60,19 +59,29 @@ PARAMETERS: {}
 
       const result = await directorEngine.evaluateStoryProgression(context);
       expect(result.shouldIntervene).toBe(false);
+      expect(result.stagnationLevel).toBe(10);
     });
 
     it('should intervene when LLM returns intervention decision', async () => {
       // Mock LLM to return intervention decision
-      jest.spyOn(mockLLMService, 'generateText').mockResolvedValue(`
-=== DIRECTOR_EVALUATION ===
-SHOULD_INTERVENE: true
-INTERVENTION_TYPE: dialogue_guidance
-CONTENT: Player seems lost, provide guidance through NPC dialogue
-EFFECTIVENESS: 85
-PARAMETERS: {"targetCharacter": "wise_old_man"}
-=== END_EVALUATION ===
-      `);
+      jest.spyOn(mockLLMService, 'generateStructuredResponse').mockResolvedValue({
+        shouldIntervene: true,
+        stagnationLevel: 85,
+        conflictEvaluation: {
+          currentTension: 30,
+          primaryConflict: 'Stagnation'
+        },
+        intervention: {
+          type: 'character_introduction',
+          content: 'Introduce a new character to spice things up',
+          characterParams: {
+            name: 'Mysterious Stranger',
+            role: 'guide',
+            appearance: 'Cloaked figure',
+            personalityHint: 'Helpful but cryptic'
+          }
+        }
+      });
 
       const context = {
         sessionId: 'test-session',
@@ -85,12 +94,13 @@ PARAMETERS: {"targetCharacter": "wise_old_man"}
       };
 
       const result = await directorEngine.evaluateStoryProgression(context);
-      
+
       expect(result.shouldIntervene).toBe(true);
       expect(result.decision).toBeDefined();
-      expect(result.decision?.interventionType).toBe('dialogue_guidance');
-      expect(result.decision?.content).toBe('Player seems lost, provide guidance through NPC dialogue');
-      expect(result.decision?.effectiveness).toBe(85);
+      expect(result.decision?.interventionType).toBe('character_introduction');
+      expect(result.decision?.characterParams).toBeDefined();
+      expect(result.decision?.characterParams.name).toBe('Mysterious Stranger');
+      expect(result.stagnationLevel).toBe(85);
     });
   });
 
@@ -118,10 +128,10 @@ PARAMETERS: {"targetCharacter": "wise_old_man"}
       };
 
       const result = await directorEngine.executeIntervention(decision, context);
-      
+
       expect(result.success).toBe(true);
       expect(storeStoryEventSpy).toHaveBeenCalled();
-      
+
       // Verify the stored event has the correct structure
       const callArgs = storeStoryEventSpy.mock.calls[0][0];
       expect(callArgs.session_id).toBe('test-session');

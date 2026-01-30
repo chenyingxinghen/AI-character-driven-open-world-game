@@ -1,4 +1,5 @@
 import { LLMProviderAdapter, LLMCharacterResponse, DirectorDecision, RateLimitStatus, LLMProvider } from '../types/LLMTypes';
+import { promptManager } from '../../../prompts';
 
 export interface OllamaConfig {
   baseUrl: string;
@@ -25,7 +26,7 @@ export class OllamaProvider implements LLMProviderAdapter {
     };
   }
 
-  async generateText(prompt: string, options?: { maxTokens?: number; temperature?: number; jsonMode?: boolean; systemPrompt?: string }): Promise<string> {
+  async generateText(prompt: string, options?: { maxTokens?: number; temperature?: number; jsonMode?: boolean; systemPrompt?: string; model?: string }): Promise<string> {
     const maxRetries = 3;
     let lastError: any;
 
@@ -43,7 +44,7 @@ export class OllamaProvider implements LLMProviderAdapter {
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
         const requestBody: any = {
-          model: this.config.model,
+          model: options?.model || this.config.model,
           prompt: fullPrompt,
           stream: false,
           options: {
@@ -92,18 +93,13 @@ export class OllamaProvider implements LLMProviderAdapter {
   }
 
   async generateCharacterResponse(character: any, context: any, prompt: string): Promise<LLMCharacterResponse> {
-    const characterPrompt = `
-You are ${character.name}, a character with the following personality: ${JSON.stringify(character.personality)}.
-Current emotional state: ${JSON.stringify(character.emotionalState)}.
-Context: ${JSON.stringify(context)}
-Player says: ${prompt}
-
-Please respond as the character. Format your response as follows:
-DIALOGUE: [Your response as the character]
-EMOTION_MOOD: [current mood]
-EMOTION_INTENSITY: [0-100]
-CONFIDENCE: [0.0-1.0]
-    `;
+    const characterPrompt = promptManager.generate('system.ollama_character_response', {
+      name: character.name,
+      personality: JSON.stringify(character.personality),
+      emotionalState: JSON.stringify(character.emotionalState),
+      context: JSON.stringify(context),
+      prompt
+    });
 
     const maxRetries = 3;
     let lastError: any;
@@ -162,17 +158,10 @@ CONFIDENCE: [0.0-1.0]
   }
 
   async generateDirectorDecision(context: any, evaluation: any): Promise<DirectorDecision> {
-    const directorPrompt = `
-You are the game director making narrative decisions.
-Context: ${JSON.stringify(context)}
-Evaluation: ${JSON.stringify(evaluation)}
-
-Analyze the situation and decide on the next narrative action. Format your response as follows:
-ACTION: [CONTINUE|ADVANCE_PLOT|INTRODUCE_CONFLICT|etc]
-REASONING: [explanation of the decision]
-CONFIDENCE: [0.0-1.0]
-PARAMETERS: [key1=value1,key2=value2]
-    `;
+    const directorPrompt = promptManager.generate('system.ollama_director_decision', {
+      context: JSON.stringify(context),
+      evaluation: JSON.stringify(evaluation)
+    });
 
     const maxRetries = 3;
     let lastError: any;

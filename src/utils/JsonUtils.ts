@@ -18,18 +18,18 @@ export class JsonUtils {
             // 继续尝试提取逻辑
         }
 
-        // 2. 查找 JSON 代码块标记 ```json ... ```
-        const codeBlockMatch = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
-        if (codeBlockMatch && codeBlockMatch[1]) {
-            try {
-                return JSON.parse(codeBlockMatch[1]) as T;
-            } catch (e) {
-                // 如果代码块内仍然解析失败，尝试进一步提取
+        // 2. 查找所有 JSON 代码块标记 ```json ... ```
+        const codeBlockRegex = /```(?:json)?\s*([\s\S]*?)\s*```/g;
+        let match;
+        const candidates: string[] = [];
+
+        while ((match = codeBlockRegex.exec(text)) !== null) {
+            if (match[1]) {
+                candidates.push(match[1]);
             }
         }
 
-        // 3. 平衡括号搜索（最鲁棒的方法）
-        const candidates: string[] = [];
+        // 3. 平衡括号搜索（补充，如果代码块没找到或者提取不全）
         let stack = 0;
         let start = -1;
         let firstChar = '';
@@ -54,12 +54,27 @@ export class JsonUtils {
             }
         }
 
-        // 尝试解析找到的所有候选者
-        for (const candidate of candidates) {
+        // 尝试解析找到的所有候选者（逆序尝试，因为 LLM 通常在最后给出答案）
+        for (let i = candidates.length - 1; i >= 0; i--) {
+            const candidate = candidates[i];
             try {
                 // 移除控制字符并解析
                 const cleaned = candidate.replace(/[\u0000-\u001F\u007F-\u009F]/g, "").trim();
-                return JSON.parse(cleaned) as T;
+                const parsed = JSON.parse(cleaned) as T;
+
+                // 增强启发式：如果解析结果看起来非常像一个 JSON Schema 而不是数据
+                const looksLikeSchema = i > 0 &&
+                    typeof parsed === 'object' &&
+                    parsed !== null &&
+                    ((parsed as any).type === 'object' || (parsed as any).type === 'string') &&
+                    ((parsed as any).properties !== undefined || (parsed as any).enum !== undefined || (parsed as any).minimum !== undefined);
+
+                if (looksLikeSchema) {
+                    console.log('Skipping schema-like JSON candidate, looking for data-like one...');
+                    continue;
+                }
+
+                return parsed;
             } catch (e) {
                 // 继续尝试下一个候选者
             }

@@ -6,8 +6,8 @@
 import { Logger } from '../../services/Logger';
 import { LLMService } from '../../services/llm/LLMService';
 import { InputSession, InputClassifier, ComplexScenarioProcessor } from './entities';
-import { 
-  InputClassification, 
+import {
+  InputClassification,
   ComplexScenarioAnalysis,
   ChoiceDetectionResult,
   PreprocessedInput,
@@ -19,7 +19,7 @@ import {
   EmotionalTone,
   UrgencyLevel
 } from './valueObjects';
-import { 
+import {
   InputPreprocessingService,
   EntityExtractionService,
   IntentClassificationService,
@@ -37,14 +37,14 @@ export class InputManager {
   private sessions: Map<string, InputSession> = new Map();
   private classifier: InputClassifier;
   private complexProcessor: ComplexScenarioProcessor;
-  
+
   private preprocessingService: InputPreprocessingService;
   private entityExtractionService: EntityExtractionService;
   private intentClassificationService: IntentClassificationService;
   private unifiedInputClassificationService: UnifiedInputClassificationService;
   private complexAnalysisService: ComplexScenarioAnalysisService;
   private choiceDetectionService: ChoiceDetectionService;
-  
+
   constructor(
     private llmService: LLMService,
     private logger: Logger,
@@ -52,7 +52,7 @@ export class InputManager {
   ) {
     this.classifier = new InputClassifier('main_classifier', 'Enhanced Classifier', '1.0.0');
     this.complexProcessor = new ComplexScenarioProcessor('main_processor', 10);
-    
+
     this.preprocessingService = new InputPreprocessingService(logger);
     this.entityExtractionService = new EntityExtractionService(llmService, logger);
     this.intentClassificationService = new IntentClassificationService(llmService, logger, gameContextService);
@@ -95,10 +95,10 @@ export class InputManager {
 
     // 1. 获取会话
     const session = this.getOrCreateSession(sessionId, playerId);
-    
+
     // 2. 预处理输入
     const preprocessed = this.preprocessingService.preprocessInput(rawInput);
-    
+
     // 3. 提取实体
     const entities = await this.entityExtractionService.extractEntities(
       preprocessed.sanitizedInput,
@@ -112,15 +112,10 @@ export class InputManager {
     const contextHistory = session.getContextHistory(5);
 
     // 5. 使用统一输入分类服务进行主要分类
-    const inputClassificationResult = await this.unifiedInputClassificationService.classifyInputLegacy(
+    const inputClassificationResult = await this.unifiedInputClassificationService.classifyInput(
       preprocessed.sanitizedInput,
-      {
-        sessionId,
-        recentConversation: contextHistory.conversationFlow.map(cf => cf.playerInput),
-        currentLocation: context?.currentLocation || 'unknown',
-        nearbyCharacters: context?.knownCharacters || [],
-        pendingActions: context?.recentEvents || []
-      }
+      sessionId,
+      playerId
     );
 
     // 6. 如果输入分类置信度较低，使用意图识别作为补充
@@ -140,7 +135,7 @@ export class InputManager {
         sessionId,
         playerId
       );
-      
+
       // 如果意图识别置信度更高，使用其结果
       if (fallbackIntentResult.confidence > intentResult.confidence) {
         intentResult = {
@@ -188,7 +183,7 @@ export class InputManager {
         preprocessed.sanitizedInput,
         classification
       );
-      
+
       if (complexAnalysis.isComplex) {
         this.complexProcessor.recordProcessedScenario(complexAnalysis);
       }
@@ -297,7 +292,7 @@ export class InputManager {
    */
   cleanupExpiredSessions(maxAgeHours: number = 24): void {
     const cutoffTime = new Date(Date.now() - maxAgeHours * 60 * 60 * 1000);
-    
+
     for (const [sessionId, session] of this.sessions.entries()) {
       if (session.startTime < cutoffTime) {
         this.cleanupSession(sessionId);
@@ -324,7 +319,7 @@ export class InputManager {
     const totalSessions = this.sessions.size;
     const currentTime = new Date();
     const oneHourAgo = new Date(currentTime.getTime() - 60 * 60 * 1000);
-    
+
     let activeSessions = 0;
     const intentCounts: Record<string, number> = {};
     const complexityCounts: Record<string, number> = { low: 0, medium: 0, high: 0 };
@@ -332,7 +327,7 @@ export class InputManager {
 
     for (const session of this.sessions.values()) {
       const recentClassifications = session.getRecentClassifications(10);
-      
+
       // 检查活跃会话
       if (recentClassifications.length > 0) {
         const lastActivity = session.getContextHistory(1).conversationFlow[0]?.timestamp;
@@ -344,7 +339,7 @@ export class InputManager {
       // 统计意图分布
       for (const classification of recentClassifications) {
         intentCounts[classification.intent] = (intentCounts[classification.intent] || 0) + 1;
-        
+
         // 复杂度分布
         if (classification.complexity <= 3) {
           complexityCounts.low++;
@@ -373,24 +368,24 @@ export class InputManager {
    */
   private calculateComplexity(preprocessed: any, classificationResult: any): number {
     let complexity = 1;
-    
+
     // 基于输入长度
     if (preprocessed.sanitizedInput.length > 50) complexity += 1;
     if (preprocessed.sanitizedInput.length > 100) complexity += 2;
-    
+
     // 基于分类置信度（低置信度可能表示复杂输入）
     if (classificationResult.confidence < 70) complexity += 1;
-    
+
     // 基于是否包含复合动作
     if (classificationResult.isCompoundAction) complexity += 2;
-    
+
     // 基于包含的动作词数量
     const actionWords = ['去', '走', '说', '看', '拿', '使用', 'go', 'walk', 'say', 'look', 'take', 'use'];
-    const actionCount = actionWords.filter(word => 
+    const actionCount = actionWords.filter(word =>
       preprocessed.sanitizedInput.toLowerCase().includes(word)
     ).length;
     complexity += actionCount;
-    
+
     return Math.min(complexity, 10);
   }
 

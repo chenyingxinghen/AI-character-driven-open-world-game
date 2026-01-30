@@ -20,7 +20,7 @@ export class DynamicLocationService {
   constructor(
     private llmService: LLMService,
     private logger: Logger
-  ) {}
+  ) { }
 
   /**
    * 动态生成位置定义
@@ -36,7 +36,7 @@ export class DynamicLocationService {
     try {
       // 生成位置ID
       const locationId = this.generateLocationId(locationName);
-      
+
       // 使用LLM生成位置描述
       const prompt = FormattedTextGenerator.generateLocationCreationPrompt(locationName, {
         currentLocation: context.currentLocation,
@@ -121,7 +121,7 @@ export class DynamicLocationService {
       .replace(/[_]+/g, '_')
       .replace(/^_|_$/g, '');
 
-    return `dynamic_${simplifiedName}_${Date.now()}`;
+    return `dynamic_${simplifiedName}`;
   }
 
   /**
@@ -156,8 +156,8 @@ export class DynamicLocationService {
    * 生成位置连接
    */
   private generateConnections(
-    locationId: string, 
-    currentLocation: string, 
+    locationId: string,
+    currentLocation: string,
     existingLocations: string[]
   ): string[] {
     const connections = [currentLocation]; // 总是连接到当前位置

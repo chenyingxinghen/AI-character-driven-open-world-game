@@ -7,29 +7,49 @@ CREATE DATABASE ai_narrative_game;
 
 -- Create tables in the correct order to handle dependencies
 -- 1. First, create tables with no foreign key dependencies
+CREATE TABLE IF NOT EXISTS users (
+    id VARCHAR(36) PRIMARY KEY,
+    username VARCHAR(100) UNIQUE NOT NULL,
+    preferences JSONB,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS game_sessions (
     id VARCHAR(36) PRIMARY KEY,
+    user_id VARCHAR(36) REFERENCES users(id) ON DELETE CASCADE,
+    session_name VARCHAR(200) DEFAULT '新的游戏存档',
+    session_description TEXT,
+    player_id VARCHAR(36),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    player_id VARCHAR(36),
     game_state JSONB,
-    is_active BOOLEAN DEFAULT true
+    is_active BOOLEAN DEFAULT true,
+    current_location VARCHAR(100) DEFAULT 'town_square',
+    world_style VARCHAR(50) DEFAULT 'fantasy',
+    difficulty VARCHAR(20) DEFAULT 'normal',
+    inspiration TEXT,
+    play_time_minutes INTEGER DEFAULT 0,
+    total_actions INTEGER DEFAULT 0,
+    session_tags TEXT[]
 );
 
 -- 2. Create tables that depend on game_sessions
 CREATE TABLE IF NOT EXISTS characters (
-    id VARCHAR(36) PRIMARY KEY,
-    session_id VARCHAR(36) REFERENCES game_sessions(id),
+    id VARCHAR(36),
+    session_id VARCHAR(36) REFERENCES game_sessions(id) ON DELETE CASCADE,
     name VARCHAR(100) NOT NULL,
     personality JSONB,
     background TEXT,
+    appearance TEXT,
     current_location VARCHAR(100),
     emotional_state JSONB,
     is_active BOOLEAN DEFAULT true,
     character_data JSONB,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id, session_id)
 );
 
 -- 3. Create remaining tables that have foreign key dependencies
@@ -72,7 +92,8 @@ CREATE TABLE IF NOT EXISTS character_relationships (
 
 -- 创建地点表
 CREATE TABLE IF NOT EXISTS locations (
-    id VARCHAR(100) PRIMARY KEY,
+    id VARCHAR(100),
+    session_id VARCHAR(36) REFERENCES game_sessions(id) ON DELETE CASCADE,
     name VARCHAR(200) NOT NULL,
     description TEXT,
     location_type VARCHAR(50),
@@ -81,7 +102,8 @@ CREATE TABLE IF NOT EXISTS locations (
     position_y NUMERIC(10,2),
     location_data JSONB,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id, session_id)
 );
 
 -- 创建世界背景故事表

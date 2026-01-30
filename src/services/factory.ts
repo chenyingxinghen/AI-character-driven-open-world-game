@@ -207,6 +207,8 @@ export class DefaultServiceFactory implements ServiceFactory {
                     zhipuApiKey ? LLMProvider.ZHIPU :
                       (process.env.OLLAMA_BASE_URL || process.env.OLLAMA_DEFAULT_MODEL) ? LLMProvider.LOCAL :
                         LLMProvider.GEMINI), // 默认使用Gemini而不是OpenAI
+          deputyProvider: this.parseLLMProvider(process.env.DEPUTY_LLM_PROVIDER) || undefined,
+          deputyModel: process.env.DEPUTY_LLM_MODEL,
           retryConfig: {
             maxAttempts: parseInt(process.env.LLM_RETRY_MAX_ATTEMPTS || '3'),
             backoffMultiplier: parseFloat(process.env.LLM_RETRY_BACKOFF_MULTIPLIER || '2'),
@@ -310,7 +312,8 @@ export class DefaultServiceFactory implements ServiceFactory {
     if (!this.gameContextService) {
       this.gameContextService = new GameContextService(
         this.createDatabaseService(),
-        this.createLogger()
+        this.createLogger(),
+        this.createWorldLoreService()
       );
     }
     return this.gameContextService;
@@ -357,7 +360,8 @@ export class DefaultServiceFactory implements ServiceFactory {
     if (!this.characterManager) {
       this.characterManager = new CharacterManager(
         this.createLLMService(),
-        this.createLogger()
+        this.createLogger(),
+        this.createDatabaseService()
       );
     }
     return this.characterManager;
@@ -367,7 +371,8 @@ export class DefaultServiceFactory implements ServiceFactory {
     if (!this.worldManager) {
       this.worldManager = new WorldManager(
         this.createLLMService(),
-        this.createLogger()
+        this.createLogger(),
+        this.createDatabaseService()
       );
     }
     return this.worldManager;
@@ -377,7 +382,8 @@ export class DefaultServiceFactory implements ServiceFactory {
     if (!this.inputManager) {
       this.inputManager = new InputManager(
         this.createLLMService(),
-        this.createLogger()
+        this.createLogger(),
+        this.createGameContextService()
       );
     }
     return this.inputManager;
@@ -399,7 +405,8 @@ export class DefaultServiceFactory implements ServiceFactory {
         this.createLogger(),
         this.createGameContextService(),
         this.createDatabaseService(),
-        this.createWorldLoreService()
+        this.createWorldLoreService(),
+        this.createEnhancedInitialSceneService()
       );
     }
     return this.domainCoordinator;
